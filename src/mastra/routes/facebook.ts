@@ -12,10 +12,6 @@ const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
 export const facebookWebhook = new Hono();
 
-// ─────────────────────────────────────────────
-// GET /webhook — Facebook verify
-// ─────────────────────────────────────────────
-
 facebookWebhook.get("/webhook", (c) => {
   const mode      = c.req.query("hub.mode");
   const token     = c.req.query("hub.verify_token");
@@ -28,10 +24,6 @@ facebookWebhook.get("/webhook", (c) => {
 
   return c.text("Forbidden", 403);
 });
-
-// ─────────────────────────────────────────────
-// POST /webhook — nhận tin nhắn
-// ─────────────────────────────────────────────
 
 facebookWebhook.post("/webhook", async (c) => {
   const body = await c.req.json();
@@ -56,10 +48,6 @@ facebookWebhook.post("/webhook", async (c) => {
   return c.text("EVENT_RECEIVED");
 });
 
-// ─────────────────────────────────────────────
-// HANDLE MESSAGE
-// ─────────────────────────────────────────────
-
 async function handleMessage(senderId: string, text: string) {
   try {
     const run = await routerWorkflow.createRun();
@@ -72,38 +60,49 @@ async function handleMessage(senderId: string, text: string) {
       },
     });
 
+    // Log toàn bộ result để debug
+    console.log("[fb] result.status:", result.status);
+    console.log("[fb] result keys:", Object.keys(result));
+    console.log("[fb] result.steps:", JSON.stringify(result.steps, null, 2));
+
     if (result.status !== "success") {
       console.error("[fb] workflow failed:", result.status);
+      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
       return;
     }
 
-    const output = result.result as {
+    // Thử lấy output từ nhiều chỗ
+    const directResult = (result as any).result;
+    const stepsResult  = (result.steps?.["call-fitness"] as any)?.output
+                      ?? (result.steps?.["call-giai-co"] as any)?.output;
+
+    console.log("[fb] directResult:", JSON.stringify(directResult));
+    console.log("[fb] stepsResult:", JSON.stringify(stepsResult));
+
+    const output = directResult ?? stepsResult;
+
+    if (!output) {
+      console.error("[fb] no output found");
+      return;
+    }
+
+    const { reply, mediaUrls, qrUrl } = output as {
       reply:     string;
       mediaUrls: string[] | null;
       qrUrl:     string | null;
-      nextStep:  string | null;
-    } | undefined;
+    };
 
-    if (!output?.reply) {
-      console.error("[fb] no output:", JSON.stringify(result));
-      return;
-    }
+    console.log(`[fb] sending reply: "${reply}"`);
 
-    if (output.reply)          await sendText(senderId, output.reply);
-    if (output.mediaUrls?.length) {
-      for (const url of output.mediaUrls) await sendImage(senderId, url);
-    }
-    if (output.qrUrl)          await sendImage(senderId, output.qrUrl);
+    if (reply)             await sendText(senderId, reply);
+    if (mediaUrls?.length) for (const url of mediaUrls) await sendImage(senderId, url);
+    if (qrUrl)             await sendImage(senderId, qrUrl);
 
   } catch (e) {
     console.error("[fb] workflow error:", e);
     await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
   }
 }
-
-// ─────────────────────────────────────────────
-// SEND HELPERS
-// ─────────────────────────────────────────────
 
 async function sendText(recipientId: string, text: string) {
   await callSendAPI({
@@ -125,6 +124,7 @@ async function sendImage(recipientId: string, url: string) {
 }
 
 async function callSendAPI(body: object) {
+  console.log("[fb] callSendAPI:", JSON.stringify(body).slice(0, 100));
   const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
@@ -134,5 +134,7 @@ async function callSendAPI(body: object) {
   if (!res.ok) {
     const err = await res.text();
     console.error("[fb] Graph API error:", err);
+  } else {
+    console.log("[fb] Graph API ok:", res.status);
   }
 }
