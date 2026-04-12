@@ -2,16 +2,6 @@
  * workflows/router.ts
  *
  * KIẾN TRÚC FSM + Store-first — 2 flows: fitness & giai-co
- *
- * Luồng mỗi turn:
- *   1. Load state từ store
- *   2. Keyword pre-check flow (code, không tốn LLM)
- *   3. LLM classify: emotion, intent, flow (nếu ambiguous), slots còn null
- *   4. FSM tính stage tiếp theo (code)
- *   5. Temperature tính từ slots + intent (code)
- *   6. Build prefix từ deterministic state
- *   7. Agent generate response
- *   8. Save state mới vào store
  */
 
 import { createWorkflow, createStep } from "@mastra/core/workflows";
@@ -45,18 +35,36 @@ const outputSchema = z.object({
 });
 
 const agentReplySchema = z.object({
-  text: z.string().describe("Nội dung phản hồi gửi tới khách hàng"),
+  text: z.string().describe(
+    "Nội dung text phản hồi gửi tới khách hàng. " +
+    "TUYỆT ĐỐI KHÔNG chứa URL, markdown image ![](url), hay link ảnh dưới bất kỳ hình thức nào. " +
+    "Chỉ chứa văn bản thuần túy."
+  ),
   mediaUrls: z
     .array(z.string())
     .nullable()
-    .describe("Danh sách URL ảnh/video nếu có, null nếu không"),
+    .describe(
+      "Mảng URL ảnh/video lấy TRỰC TIẾP từ kết quả tool get-media. " +
+      "Nếu vừa gọi get-media thì PHẢI điền URL vào đây, KHÔNG điền vào text. " +
+      "Null nếu không gọi get-media."
+    ),
   qrUrl: z
     .string()
     .nullable()
-    .describe("URL ảnh QR thanh toán nếu có, null nếu không"),
+    .describe(
+      "URL ảnh QR lấy TRỰC TIẾP từ kết quả tool get-qr. " +
+      "Null nếu không gọi get-qr."
+    ),
   nextStep: z
     .enum(["ask_info", "show_media", "show_qr", "confirm", "close"])
-    .describe("Bước tiếp theo backend cần xử lý"),
+    .describe(
+      "Bước tiếp theo: " +
+      "'show_media' khi vừa gọi get-media và có mediaUrls, " +
+      "'show_qr' khi vừa gọi get-qr và có qrUrl, " +
+      "'ask_info' khi đang hỏi tên/SĐT, " +
+      "'confirm' khi tóm tắt đơn hàng, " +
+      "'close' khi hoàn tất."
+    ),
 });
 
 const processedStateSchema = z.object({
@@ -82,17 +90,14 @@ const processStep = createStep({
 
     await debugStorageApi(mastra);
 
-    // 1. Load persisted state
     const previousState = await loadState(mastra, threadId, resourceId);
     console.log(
       `[process] loaded: flow=${previousState.flow} stage=${previousState.stage} temp=${previousState.temperature}`
     );
 
-    // 2. Keyword pre-check flow
     const keywordFlow = detectFlowByKeyword(message, previousState.flow);
     const needFlowLLM = keywordFlow === null;
 
-    // 3. LLM classify
     const llmResult = await classify({
       message,
       previousFlow: previousState.flow,
@@ -109,16 +114,13 @@ const processStep = createStep({
       `[process] llm: flow=${llmResult.flow ?? "unchanged"} emotion=${llmResult.emotion} intent=${llmResult.intent}`
     );
 
-    // 4. Build next state (FSM)
     const nextState = buildNextState(previousState, message, llmResult);
     console.log(
       `[process] next: flow=${nextState.flow} stage=${nextState.stage} temp=${nextState.temperature}`
     );
 
-    // 5. Persist
     await saveState(mastra, threadId, resourceId, nextState);
 
-    // 6. Build prefix
     const prefix = buildPrefix(nextState);
     console.log(`[process] prefix:\n${prefix}`);
 
@@ -165,6 +167,17 @@ async function updateStateFlags(
 }
 
 // ─────────────────────────────────────────────
+// SHARED INSTRUCTIONS CHO STRUCTURED OUTPUT
+// ─────────────────────────────────────────────
+
+const STRUCTURED_OUTPUT_INSTRUCTIONS =
+  "Trích xuất phản hồi vào các trường sau:\n" +
+  "- 'text': văn bản thuần túy gửi cho khách. TUYỆT ĐỐI KHÔNG chứa URL, markdown ![](url), hay link ảnh.\n" +
+  "- 'mediaUrls': nếu vừa gọi tool get-media thì copy TOÀN BỘ URL từ kết quả tool vào đây dưới dạng mảng string. Null nếu không gọi get-media.\n" +
+  "- 'qrUrl': nếu vừa gọi tool get-qr thì copy URL qrUrl từ kết quả tool vào đây. Null nếu không gọi get-qr.\n" +
+  "- 'nextStep': 'show_media' khi mediaUrls có dữ liệu, 'show_qr' khi qrUrl có dữ liệu, 'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.";
+
+// ─────────────────────────────────────────────
 // STEP 2a: FitnessAgent
 // ─────────────────────────────────────────────
 
@@ -185,12 +198,7 @@ const callFitnessStep = createStep({
       },
       structuredOutput: {
         schema: agentReplySchema,
-        instructions:
-          "Trích xuất phản hồi vào 'text'. " +
-          "mediaUrls: mảng URL nếu vừa gọi get-media, null nếu không. " +
-          "qrUrl: URL QR nếu vừa gọi get-qr, null nếu không. " +
-          "nextStep: 'show_media' khi vừa gửi media, 'show_qr' khi vừa gửi QR, " +
-          "'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.",
+        instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
       },
     });
 
@@ -198,7 +206,7 @@ const callFitnessStep = createStep({
       text: result.text,
       mediaUrls: null,
       qrUrl: null,
-      nextStep: null,
+      nextStep: "close",
     };
 
     await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, { qrShown, mediaShown });
@@ -233,11 +241,7 @@ const callGiaiCoStep = createStep({
       },
       structuredOutput: {
         schema: agentReplySchema,
-        instructions:
-          "Trích xuất phản hồi vào 'text'. " +
-          "mediaUrls: mảng URL nếu vừa gọi get-media, null nếu không. " +
-          "qrUrl: URL QR nếu vừa gọi get-qr, null nếu không. " +
-          "nextStep: bước tiếp theo thực sự cần làm.",
+        instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
       },
     });
 
@@ -245,7 +249,7 @@ const callGiaiCoStep = createStep({
       text: result.text,
       mediaUrls: null,
       qrUrl: null,
-      nextStep: null,
+      nextStep: "close",
     };
 
     await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, { qrShown, mediaShown });

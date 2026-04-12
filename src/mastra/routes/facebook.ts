@@ -75,13 +75,23 @@ async function handleMessage(senderId: string, text: string) {
       return;
     }
 
-    const { reply, mediaUrls, qrUrl } = output as {
+    let { reply, mediaUrls, qrUrl } = output as {
       reply:     string;
       mediaUrls: string[] | null;
       qrUrl:     string | null;
     };
 
+    // Fallback: nếu agent nhét URL ảnh vào reply dạng markdown, extract ra
+    const urlRegex = /https?:\/\/[^\s\)"]+\.(?:jpg|jpeg|png|webp|gif)/gi;
+    const foundUrls = reply?.match(urlRegex) ?? [];
+    if (foundUrls.length > 0) {
+      mediaUrls = [...(mediaUrls ?? []), ...foundUrls];
+      // Xóa markdown image khỏi reply
+      reply = reply.replace(/\d+\.\s*!\[.*?\]\(.*?\)\s*/g, "").trim();
+    }
+
     console.log(`[fb] sending reply: "${reply}"`);
+    console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
 
     if (reply)             await sendText(senderId, reply);
     if (mediaUrls?.length) for (const url of mediaUrls) await sendImage(senderId, url);
