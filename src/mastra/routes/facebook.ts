@@ -130,10 +130,10 @@ async function callSendAPI(body: object) {
     body:    JSON.stringify(body),
   });
 
+  const responseText = await res.text();
   if (!res.ok) {
-    const err = await res.text();
-    console.error("[fb] Graph API error:", err);
+    console.error(`[fb] Graph API error ${res.status}:`, responseText);
   } else {
-    console.log("[fb] Graph API ok:", res.status);
+    console.log(`[fb] Graph API ok ${res.status}:`, responseText);
   }
 }
