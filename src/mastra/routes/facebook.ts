@@ -124,16 +124,20 @@ async function sendImage(recipientId: string, url: string) {
 
 async function callSendAPI(body: object) {
   console.log("[fb] callSendAPI:", JSON.stringify(body).slice(0, 100));
-  const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify(body),
-  });
+  try {
+    const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    });
 
-  const responseText = await res.text();
-  if (!res.ok) {
-    console.error(`[fb] Graph API error ${res.status}:`, responseText);
-  } else {
-    console.log(`[fb] Graph API ok ${res.status}:`, responseText);
+    const responseText = await res.text();
+    if (!res.ok) {
+      console.error(`[fb] Graph API error ${res.status}:`, responseText);
+    } else {
+      console.log(`[fb] Graph API ok ${res.status}:`, responseText);
+    }
+  } catch (e) {
+    console.error("[fb] fetch exception:", e);
   }
 }
