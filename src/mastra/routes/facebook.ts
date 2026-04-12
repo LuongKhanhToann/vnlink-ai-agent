@@ -60,28 +60,17 @@ async function handleMessage(senderId: string, text: string) {
       },
     });
 
-    // Log toàn bộ result để debug
-    console.log("[fb] result.status:", result.status);
-    console.log("[fb] result keys:", Object.keys(result));
-    console.log("[fb] result.steps:", JSON.stringify(result.steps, null, 2));
-
     if (result.status !== "success") {
       console.error("[fb] workflow failed:", result.status);
       await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
       return;
     }
 
-    // Thử lấy output từ nhiều chỗ
-    const directResult = (result as any).result;
-    const stepsResult  = (result.steps?.["call-fitness"] as any)?.output
-                      ?? (result.steps?.["call-giai-co"] as any)?.output;
+    const steps = result.steps as any;
+    const output = steps?.["call-fitness"]?.output
+                ?? steps?.["call-giai-co"]?.output;
 
-    console.log("[fb] directResult:", JSON.stringify(directResult));
-    console.log("[fb] stepsResult:", JSON.stringify(stepsResult));
-
-    const output = directResult ?? stepsResult;
-
-    if (!output) {
+    if (!output?.reply) {
       console.error("[fb] no output found");
       return;
     }
