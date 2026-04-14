@@ -59,6 +59,7 @@ export interface KnownInfo {
   memberType: string | null;      // ca-nhan / gia-dinh / hoc-sinh
   durationMonths: number | null;  // 1 / 3 / 6 / 12 / 24 / 36
   schedule: string | null;        // khung giờ / buổi mong muốn
+  fitnessGoal: string | null;     // [MỚI] mục tiêu: giam-mo / tang-co / thu-gian / hoc-boi / suc-khoe
 
   // Giải cơ
   painArea: string | null;        // vùng đau: vai-gáy, lưng, chân, toàn thân
@@ -76,8 +77,8 @@ export interface ConversationState {
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
   turnCount: number;
-  qrShown: boolean;         // đã gửi QR thanh toán chưa
-  mediaShown: boolean;      // đã gửi ảnh/video giới thiệu chưa
+  qrShown: boolean;
+  mediaShown: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -88,17 +89,26 @@ export function mergeSlots(
   existing: KnownInfo,
   extracted: Partial<KnownInfo>
 ): KnownInfo {
+  // Store-first: existing value luôn được giữ nguyên nếu đã có.
+  // extracted chỉ được dùng khi existing === null VÀ extracted có giá trị thật (không null/undefined).
+  function pick<T>(e: T | null, x: T | null | undefined): T | null {
+    if (e !== null) return e;
+    if (x !== null && x !== undefined) return x;
+    return null;
+  }
+
   return {
-    name:           existing.name           ?? extracted.name           ?? null,
-    phone:          existing.phone          ?? extracted.phone          ?? null,
-    serviceType:    existing.serviceType    ?? extracted.serviceType    ?? null,
-    memberType:     existing.memberType     ?? extracted.memberType     ?? null,
-    durationMonths: existing.durationMonths ?? extracted.durationMonths ?? null,
-    schedule:       existing.schedule       ?? extracted.schedule       ?? null,
-    painArea:       existing.painArea       ?? extracted.painArea       ?? null,
-    painDuration:   existing.painDuration   ?? extracted.painDuration   ?? null,
-    sessionPackage: existing.sessionPackage ?? extracted.sessionPackage ?? null,
-    preferredTime:  existing.preferredTime  ?? extracted.preferredTime  ?? null,
+    name:           pick(existing.name,           extracted.name),
+    phone:          pick(existing.phone,          extracted.phone),
+    serviceType:    pick(existing.serviceType,    extracted.serviceType),
+    memberType:     pick(existing.memberType,     extracted.memberType),
+    durationMonths: pick(existing.durationMonths, extracted.durationMonths),
+    schedule:       pick(existing.schedule,       extracted.schedule),
+    fitnessGoal:    pick(existing.fitnessGoal,    extracted.fitnessGoal),
+    painArea:       pick(existing.painArea,       extracted.painArea),
+    painDuration:   pick(existing.painDuration,   extracted.painDuration),
+    sessionPackage: pick(existing.sessionPackage, extracted.sessionPackage),
+    preferredTime:  pick(existing.preferredTime,  extracted.preferredTime),
   };
 }
 
@@ -127,7 +137,7 @@ export function detectFlowByKeyword(
 
   if (isGiaiCo && !isFitness) return "giai-co";
   if (isFitness && !isGiaiCo) return "fitness";
-  return null; // ambiguous → LLM decides
+  return null;
 }
 
 // ─────────────────────────────────────────────
@@ -149,6 +159,46 @@ export function resolveHonorific(h: "anh" | "chị" | "anh/chị"): string {
 }
 
 // ─────────────────────────────────────────────
+// HELPERS — đánh giá độ chín của slot
+// ─────────────────────────────────────────────
+
+/**
+ * Fitness: coi là "đủ để evaluation" khi biết serviceType VÀ ít nhất 1 trong:
+ *   - fitnessGoal (mục tiêu)
+ *   - memberType
+ *   - schedule
+ *   - intent là compare/selecting/ready (khách chủ động muốn so sánh hoặc chốt)
+ *
+ * Logic: chỉ biết serviceType chưa đủ — cần biết khách muốn gì
+ * để tư vấn gói có narrative thay vì liệt kê giá thẳng.
+ */
+function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
+  if (info.serviceType === null) return false;
+
+  // Khách đang chủ động compare/selecting/ready → cho phép nhảy evaluation
+  // dù chưa có goal — agent sẽ nhấn value trước khi show giá
+  if (intent === "compare" || intent === "selecting" || intent === "ready") {
+    return true;
+  }
+
+  // Explore nhưng đã có thêm ít nhất 1 context slot
+  const hasGoal     = info.fitnessGoal !== null;
+  const hasMember   = info.memberType !== null;
+  const hasSchedule = info.schedule !== null;
+
+  return hasGoal || hasMember || hasSchedule;
+}
+
+/**
+ * Giải cơ: coi là "đủ để evaluation" khi biết painArea
+ * (giống cũ — vùng đau là core slot bắt buộc)
+ */
+function giaiCoReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
+  if (info.painArea === null) return false;
+  return true;
+}
+
+// ─────────────────────────────────────────────
 // STAGE TRANSITION — Hard-coded FSM
 // ─────────────────────────────────────────────
 
@@ -157,7 +207,8 @@ export function computeNextStage(
   info: KnownInfo,
   intent: Intent,
   flow: Flow,
-  llmSuggestedStage: Stage
+  llmSuggestedStage: Stage,
+  turnCount: number = 0
 ): Stage {
   // Recovery / retention — giữ nguyên
   if (currentStage === "recovery" || currentStage === "retention") {
@@ -180,6 +231,7 @@ export function computeNextStage(
     if (
       info.serviceType !== null ||
       info.painArea !== null ||
+      info.fitnessGoal !== null ||
       intent !== "explore"
     ) {
       return "discovery";
@@ -189,16 +241,18 @@ export function computeNextStage(
 
   // Discovery → Evaluation
   if (currentStage === "discovery") {
-    const hasEnoughFitness =
-      flow === "fitness" && (info.serviceType !== null || info.memberType !== null);
-    const hasEnoughGiaiCo =
-      flow === "giai-co" && (info.painArea !== null || info.painDuration !== null);
+    const fitnessReady = flow === "fitness" && fitnessReadyForEvaluation(info, intent);
+    const giaiCoReady  = flow === "giai-co" && giaiCoReadyForEvaluation(info, intent);
 
-    if (hasEnoughFitness || hasEnoughGiaiCo) {
-      if (intent === "compare" || intent === "selecting" || intent === "ready") {
-        return "evaluation";
+    if (fitnessReady || giaiCoReady) {
+      // GUARD — tin đầu tiên (turnCount <= 1) + intent chỉ là explore:
+      // Giữ ở discovery để agent hỏi thêm 1 câu context (schedule / số buổi)
+      // thay vì nhảy vào show gói ngay khi khách vừa mở lời.
+      // Ngoại lệ: compare / selecting / ready → cho nhảy dù turn đầu.
+      if (turnCount <= 1 && intent === "explore") {
+        return "discovery";
       }
-      if (info.serviceType !== null || info.painArea !== null) return "evaluation";
+      return "evaluation";
     }
     return "discovery";
   }
@@ -278,13 +332,14 @@ export function buildNextState(
     knownInfo,
     intent,
     flow,
-    llm.llmStage
+    llm.llmStage,
+    previous.turnCount   // truyền turnCount để guard "tin đầu tiên"
   );
 
   const temperature = computeTemperature(knownInfo, intent, stage);
   const emotion = llm.emotion;
 
-  const qrShown = llm.qrShown ?? previous.qrShown;
+  const qrShown    = llm.qrShown    ?? previous.qrShown;
   const mediaShown = llm.mediaShown ?? previous.mediaShown;
 
   return {
@@ -319,6 +374,7 @@ export const DEFAULT_STATE: ConversationState = {
     memberType: null,
     durationMonths: null,
     schedule: null,
+    fitnessGoal: null,
     painArea: null,
     painDuration: null,
     sessionPackage: null,

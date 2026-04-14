@@ -89,14 +89,15 @@ function buildPrompt(
   missingSlots: (keyof KnownInfo)[],
   needFlow: boolean
 ): string {
-  // Tóm tắt những gì đã biết
   const knownParts: string[] = [];
   if (knownInfo.name)           knownParts.push(`tên=${knownInfo.name}`);
   if (knownInfo.phone)          knownParts.push(`sđt=${knownInfo.phone}`);
   if (knownInfo.serviceType)    knownParts.push(`dịch_vụ=${knownInfo.serviceType}`);
+  if (knownInfo.fitnessGoal)    knownParts.push(`mục_tiêu=${knownInfo.fitnessGoal}`);
   if (knownInfo.memberType)     knownParts.push(`loại_thành_viên=${knownInfo.memberType}`);
   if (knownInfo.durationMonths) knownParts.push(`thời_hạn=${knownInfo.durationMonths}tháng`);
   if (knownInfo.schedule)       knownParts.push(`lịch=${knownInfo.schedule}`);
+  if (knownInfo.fitnessGoal)    knownParts.push(`mục_tiêu=${knownInfo.fitnessGoal}`);
   if (knownInfo.painArea)       knownParts.push(`vùng_đau=${knownInfo.painArea}`);
   if (knownInfo.painDuration)   knownParts.push(`đau_bao_lâu=${knownInfo.painDuration}`);
   if (knownInfo.sessionPackage) knownParts.push(`gói=${knownInfo.sessionPackage}`);
@@ -125,15 +126,35 @@ Trả JSON thuần:
 }
 
 EMOTION: suy luận từ cách viết, dấu câu, từ ngữ.
-INTENT:
-  explore   = hỏi chung chung, chưa có định hướng rõ
-  compare   = so sánh gói/giá/dịch vụ
-  selecting = đang chọn cụ thể một gói/dịch vụ
-  ready     = muốn đăng ký / xác nhận luôn
 
-SLOTS cho fitness: serviceType (gym/yoga/zumba/boi/pilates/full), memberType (ca-nhan/gia-dinh/hoc-sinh), durationMonths (số tháng), schedule (khung giờ)
-SLOTS cho giai-co: painArea (vai-gáy/lưng/chân/toàn-thân/...), painDuration (đau bao lâu), sessionPackage (le/5-buoi/10-buoi/20-buoi), preferredTime (giờ muốn)
-SLOTS chung: name (họ tên), phone (số điện thoại)
+INTENT:
+  explore   = hỏi chung chung, chưa có định hướng rõ ("cho hỏi", "bên mình có gì")
+  compare   = so sánh gói/giá/dịch vụ ("giá bao nhiêu", "có gói nào")
+  selecting = đang chọn cụ thể ("muốn đăng ký bơi", "cho chị gói 6 tháng")
+  ready     = muốn đăng ký / xác nhận luôn ("ok đăng ký luôn", "chị lấy gói đó")
+
+SLOTS cho fitness:
+  serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể
+  memberType    = ca-nhan/gia-dinh/hoc-sinh
+  durationMonths = số tháng muốn đăng ký
+  schedule      = khung giờ / số buổi mỗi tuần (VD: "sáng" → "sáng", "chiều tối" → "chiều-tối", "3 buổi/tuần" → "3-buoi-tuan")
+  fitnessGoal   = giam-mo/tang-co/thu-gian/hoc-boi/suc-khoe/linh-hoat
+                  PHẢI extract ngay khi khách đề cập mục tiêu, dù ngầm hiểu:
+                  "giảm mỡ" / "giảm cân" / "đốt mỡ" → "giam-mo"
+                  "tăng cơ" / "tăng cơ bắp" / "to hơn" → "tang-co"
+                  "thư giãn" / "giải stress" / "cho khỏe" → "thu-gian"
+                  "học bơi" / "muốn biết bơi" → "hoc-boi"
+                  VD: "muốn tập gym giảm mỡ" → serviceType="gym", fitnessGoal="giam-mo"
+
+SLOTS cho giai-co:
+  painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau
+  painDuration  = đau bao lâu (VD: "1 tuần", "vài tháng")
+  sessionPackage = le/5-buoi/10-buoi/20-buoi
+  preferredTime = giờ muốn đặt lịch
+
+SLOTS chung:
+  name  = họ tên đầy đủ
+  phone = số điện thoại
 
 Chỉ extract ${missingSlots.length > 0 ? missingSlots.join(", ") : "— không cần extract"} — để null nếu không đề cập.`;
 }
