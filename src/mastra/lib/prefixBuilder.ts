@@ -169,11 +169,13 @@ Em: "Fami có 4 dịch vụ chính ${h}, điểm đặc biệt là dùng chung 1
     const goal = knownInfo.fitnessGoal;
     return `[EXAMPLE — TIN ĐẦU: XÁC NHẬN NGẮN + HỎI SCHEDULE, KHÔNG GIỚI THIỆU, KHÔNG GIÁ]
 Khách: "mình muốn tập ${svc} ${goal}"
-Em (ĐÚNG): "Dạ, tập Gym để giảm mỡ là hợp lý rồi đó ${h}, sau này quen rồi mình kết hợp thêm cardio thì hiệu quả sẽ nhanh hơn.
-            ${h} hay tập vào khung giờ nào, sáng sớm hay chiều tối?"
-Em (SAI): "Gym bên em rộng lắm... có cả trong nhà và ngoài trời... [giới thiệu dài]"
-Em (SAI): "Có mấy gói phù hợp: Gói 12 tháng 7tr... [list gói ngay]"
-⚠️ Chỉ: xác nhận ngắn 1 câu + hỏi 1 câu context. KHÔNG giới thiệu. KHÔNG báo giá.`;
+Em (ĐÚNG): "${h} tập mấy buổi một tuần?"
+Em (ĐÚNG): "${h} hay tập sáng hay chiều tối hơn?"
+Em (SAI — khen giả): "Dạ, tập Gym để giảm mỡ là hợp lý rồi đó anh/chị..."
+Em (SAI — khen giả): "Tuyệt vời! Buổi sáng là thời điểm lý tưởng..."
+Em (SAI — giới thiệu): "Gym bên em rộng lắm... có cả trong nhà và ngoài trời..."
+Em (SAI — list gói): "Có mấy gói phù hợp: Gói 12 tháng 7tr..."
+⚠️ Chỉ: 1 câu tự nhiên dẫn vào câu hỏi context. Không khen. Không giới thiệu. Không báo giá.`;
   }
 
   // ── FITNESS: biết dịch vụ, chưa có mục tiêu, đang discovery → hỏi mục tiêu ──
