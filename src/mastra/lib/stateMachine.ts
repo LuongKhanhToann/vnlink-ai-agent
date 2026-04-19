@@ -26,6 +26,7 @@ export type Flow = "fitness" | "giai-co";
 export type Stage =
   | "opening"
   | "discovery"
+  | "inbody"       // pitch Inbody miễn phí — mandatory funnel trước evaluation
   | "evaluation"
   | "negotiation"
   | "commitment"
@@ -62,8 +63,10 @@ export interface KnownInfo {
   fitnessGoal: string | null;     // [MỚI] mục tiêu: giam-mo / tang-co / thu-gian / hoc-boi / suc-khoe
 
   // Giải cơ
-  painArea: string | null;        // vùng đau: vai-gáy, lưng, chân, toàn thân
-  painDuration: string | null;    // đau bao lâu
+  painArea: string | null;        // vùng đau: vai-gay / lung / chan / toan-than / ...
+  painSpread: string | null;      // lan tỏa hay điểm cố định: "lan-toa" / "diem-co-dinh" / mô tả cụ thể
+  painDuration: string | null;    // đau bao lâu + khi nào nhắc nhở (VD: "vài hôm sáng dậy", "1 tuần ngồi lâu")
+  pastMethod: string | null;      // đã thử phương pháp nào: chua-thu / massage / thuoc / vat-ly-tri-lieu / khac
   sessionPackage: string | null;  // le / 5-buoi / 10-buoi / 20-buoi
   preferredTime: string | null;   // giờ muốn đặt lịch
 }
@@ -106,7 +109,9 @@ export function mergeSlots(
     schedule:       pick(existing.schedule,       extracted.schedule),
     fitnessGoal:    pick(existing.fitnessGoal,    extracted.fitnessGoal),
     painArea:       pick(existing.painArea,       extracted.painArea),
+    painSpread:     pick(existing.painSpread,     extracted.painSpread),
     painDuration:   pick(existing.painDuration,   extracted.painDuration),
+    pastMethod:     pick(existing.pastMethod,     extracted.pastMethod),
     sessionPackage: pick(existing.sessionPackage, extracted.sessionPackage),
     preferredTime:  pick(existing.preferredTime,  extracted.preferredTime),
   };
@@ -167,21 +172,22 @@ export function resolveHonorific(h: "anh" | "chị" | "anh/chị"): string {
  *   - fitnessGoal (mục tiêu)
  *   - memberType
  *   - schedule
- *   - intent là compare/selecting/ready (khách chủ động muốn so sánh hoặc chốt)
+ *   - intent là selecting/ready (khách đã chọn cụ thể hoặc sẵn sàng chốt)
  *
  * Logic: chỉ biết serviceType chưa đủ — cần biết khách muốn gì
  * để tư vấn gói có narrative thay vì liệt kê giá thẳng.
+ * NOTE: "compare" KHÔNG còn bypass — khai báo mục tiêu tập không đủ để show gói ngay.
  */
 function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
   if (info.serviceType === null) return false;
 
-  // Khách đang chủ động compare/selecting/ready → cho phép nhảy evaluation
-  // dù chưa có goal — agent sẽ nhấn value trước khi show giá
-  if (intent === "compare" || intent === "selecting" || intent === "ready") {
+  // Chỉ khách chủ động chọn gói / sẵn sàng đăng ký → bypass context collection
+  if (intent === "selecting" || intent === "ready") {
     return true;
   }
 
-  // Explore nhưng đã có thêm ít nhất 1 context slot
+  // explore / compare: cần ít nhất 1 context slot (goal / memberType / schedule)
+  // Ngăn bot nhảy vào show gói ngay khi khách chỉ vừa khai báo mục tiêu ("tăng cơ giảm mỡ")
   const hasGoal     = info.fitnessGoal !== null;
   const hasMember   = info.memberType !== null;
   const hasSchedule = info.schedule !== null;
@@ -190,12 +196,26 @@ function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
 }
 
 /**
- * Giải cơ: coi là "đủ để evaluation" khi biết painArea
- * (giống cũ — vùng đau là core slot bắt buộc)
+ * Giải cơ: coi là "đủ để evaluation" khi biết painArea VÀ pastMethod.
+ *
+ * Lý do cần pastMethod:
+ *   - Đây là bước tạo contrast quan trọng nhất: "Massage chỉ đỡ tạm — giải cơ xử lý tận gốc"
+ *   - Nếu khách chưa thử gì → contrast với "không biết cơ thể đang ở đâu"
+ *   - Nếu khách đã massage → contrast với "chỉ vuốt bề mặt, không gỡ được nút thắt sâu"
+ *   - Chỉ skip nếu khách có intent cao (selecting/ready)
  */
 function giaiCoReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
   if (info.painArea === null) return false;
-  return true;
+  
+  // Intent cao: khách chủ động chọn
+  if (intent === "selecting" || intent === "ready") return true;
+  
+  // Khách đã đồng ý thử (có giờ cụ thể) → đủ để chuyển sang evaluation rồi commitment
+  if (info.preferredTime !== null) return true;
+  
+  // Bắt buộc đủ 3 bước: painArea → painSpread → pastMethod
+  // painSpread cần để hiểu mức độ lan tỏa; pastMethod để tạo contrast tư vấn
+  return info.painSpread !== null && info.pastMethod !== null;
 }
 
 // ─────────────────────────────────────────────
@@ -245,22 +265,54 @@ export function computeNextStage(
     const giaiCoReady  = flow === "giai-co" && giaiCoReadyForEvaluation(info, intent);
 
     if (fitnessReady || giaiCoReady) {
-      // GUARD — tin đầu tiên (turnCount <= 1) + intent chỉ là explore:
-      // Giữ ở discovery để agent hỏi thêm 1 câu context (schedule / số buổi)
-      // thay vì nhảy vào show gói ngay khi khách vừa mở lời.
-      // Ngoại lệ: compare / selecting / ready → cho nhảy dù turn đầu.
-      if (turnCount <= 1 && intent === "explore") {
+      // GUARD — tin đầu tiên (turnCount <= 1): luôn giữ ở discovery
+      // trừ khi khách đã chủ động chọn gói / sẵn sàng đăng ký (selecting/ready).
+      // Ngăn trường hợp LLM classifier phân loại "tăng cơ giảm mỡ" = "compare"
+      // rồi nhảy thẳng vào evaluation khi chưa hỏi schedule / số buổi.
+      if (turnCount <= 1 && intent !== "selecting" && intent !== "ready") {
         return "discovery";
+      }
+      // Fitness: mandatory Inbody funnel trước khi show gói
+      // Chỉ skip nếu khách đã chọn cụ thể (selecting/ready) — họ biết muốn gì rồi
+      if (flow === "fitness" && intent !== "selecting" && intent !== "ready") {
+        return "inbody";
       }
       return "evaluation";
     }
     return "discovery";
   }
 
+  // Inbody → Evaluation (hoặc Commitment nếu intent rất cao)
+  // Sau khi bot pitch Inbody 1 lần, lượt tiếp theo luôn chuyển sang show gói.
+  // Khách nói "không cần đo" hay "cho xem gói" → evaluation
+  // Khách nói "ok đăng ký luôn" → commitment
+  if (currentStage === "inbody") {
+    if (intent === "ready" || intent === "selecting") return "commitment";
+    return "evaluation";
+  }
+
   // Evaluation → Negotiation / Commitment
+  // SỬA: Thêm guard cho giai-co khi có preferredTime
   if (currentStage === "evaluation") {
+    // Case 1: Khách sẵn sàng chốt ngay
     if (intent === "ready") return "commitment";
+    
+    // Case 2: Khách đang chọn gói cụ thể
     if (intent === "selecting") return "negotiation";
+    
+    // Case 3: Giải cơ - khách đã báo giờ (đồng ý thử 1 buổi)
+    // Đây là trường hợp khách nói "sáng nha", "chiều được", "9h" nhưng classifier vẫn ra explore
+    if (flow === "giai-co" && info.preferredTime !== null) {
+      console.log(`[stateMachine] giai-co evaluation → commitment because preferredTime=${info.preferredTime}`);
+      return "commitment";
+    }
+    
+    // Case 4: Fitness - khách đã có tên/SĐT (đồng ý đăng ký)
+    if (flow === "fitness" && info.name !== null && info.phone !== null) {
+      console.log(`[stateMachine] fitness evaluation → commitment because name/phone filled`);
+      return "commitment";
+    }
+    
     return "evaluation";
   }
 
@@ -376,7 +428,9 @@ export const DEFAULT_STATE: ConversationState = {
     schedule: null,
     fitnessGoal: null,
     painArea: null,
+    painSpread: null,
     painDuration: null,
+    pastMethod: null,
     sessionPackage: null,
     preferredTime: null,
   },

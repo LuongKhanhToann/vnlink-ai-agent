@@ -81,8 +81,8 @@ async function handleMessage(senderId: string, text: string) {
       qrUrl:     string | null;
     };
 
-    // Fallback: nếu agent nhét URL ảnh vào reply dạng markdown, extract ra
-    const urlRegex = /https?:\/\/[^\s\)"]+\.(?:jpg|jpeg|png|webp|gif)/gi;
+    // Fallback: nếu agent nhét URL ảnh/video vào reply dạng markdown, extract ra
+    const urlRegex = /https?:\/\/[^\s\)"]+\.(?:jpg|jpeg|png|webp|gif|mp4|mov|webm)/gi;
     const foundUrls = reply?.match(urlRegex) ?? [];
     if (foundUrls.length > 0) {
       mediaUrls = [...(mediaUrls ?? []), ...foundUrls];
@@ -94,8 +94,8 @@ async function handleMessage(senderId: string, text: string) {
     console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
 
     if (reply)             await sendText(senderId, reply);
-    if (mediaUrls?.length) for (const url of mediaUrls) await sendImage(senderId, url);
-    if (qrUrl)             await sendImage(senderId, qrUrl);
+    if (mediaUrls?.length) for (const url of mediaUrls) await sendMedia(senderId, url);
+    if (qrUrl)             await sendMedia(senderId, qrUrl);
 
   } catch (e) {
     console.error("[fb] workflow error:", e);
@@ -110,12 +110,20 @@ async function sendText(recipientId: string, text: string) {
   });
 }
 
-async function sendImage(recipientId: string, url: string) {
+const VIDEO_EXTS = /\.(mp4|mov|webm|avi)(\?.*)?$/i;
+
+function isVideoUrl(url: string): boolean {
+  // Check extension or encoded extension (e.g. %2Fvideo%2F...)
+  return VIDEO_EXTS.test(url) || url.toLowerCase().includes("/video/");
+}
+
+async function sendMedia(recipientId: string, url: string) {
+  const type = isVideoUrl(url) ? "video" : "image";
   await callSendAPI({
     recipient: { id: recipientId },
     message: {
       attachment: {
-        type:    "image",
+        type,
         payload: { url, is_reusable: true },
       },
     },

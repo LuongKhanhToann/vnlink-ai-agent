@@ -97,9 +97,10 @@ function buildPrompt(
   if (knownInfo.memberType)     knownParts.push(`loại_thành_viên=${knownInfo.memberType}`);
   if (knownInfo.durationMonths) knownParts.push(`thời_hạn=${knownInfo.durationMonths}tháng`);
   if (knownInfo.schedule)       knownParts.push(`lịch=${knownInfo.schedule}`);
-  if (knownInfo.fitnessGoal)    knownParts.push(`mục_tiêu=${knownInfo.fitnessGoal}`);
   if (knownInfo.painArea)       knownParts.push(`vùng_đau=${knownInfo.painArea}`);
+  if (knownInfo.painSpread)     knownParts.push(`lan_toa=${knownInfo.painSpread}`);
   if (knownInfo.painDuration)   knownParts.push(`đau_bao_lâu=${knownInfo.painDuration}`);
+  if (knownInfo.pastMethod)     knownParts.push(`đã_thử=${knownInfo.pastMethod}`);
   if (knownInfo.sessionPackage) knownParts.push(`gói=${knownInfo.sessionPackage}`);
   if (knownInfo.preferredTime)  knownParts.push(`giờ_muốn=${knownInfo.preferredTime}`);
 
@@ -128,10 +129,24 @@ Trả JSON thuần:
 EMOTION: suy luận từ cách viết, dấu câu, từ ngữ.
 
 INTENT:
-  explore   = hỏi chung chung, chưa có định hướng rõ ("cho hỏi", "bên mình có gì")
-  compare   = so sánh gói/giá/dịch vụ ("giá bao nhiêu", "có gói nào")
-  selecting = đang chọn cụ thể ("muốn đăng ký bơi", "cho chị gói 6 tháng")
-  ready     = muốn đăng ký / xác nhận luôn ("ok đăng ký luôn", "chị lấy gói đó")
+  explore   = hỏi chung chung, khai báo mục tiêu, hoặc trả lời đơn giản chưa rõ ý định mua
+            ("cho hỏi", "bên mình có gì", "tôi muốn tăng cơ", "giảm mỡ nhé", "cảm ơn", "ừ", "ok" - KHI CHƯA CÓ NGỮ CẢNH CHỌN GÓI)
+  
+  compare   = HỎI CỤ THỂ về gói/giá/dịch vụ ("giá bao nhiêu", "có gói nào", "thẻ mấy tháng", "so sánh giữa...")
+  
+  selecting = đang CHỌN CỤ THỂ hoặc XÁC NHẬN ĐỒNG Ý:
+            - Chọn gói: "muốn đăng ký bơi", "cho chị gói 6 tháng", "lấy gói đó"
+            - Xác nhận thử dịch vụ: "ok thử 1 buổi", "thử đi", "đồng ý"
+            - Báo giờ/ngày: "chiều được", "sáng nha", "tối nay", "9h sáng mai", "thứ 4 đi", "ngày mai"
+            - Xác nhận đơn giản có ngữ cảnh chọn lịch: "ừ", "ok", "được" - KHI ĐANG TRONG BỐI CẢNH HỎI GIỜ
+  
+  ready     = muốn đăng ký / thanh toán / chốt luôn ("ok đăng ký luôn", "chị lấy gói đó", "cho tôi đặt cọc", "chuyển khoản")
+
+⚠️ QUAN TRỌNG: 
+  - "ok", "ừ", "được" có thể là selecting hoặc explore - dựa vào ngữ cảnh:
+    * Nếu tin trước bot hỏi "sáng hay chiều" → khách nói "sáng" = selecting
+    * Nếu tin trước bot hỏi "có muốn thử không" → khách nói "ok" = selecting
+    * Nếu không có ngữ cảnh chọn lịch/dịch vụ → explore
 
 SLOTS cho fitness:
   serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể
@@ -148,9 +163,25 @@ SLOTS cho fitness:
 
 SLOTS cho giai-co:
   painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau
-  painDuration  = đau bao lâu (VD: "1 tuần", "vài tháng")
+  painSpread    = tính chất lan tỏa — extract khi khách mô tả cơn đau:
+                  "lan ra" / "lan xuống" / "kéo dài" → "lan-toa"
+                  "một chỗ" / "điểm cố định" / "không lan" → "diem-co-dinh"
+                  mô tả cụ thể khác → ghi nguyên văn ngắn gọn
+  painDuration  = đau bao lâu (VD: "mấy hôm", "1 tuần", "vài tháng")
+  pastMethod    = phương pháp đã thử — extract ngay khi khách đề cập:
+                  "chưa thử gì" / "chưa" → "chua-thu"
+                  "có massage" / "đã đi massage" / "xoa bóp" → "massage"
+                  "uống thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
+                  "vật lý trị liệu" / "châm cứu" → "vat-ly-tri-lieu"
+                  khác → "khac"
   sessionPackage = le/5-buoi/10-buoi/20-buoi
-  preferredTime = giờ muốn đặt lịch
+  preferredTime = giờ muốn đặt lịch — EXTRACT NGAY khi khách báo giờ cụ thể:
+                  "sáng" → "sáng"
+                  "chiều" → "chiều"  
+                  "tối" → "tối"
+                  "9h" → "9h"
+                  "mai sáng" → "mai-sang"
+                  "thứ 4" → "thu-4"
 
 SLOTS chung:
   name  = họ tên đầy đủ

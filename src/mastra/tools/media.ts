@@ -8,15 +8,17 @@ import { resolve, extname } from "node:path";
 const BASE_URL: string = process.env["BASE_URL"] ?? "http://localhost:4111";
 
 // process.cwd() = .../src/mastra/public
-// nên chỉ cần path tương đối từ đó
-const KEY_TO_DIR: Record<string, string> = {
-  "fitness-gym":      "media/fitness/gym/image",
-  "fitness-pool":     "media/fitness/pool/image",
-  "fitness-yoga":     "media/fitness/yoga/image",
-  "mr-sport":         "media/muscle-release/sport/image",
-  "mr-neck-shoulder": "media/muscle-release/neck-shoulder/image",
-  "mr-female":        "media/muscle-release/female/image",
-  "mr-general":       "media/muscle-release/general/image",
+// nên chỉ cần path tương đối từ đó.
+// Mỗi key có thể map tới nhiều thư mục (VD: image/ + video/).
+// Thư mục không tồn tại sẽ được bỏ qua — không gây lỗi.
+const KEY_TO_DIRS: Record<string, string[]> = {
+  "fitness-gym":      ["media/fitness/gym/image"],
+  "fitness-pool":     ["media/fitness/pool/image"],
+  "fitness-yoga":     ["media/fitness/yoga/image"],
+  "mr-sport":         ["media/muscle-release/sport/image",        "media/muscle-release/sport/video"],
+  "mr-neck-shoulder": ["media/muscle-release/neck-shoulder/image", "media/muscle-release/neck-shoulder/video"],
+  "mr-female":        ["media/muscle-release/female/image",        "media/muscle-release/female/video"],
+  "mr-general":       ["media/muscle-release/general/image",       "media/muscle-release/general/video"],
 };
 
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
@@ -50,40 +52,35 @@ export const getMediaTool = createTool({
     data: z.string(),
   }),
   execute: async (input) => {
-    const relDir = KEY_TO_DIR[input.key];
-    const absDir = resolve(process.cwd(), relDir);
+    const relDirs = KEY_TO_DIRS[input.key] ?? [];
+    console.log(`[getMedia] cwd=${process.cwd()} key=${input.key}`);
 
-    console.log(`[getMedia] cwd=${process.cwd()}`);
-    console.log(`[getMedia] absDir=${absDir}`);
+    const data: { type: "image" | "video"; url: string; filename: string }[] = [];
 
-    if (!existsSync(absDir)) {
-      console.warn(`[getMedia] directory not found: ${absDir}`);
-      return { data: JSON.stringify([]) };
-    }
-
-    try {
-      const files = readdirSync(absDir);
-
-      const data = files
-        .map((filename) => {
+    for (const relDir of relDirs) {
+      const absDir = resolve(process.cwd(), relDir);
+      if (!existsSync(absDir)) {
+        console.log(`[getMedia] skip (not found): ${absDir}`);
+        continue;
+      }
+      try {
+        const files = readdirSync(absDir);
+        for (const filename of files) {
           const type = getMediaType(filename);
-          if (!type) return null;
-          return {
+          if (!type) continue;
+          data.push({
             type,
-            // URL public: BASE_URL + /public/ + relDir + filename
-            url: `${BASE_URL}/public/${relDir}/${filename}`,
+            url: `${BASE_URL}/public/${relDir}/${encodeURIComponent(filename)}`,
             filename,
-          };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null);
-
-      console.log(`[getMedia] key=${input.key} → ${data.length} files`);
-      return { data: JSON.stringify(data) };
-
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[getMedia] error for key=${input.key}:`, msg);
-      return { data: JSON.stringify([]) };
+          });
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[getMedia] error reading ${relDir}:`, msg);
+      }
     }
+
+    console.log(`[getMedia] key=${input.key} → ${data.length} files`);
+    return { data: JSON.stringify(data) };
   },
 });

@@ -17,14 +17,16 @@ function stateThreadId(threadId: string): string {
 export async function loadState(
   mastra: any,
   threadId: string,
-  resourceId: string
+  resourceId: string,
 ): Promise<ConversationState> {
   const tid = stateThreadId(threadId);
 
   try {
     const storage = mastra?.getStorage?.();
     if (!storage) {
-      console.warn("[stateStore] getStorage() returned null — using DEFAULT_STATE");
+      console.warn(
+        "[stateStore] getStorage() returned null — using DEFAULT_STATE",
+      );
       return { ...DEFAULT_STATE };
     }
 
@@ -56,16 +58,19 @@ export async function loadState(
       intent: m.intent ?? DEFAULT_STATE.intent,
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
-        name:           m.knownInfo?.name           ?? null,
-        phone:          m.knownInfo?.phone          ?? null,
-        serviceType:    m.knownInfo?.serviceType    ?? null,
-        memberType:     m.knownInfo?.memberType     ?? null,
+        name: m.knownInfo?.name ?? null,
+        phone: m.knownInfo?.phone ?? null,
+        serviceType: m.knownInfo?.serviceType ?? null,
+        memberType: m.knownInfo?.memberType ?? null,
         durationMonths: m.knownInfo?.durationMonths ?? null,
-        schedule:       m.knownInfo?.schedule       ?? null,
-        painArea:       m.knownInfo?.painArea       ?? null,
-        painDuration:   m.knownInfo?.painDuration   ?? null,
+        schedule: m.knownInfo?.schedule ?? null,
+        painArea: m.knownInfo?.painArea ?? null,
+        painDuration: m.knownInfo?.painDuration ?? null,
         sessionPackage: m.knownInfo?.sessionPackage ?? null,
-        preferredTime:  m.knownInfo?.preferredTime  ?? null,
+        preferredTime: m.knownInfo?.preferredTime ?? null,
+        painSpread: m.knownInfo?.painSpread ?? null,
+        pastMethod: m.knownInfo?.pastMethod ?? null,
+        fitnessGoal: m.knownInfo?.fitnessGoal ?? null,
       },
       turnCount: m.turnCount ?? 0,
       qrShown: m.qrShown ?? false,
@@ -81,14 +86,16 @@ export async function saveState(
   mastra: any,
   threadId: string,
   resourceId: string,
-  state: ConversationState
+  state: ConversationState,
 ): Promise<void> {
   const tid = stateThreadId(threadId);
 
   try {
     const storage = mastra?.getStorage?.();
     if (!storage) {
-      console.error("[stateStore] getStorage() returned null — state NOT saved");
+      console.error(
+        "[stateStore] getStorage() returned null — state NOT saved",
+      );
       return;
     }
 
@@ -125,7 +132,10 @@ export async function debugStorageApi(mastra: any): Promise<void> {
   try {
     const storage = mastra?.getStorage?.();
     console.log("[DEBUG] storage type:", typeof storage);
-    console.log("[DEBUG] storage keys:", storage ? Object.keys(storage) : "null");
+    console.log(
+      "[DEBUG] storage keys:",
+      storage ? Object.keys(storage) : "null",
+    );
 
     if (storage?.getStore) {
       const store = await storage.getStore("memory");
@@ -133,7 +143,10 @@ export async function debugStorageApi(mastra: any): Promise<void> {
       console.log("[DEBUG] store keys:", store ? Object.keys(store) : "null");
     } else {
       console.log("[DEBUG] storage.getStore not found");
-      console.log("[DEBUG] prototype methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(storage)));
+      console.log(
+        "[DEBUG] prototype methods:",
+        Object.getOwnPropertyNames(Object.getPrototypeOf(storage)),
+      );
     }
   } catch (e) {
     console.error("[DEBUG] error:", e);

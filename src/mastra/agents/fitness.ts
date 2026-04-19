@@ -15,7 +15,7 @@ const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export const fitnessAgent = new Agent({
   name: "FitnessAgent",
   id: "fitness-agent",
-  model: openai("gpt-4o"),
+  model: openai("gpt-4o-mini"),
   tools: { getMedia: getMediaTool, getQR: getQRTool },
   memory,
   instructions: `Em là tư vấn viên Fami Fitness & Yoga Center — trung tâm thể dục thể thao cao cấp tại Vĩnh Yên.
@@ -146,9 +146,13 @@ BƯỚC 3 — BUILD VALUE (trước khi show gói):
   Thư giãn      → Yoga/Bơi + không gian rộng không chen chúc
   Học bơi       → Cam kết biết bơi, học lại miễn phí nếu chưa bơi được
 
-BƯỚC 4 — GỢI INBODY (công cụ chốt sale chủ lực):
-  "Bên em đo Inbody miễn phí lần đầu — HLV phân tích luôn nha"
-  Dùng kết quả để justify gói — KHÔNG tự đoán khi chưa đo.
+BƯỚC 4 — GỢI INBODY (bắt buộc — công cụ chốt sale chủ lực):
+  ⚠️ LUÔN qua bước này TRƯỚC khi show gói — trừ khi khách đã chọn gói cụ thể.
+  Tại sao: Inbody build trust + justify gói + tăng tỷ lệ chốt đơn.
+  Cách pitch: "Bên em đo Inbody miễn phí lần đầu — HLV phân tích tỷ lệ mỡ/cơ thực tế, tư vấn lộ trình luôn"
+  Sau đó mời: "[H] qua thử 1 buổi trước cho dễ chọn gói nha"
+  KHÔNG show gói/giá trong cùng tin nhắn Inbody.
+  Bước [STAGE: inbody] do FSM quyết định — không tự skip.
 
 BƯỚC 5 — TƯ VẤN GÓI:
   Anchor từ cao → thấp. Tối đa 3 gói. Mỗi gói có narrative.
