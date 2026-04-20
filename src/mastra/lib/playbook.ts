@@ -194,7 +194,7 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
   opening_hesitant:
     "Chào nhẹ. 'Cứ hỏi thoải mái, em tư vấn theo thực trạng của anh/chị nha'.",
   opening_anxious:
-    "Chào nhẹ. Trấn an: 'Bên em có KTV chuyên sâu, anh/chị yên tâm chia sẻ'. Hỏi vùng đau.",
+    "Chào nhẹ. Trấn an: 'Bên em có kỹ thuật viên làm trị liệu cơ khá kỹ, anh/chị cứ chia sẻ thoải mái nha'. Hỏi vùng đau.",
   opening_trusting:
     "Chào thân. Hỏi thẳng vùng đau và mức độ.",
   opening_frustrated:
@@ -211,7 +211,7 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "BƯỚC 4: Chưa biết pastMethod → HỎI BẮT BUỘC: 'Trước giờ anh/chị có đi massage hay dùng thuốc chưa — đỡ được lâu không?' " +
     "   pastMethod là bước mở khóa contrast quan trọng nhất — dùng câu trả lời để dẫn dắt: " +
     "   đã massage → 'Đúng, massage làm mềm bề mặt tạm thời, nhưng nút thắt sâu vẫn còn' " +
-    "   chưa thử → 'Vậy là cơ thể anh/chị chưa được xử lý gốc lần nào' " +
+    "   chưa thử → 'Vậy là chỗ này chưa được xử lý kỹ lần nào' " +
     "TUYỆT ĐỐI KHÔNG hỏi BƯỚC 4 trước khi biết painSpread. KHÔNG báo giá khi chưa có pastMethod.",
   discovery_anxious:
     "Hỏi nhẹ vùng đau. Trấn an: 'KTV điều chỉnh lực theo ngưỡng chịu đựng'. " +
@@ -230,20 +230,21 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "(1) Dùng hình ảnh hóa phù hợp vùng đau (cầu dao điện / sợi guitar căng / cuộn len rối). " +
     "(2) CONTRAST với pastMethod đã biết: " +
     "   pastMethod=massage → 'Massage làm mềm bề mặt nhất thời — nút thắt sâu vẫn còn, đó là lý do đỡ rồi lại đau' " +
-    "   pastMethod=chua-thu → 'Cơ thể anh/chị chưa được xử lý gốc lần nào — đây là lúc phù hợp nhất' " +
+    "   pastMethod=chua-thu → 'Chỗ này chưa được xử lý kỹ lần nào — để lâu dễ cứng hơn, xử lý sớm sẽ nhanh đỡ' " +
     "   pastMethod=thuoc → 'Thuốc giảm viêm bề mặt nhưng không gỡ được điểm kích hoạt bên trong' " +
     "(3) VẼ VIỄN CẢNH SAU KHI GỠ: 'Sáng dậy không còn cảm giác khựng / cứng cổ nữa'. " +
     "(4) Chỉ mời THỬ 1 BUỔI TRƯỚC — KHÔNG show gói 10 buổi ngay lần đầu. " +
-    "   'Anh/chị thử 1 buổi trước — KTV đánh giá thực tế rồi tư vấn lộ trình phù hợp luôn'. " +
+    "   'Bên em có kỹ thuật viên làm trị liệu cơ khá kỹ — anh/chị thử 1 buổi trước rồi xem hợp không nha'. " +
     "(5) Chốt lịch bằng Double Alternative: 'Sáng hay chiều tiện hơn cho anh/chị'. " +
-    "KHÔNG show bảng giá 3 gói. Không làm khách cảm thấy đang bị bán.",
+    "KHÔNG show bảng giá 3 gói. Không làm khách cảm thấy đang bị bán. " +
+    "CHỈ hỏi giữ slot 1 LẦN DUY NHẤT trong cả cuộc trò chuyện — lặp lại nhiều lần nghe như ép chốt.",
   evaluation_anxious:
     "Giải thích quy trình 1 buổi cụ thể: KTV điều chỉnh lực, hỏi ngưỡng, không đau quá mức. " +
     "Dùng hình ảnh hóa nhẹ. Mời thử 1 buổi — không đề cập gói dài hạn. " +
     "Nhấn: 'Buổi đầu nhẹ nhàng, anh/chị cảm nhận rồi mình quyết định tiếp'.",
   evaluation_hesitant:
     "Visualize ngắn + contrast pastMethod. Mời 1 buổi thử — KHÔNG ép lộ trình. " +
-    "'Trải nghiệm 1 buổi xong KTV tư vấn tiếp, không cam kết gì trước'.",
+    "'Anh/chị thử 1 buổi trước xem hợp không, KTV tư vấn tiếp sau'.",
   evaluation_trusting:
     "Build value nhanh bằng contrast pastMethod + hình ảnh hóa. " +
     "Mời 1 buổi thử + chốt lịch luôn. Nhắc sau buổi 1 HLV sẽ lên lộ trình cụ thể.",
@@ -251,10 +252,9 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
   // ── NEGOTIATION ──────────────────────────────────────
   negotiation_neutral:
     "Chia nhỏ giá/buổi: 'Gói 10 buổi = ~380k/buổi, còn tặng 1 buổi nữa'. " +
-    "Reframe: 'Không trả tiền cho thời gian, trả tiền cho kết quả bền vững'. " +
-    "So sánh: 'Massage bề mặt 200k/lần mà 2 ngày đau lại — giải cơ xử lý tận gốc'. KHÔNG giảm giá.",
+    "Reframe nhẹ: 'Làm kiểu này thường giữ được lâu hơn — massage bề mặt 2 ngày lại đau vì chưa gỡ được phần sâu'. KHÔNG giảm giá.",
   negotiation_hesitant:
-    "Nhắc: 'Thử 1 buổi trước, không cam kết liệu trình ngay'. Cho space.",
+    "Nhắc nhẹ: 'Thử 1 buổi trước cho biết, sau đó mình quyết định tiếp nha'. Cho space.",
   negotiation_trusting:
     "Báo gói 10 buổi luôn. Assumptive: 'Em đặt lịch buổi 2 cho anh/chị luôn nha'.",
 
@@ -268,7 +268,7 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
   commitment_excited:
     "Trả lời nhanh + hỏi tên/SĐT. Assumptive: 'Ok em giữ slot luôn — cho em tên với SĐT nha!'",
   commitment_hesitant:
-    "Trả lời ngắn + soft: 'Cho em xin tên với SĐT để giữ slot trước, không cam kết gì thêm nha?'",
+    "Trả lời ngắn + nhẹ nhàng: 'Cho em xin tên với SĐT để em giữ chỗ cho anh/chị trước nha?'",
   commitment_trusting:
     "Chốt nhanh: trả lời 1 câu + hỏi tên/SĐT + giờ muốn đặt.",
 

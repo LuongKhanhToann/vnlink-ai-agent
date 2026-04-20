@@ -26,7 +26,7 @@ import { getTactic } from "./playbook";
 
 function canAnswerWithoutCoreSlot(
   intent: Intent,
-  flow: Flow,
+  _flow: Flow,
   stage: Stage,
 ): boolean {
   if (intent === "compare") return true;
@@ -230,6 +230,119 @@ export function buildLogicGate(state: ConversationState): string {
 }
 
 // ─────────────────────────────────────────────
+// KNOWLEDGE BLOCKS — inject theo stage, tránh thừa token
+// ─────────────────────────────────────────────
+
+function buildFitnessPricing(info: KnownInfo): string {
+  const svc = info.serviceType;
+  const mt = info.memberType;
+  const lines: string[] = [];
+
+  if (!svc || svc === "boi") {
+    lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr|+lớp=3.5tr");
+    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|+lớp=5.5tr");
+    lines.push("  Học bơi: lớp(12b)=1.2tr+1m | 1-1(12b)=3tr+3m | 1-1(20b,2kiểu)=5tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
+  }
+  if (!svc || svc === "gym" || svc === "full") {
+    lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr");
+    lines.push("  PT: 10b=3tr|15b=4tr|20b=5tr | 20b(2m)=6tr|30b(2m)=8tr|40b(2m)=10tr | 50b(3m)=12tr");
+  }
+  if (!svc || svc === "yoga" || svc === "zumba" || svc === "full") {
+    lines.push("  Yoga/Zumba: fulltime-12m=5.8tr | 3b/t-12m=4.5tr (GV Ấn Độ, 4 ca/ngày)");
+  }
+  if (!svc || svc === "pilates") {
+    lines.push("  Pilates thảm(1:7): 10b=1.5tr|20b=2.4tr|30b=3tr");
+    lines.push("  Pilates máy(1:6): 10b=1.9tr|20b=3.6tr|30b=5.1tr | Nhóm(1:3): 10b=3tr | Cá nhân(1:1): 10b=4.5tr");
+  }
+  if (mt === "hoc-sinh") {
+    lines.push("  FULL HS/SV(14-22t): 1m=700k|3m=2tr|6m=3tr|12m=4tr ← anchor chính");
+  } else if (mt === "gia-dinh") {
+    lines.push("  FULL cá nhân: 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày)");
+    lines.push("  FULL gia đình: 2ng=12tr|3ng=17tr|4ng=20tr ← anchor chính");
+  } else {
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày) ← anchor chính");
+  }
+  return `[PRICING:\n${lines.join("\n")}\n]`;
+}
+
+function buildFitnessObjections(h: string): string {
+  return `[OBJECTIONS:
+  "Đắt quá" → "Full 12m chỉ ~19k/ngày ${h} — rẻ hơn ly cà phê mà sức khỏe cả năm" + 4 dịch vụ/1 thẻ. KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
+  "Tập 1 môn" → "Thẻ Full chỉ hơn chút mà dùng cả 4 ${h} — tập 1 môn lâu chán, thêm Yoga/Bơi duy trì động lực"
+  "Tháng lẻ thôi" → "1.2tr/tháng nhưng gói năm 7tr = ~583k/tháng ${h} — bảo lưu được, chuyển nhượng trong gia đình"
+  "Chờ KM" → "Giá bên em xu hướng chỉ tăng ${h} — đợt này đang mức tốt nhất. Em giữ chỗ trước nha"
+  "Chưa tin" → gọi get-media + "${h} qua tham quan — HLV đo Inbody miễn phí, xem số rồi chọn gói chuẩn luôn"
+  "Xin thêm/quen sếp" → Trình bày đủ giá niêm yết, "đây là mức ưu đãi tốt nhất em áp dụng được" → chốt ngay]`;
+}
+
+function buildGiaiCoPricing(): string {
+  return `[PRICING:
+  Lẻ: Thải độc=100k|Spa Foot=200k|Full Foot=270k|Spa Body=280k|Full Body=330k|VIP2=380k|VIP1=420k
+  Giải cơ lẻ: 45p(1-2v)=200k|75p=330k|CB1=330k|CB2=380k|CS-CB=380k|CS-VIP1=480k|CS-VIP2=590k
+  ⚠️ Không nhận tip — KTV được trả công đầy đủ
+  Liệu trình (ưu tiên tư vấn):
+    VIP1×10=4.2tr(tặng 1→11b)⭐ | VIP1×20=8.4tr(tặng 3→23b)
+    VIP2×10=3.8tr(tặng 1→11b)⭐ | VIP2×20=7.6tr(tặng 3→23b)
+    Full Body×10=3.3tr(tặng 1→11b) | Full Body×20=6.6tr(tặng 3→23b)
+  Anchor: CS-VIP2(590k)→CS-VIP1(480k)→CB1(330k). Ưu tiên chốt VIP2×10 = ~345k/buổi.]`;
+}
+
+function buildGiaiCoObjections(h: string): string {
+  return `[OBJECTIONS:
+  "Có đau không?" → "Sẽ có cảm giác 'đau đã' ở vùng bị tắc ${h} — đó là đúng điểm. KTV điều chỉnh lực theo ngưỡng. Sau đó hầu hết nói: 'Biết thế đến sớm hơn'"
+  "Ê ẩm không?" → "Có thể ê nhẹ 1-2 ngày — như vừa tập gym về. Dấu hiệu tốt ${h}"
+  "Giá cao hơn" → "KTV được đào tạo giải phẫu cơ bài bản ${h} — tác động đúng nhóm cơ. Trả cho kết quả bền vững"
+  "Thoát vị đĩa đệm?" → "Được ${h} — KTV tránh trực tiếp cột sống, giải tỏa cơ xung quanh để giảm áp lực đĩa đệm"
+  "Chấn thương TT" → Cấp tính: "Nghỉ 3-5 ngày rồi mình xử lý ${h}" | Mạn tính: "Đây chính xác là điều bên em làm tốt nhất ${h}"
+  "Không có TG" → "75p/tuần thôi ${h} — cơ thể 'đình công' thật sự thì mọi công sức làm ra rất đáng tiếc"
+  "Thử 1 buổi rồi tính" → "Hoàn toàn hợp lý ${h} — buổi đầu thường nhẹ 50-70% ngay. Em không ép"]`;
+}
+
+function buildKnowledgeBlock(state: ConversationState, h: string): string {
+  const { stage, flow, knownInfo, intent } = state;
+
+  const showPricing =
+    stage === "evaluation" ||
+    stage === "negotiation" ||
+    stage === "commitment" ||
+    intent === "selecting" ||
+    intent === "ready";
+
+  const showObjHandling = stage === "objection" || stage === "negotiation";
+
+  const blocks: string[] = [];
+
+  if (flow === "fitness") {
+    if (stage === "opening" || stage === "discovery") {
+      blocks.push(
+        `[CENTER: Fami Fitness & Yoga Center Vĩnh Yên | 05:00–20:00 | Thành lập 2014\n` +
+        `  Bơi → Bể 4 mùa 350m2 DUY NHẤT Vĩnh Yên, nước nóng quanh năm, lọc ozone\n` +
+        `  Gym → 700m2 trong nhà + 300m2 ngoài có mái che, chứa 100 người\n` +
+        `  Yoga/Zumba → GV người Ấn Độ chuyên nghiệp, 4 ca/ngày\n` +
+        `  Pilates → 13 máy chuẩn quốc tế, GV chứng chỉ QT (từ 12/2024)]`,
+      );
+    }
+    if (showPricing) blocks.push(buildFitnessPricing(knownInfo));
+    if (showObjHandling) blocks.push(buildFitnessObjections(h));
+  }
+
+  if (flow === "giai-co") {
+    if (stage === "opening" || stage === "discovery") {
+      blocks.push(
+        `[CENTER: TT Chăm sóc Sức khỏe Hoa Sen | 09:00–23:00 | Thành lập 08/2018\n` +
+        `  17 phòng | 4 KTV giải cơ chuyên sâu + 15 KTV massage\n` +
+        `  Dịch vụ: giải cơ chuyên sâu, massage, spa, tắm thuốc, gội đầu, chăm sóc da]`,
+      );
+    }
+    if (showPricing) blocks.push(buildGiaiCoPricing());
+    if (showObjHandling) blocks.push(buildGiaiCoObjections(h));
+  }
+
+  if (blocks.length === 0) return "";
+  return `[KNOWLEDGE:\n${blocks.join("\n")}\n]`;
+}
+
+// ─────────────────────────────────────────────
 // FEW-SHOT EXAMPLES
 // ─────────────────────────────────────────────
 
@@ -422,13 +535,12 @@ ${contrastText}
 
 Khi gỡ được điểm đó thì sáng dậy ${pain.includes("vai") || pain.includes("co") ? "cổ vai không còn cứng ngắc" : "không còn cảm giác đau âm ỉ"} nữa ${h}.
 
-Bên em có KTV chuyên giải cơ chuyên sâu — ${h} thử 1 buổi trước, KTV đánh giá thực tế rồi tư vấn lộ trình phù hợp luôn, không cam kết gì trước.
+Bên em có KTV chuyên giải cơ chuyên sâu — ${h} thử 1 buổi trước, KTV đánh giá thực tế rồi tư vấn lộ trình phù hợp luôn.
 ${h} tiện khung sáng hay chiều để em giữ slot nha?"`;
   }
 
   // ── GIẢI CƠ: commitment — trả lời ngắn + hỏi tên/SĐT ──
   if (flow === "giai-co" && stage === "commitment") {
-    const { name, phone, preferredTime } = knownInfo;
     return `[EXAMPLE — COMMITMENT: 3 SUB-STATE]
 ⚠️ TUYỆT ĐỐI KHÔNG lặp "KTV sẽ đánh giá thực tế" / "tư vấn lộ trình phù hợp" — đã nói rồi
 ⚠️ Khi khách hỏi giá/phí → trả lời 1 câu rồi hỏi tên/SĐT ngay — KHÔNG giải thích thêm
@@ -557,6 +669,7 @@ export function buildPrefix(state: ConversationState): string {
       state.intent,
       state.stage,
     ),
+    buildKnowledgeBlock(state, h),
     buildLogicGate(state),
     buildFewShot(state, h) ?? "",
   ];
