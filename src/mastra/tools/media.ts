@@ -1,86 +1,95 @@
-/// <reference types="node" />
-
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { readdirSync, existsSync } from "node:fs";
-import { resolve, extname } from "node:path";
+import { v2 as cloudinary } from "cloudinary";
+import "dotenv/config";
 
-const BASE_URL: string = process.env["BASE_URL"] ?? "http://localhost:4111";
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-// process.cwd() = .../src/mastra/public
-// nên chỉ cần path tương đối từ đó.
-// Mỗi key có thể map tới nhiều thư mục (VD: image/ + video/).
-// Thư mục không tồn tại sẽ được bỏ qua — không gây lỗi.
-const KEY_TO_DIRS: Record<string, string[]> = {
-  "fitness-gym":      ["media/fitness/gym/image"],
-  "fitness-pool":     ["media/fitness/pool/image"],
-  "fitness-yoga":     ["media/fitness/yoga/image"],
-  "mr-sport":         ["media/muscle-release/sport/image",        "media/muscle-release/sport/video"],
-  "mr-neck-shoulder": ["media/muscle-release/neck-shoulder/image", "media/muscle-release/neck-shoulder/video"],
-  "mr-female":        ["media/muscle-release/female/image",        "media/muscle-release/female/video"],
-  "mr-general":       ["media/muscle-release/general/image",       "media/muscle-release/general/video"],
+const KEY_TO_FOLDER: Record<string, string> = {
+  "mr-sport":         "giaiCo",
+  "mr-neck-shoulder": "giaiCo",
+  "mr-female":        "giaiCo",
+  "mr-general":       "giaiCo",
+  "fitness-gym":      "fitness/gym",
+  "fitness-yoga":     "fitness/yoga",
+  "fitness-zumba":    "fitness/zumba",
+  "fitness-pool":     "fitness/pool",
 };
 
-const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
-const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".avi"]);
+type MediaItem = { type: "image" | "video"; url: string };
 
-function getMediaType(filename: string): "image" | "video" | null {
-  const ext = extname(filename).toLowerCase();
-  if (IMAGE_EXTS.has(ext)) return "image";
-  if (VIDEO_EXTS.has(ext)) return "video";
-  return null;
+const _cache: Record<string, { items: MediaItem[]; ts: number }> = {};
+const CACHE_TTL = 10 * 60 * 1000;
+
+async function listResources(folder: string, resourceType: "image" | "video"): Promise<MediaItem[]> {
+  const cacheKey = `${folder}::${resourceType}`;
+  const now = Date.now();
+  const cached = _cache[cacheKey];
+  if (cached && now - cached.ts < CACHE_TTL) return cached.items;
+
+  try {
+    const res = await cloudinary.search
+      .expression(`folder:${folder}/* AND resource_type:${resourceType}`)
+      .max_results(500)
+      .execute();
+
+    const items: MediaItem[] = (res.resources ?? []).map((r: { secure_url: string }) => ({
+      type: resourceType,
+      url:  r.secure_url,
+    }));
+
+    _cache[cacheKey] = { items, ts: now };
+    return items;
+  } catch (e: unknown) {
+    const err = e as { http_code?: number; message?: string };
+    console.error(`[getMedia] error (${folder}, ${resourceType}):`, err?.message);
+    return [];
+  }
+}
+
+function pickRandom<T>(arr: T[]): T[] {
+  if (!arr.length) return [];
+  return [arr[Math.floor(Math.random() * arr.length)]];
 }
 
 export const getMediaTool = createTool({
   id: "get-media",
   description:
     "Lấy ảnh/video giới thiệu dịch vụ để gửi cho khách. " +
-    "Fitness: fitness-gym / fitness-pool / fitness-yoga. " +
-    "Muscle release: mr-sport / mr-neck-shoulder / mr-female / mr-general.",
+    "GiảiCo (mr-*): mr-sport / mr-neck-shoulder / mr-female / mr-general. " +
+    "Fitness: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool.",
   inputSchema: z.object({
     key: z.enum([
-      "fitness-gym",
-      "fitness-pool",
-      "fitness-yoga",
       "mr-sport",
       "mr-neck-shoulder",
       "mr-female",
       "mr-general",
+      "fitness-gym",
+      "fitness-yoga",
+      "fitness-zumba",
+      "fitness-pool",
     ]),
   }),
-  outputSchema: z.object({
-    data: z.string(),
-  }),
+  outputSchema: z.object({ data: z.string() }),
   execute: async (input) => {
-    const relDirs = KEY_TO_DIRS[input.key] ?? [];
-    console.log(`[getMedia] cwd=${process.cwd()} key=${input.key}`);
+    const folder = KEY_TO_FOLDER[input.key];
+    console.log(`[getMedia] key=${input.key} folder=${folder}`);
 
-    const data: { type: "image" | "video"; url: string; filename: string }[] = [];
+    const [images, videos] = await Promise.all([
+      listResources(`${folder}/img`, "image"),
+      listResources(`${folder}/video`, "video"),
+    ]);
 
-    for (const relDir of relDirs) {
-      const absDir = resolve(process.cwd(), relDir);
-      if (!existsSync(absDir)) {
-        console.log(`[getMedia] skip (not found): ${absDir}`);
-        continue;
-      }
-      try {
-        const files = readdirSync(absDir);
-        for (const filename of files) {
-          const type = getMediaType(filename);
-          if (!type) continue;
-          data.push({
-            type,
-            url: `${BASE_URL}/public/${relDir}/${encodeURIComponent(filename)}`,
-            filename,
-          });
-        }
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[getMedia] error reading ${relDir}:`, msg);
-      }
-    }
+    const data: MediaItem[] = [
+      ...pickRandom(images),
+      ...pickRandom(videos),
+    ];
 
-    console.log(`[getMedia] key=${input.key} → ${data.length} files`);
+    console.log(`[getMedia] key=${input.key} → images=${images.length} videos=${videos.length} picked=${data.length}`);
     return { data: JSON.stringify(data) };
   },
 });

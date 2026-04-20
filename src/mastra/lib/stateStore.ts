@@ -92,8 +92,10 @@ export async function saveState(
 ): Promise<void> {
   const tid = stateThreadId(threadId);
 
-  // Ghi lead vào Google Sheets lần đầu tiên khi đủ tên + SĐT + gói
-  if (!state.sheetsWritten && isLeadComplete(state)) {
+  // Ghi lead vào Google Sheets lần đầu tiên khi đủ tên + SĐT + giờ
+  const leadReady = isLeadComplete(state);
+  console.log(`[stateStore] leadReady=${leadReady} sheetsWritten=${state.sheetsWritten} | name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime}`);
+  if (!state.sheetsWritten && leadReady) {
     try {
       await writeLeadToSheets(state);
       state.sheetsWritten = true;
