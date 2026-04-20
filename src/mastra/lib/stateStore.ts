@@ -6,6 +6,7 @@
  */
 
 import { ConversationState, DEFAULT_STATE } from "./stateMachine";
+import { isLeadComplete, writeLeadToSheets } from "./sheetsWriter";
 
 const STORE_NAME = "memory";
 const STATE_SUFFIX = "-fsm-state";
@@ -75,6 +76,7 @@ export async function loadState(
       turnCount: m.turnCount ?? 0,
       qrShown: m.qrShown ?? false,
       mediaShown: m.mediaShown ?? false,
+      sheetsWritten: (m as any).sheetsWritten ?? false,
     };
   } catch (e) {
     console.error(`[stateStore] loadState failed for ${tid}:`, e);
@@ -89,6 +91,16 @@ export async function saveState(
   state: ConversationState,
 ): Promise<void> {
   const tid = stateThreadId(threadId);
+
+  // Ghi lead vào Google Sheets lần đầu tiên khi đủ tên + SĐT + gói
+  if (!state.sheetsWritten && isLeadComplete(state)) {
+    try {
+      await writeLeadToSheets(state);
+      state.sheetsWritten = true;
+    } catch (e) {
+      console.error("[stateStore] writeLeadToSheets failed:", e);
+    }
+  }
 
   try {
     const storage = mastra?.getStorage?.();

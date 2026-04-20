@@ -26,6 +26,7 @@
     "@mastra/observability": "^1.5.1",
     "@mastra/openai": "^1.0.1-alpha.48",
     "@mastra/pg": "^1.8.3",
+    "googleapis": "^171.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

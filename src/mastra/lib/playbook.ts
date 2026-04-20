@@ -135,19 +135,20 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
 
   // ── COMMITMENT ───────────────────────────────────────
   commitment_neutral:
-    "Tóm tắt gói đã chọn. Soft close: 'Em ghi nhận cho anh/chị nha'. " +
-    "KHÔNG hỏi 'muốn đăng ký không'. " +
-    "Assumptive close: cư xử như đã chốt, hỏi tên/SĐT để 'hoàn thiện thủ tục'.",
+    "Hỏi GỘP 1 câu duy nhất để lấy đủ 3 thứ: tên + SĐT + khung giờ (sáng/chiều/tối). " +
+    "KHÔNG tách ra hỏi từng thứ riêng lẻ. " +
+    "Sau khi đủ 3 thứ: XÁC NHẬN 1 câu ngắn ('Em giữ slot [giờ] cho [tên] rồi nha') rồi DỪNG HẲN. " +
+    "KHÔNG hỏi thêm bất cứ điều gì. KHÔNG gợi cọc/QR trừ khi khách tự hỏi.",
   commitment_excited:
-    "Tóm lại + match energy. 'Ok em làm thủ tục luôn nha!'",
+    "Hỏi GỘP nhanh: tên + SĐT + sáng/chiều/tối. Xác nhận ngắn rồi dừng.",
   commitment_anxious:
-    "Tóm tắt chi tiết. Nhắc bảo lưu + chính sách linh hoạt.",
+    "Hỏi nhẹ GỘP 1 câu: tên + SĐT + muốn đến buổi sáng, chiều hay tối. Xác nhận rồi dừng. Không push cọc.",
   commitment_hesitant:
-    "Assumptive nhẹ: 'Em giữ suất cho anh/chị nha — cọc nhỏ là chắc'.",
+    "Hỏi nhẹ nhàng 1 câu gộp: tên + SĐT + khung giờ mong muốn. Xác nhận rồi dừng.",
   commitment_trusting:
-    "Chốt ngay: 'Ok em lên đơn luôn!'",
+    "Hỏi gộp nhanh: tên + SĐT + giờ. Xác nhận 1 câu rồi dừng.",
   commitment_frustrated:
-    "Tóm tắt cẩn thận. Nhắc cam kết chất lượng.",
+    "Hỏi gộp 1 câu: tên + SĐT + buổi sáng/chiều/tối. Xác nhận rõ ràng rồi dừng.",
 
   // ── OBJECTION ────────────────────────────────────────
   objection_neutral:
@@ -259,18 +260,18 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "Báo gói 10 buổi luôn. Assumptive: 'Em đặt lịch buổi 2 cho anh/chị luôn nha'.",
 
   // ── COMMITMENT ───────────────────────────────────────
-  // Ngữ cảnh: khách đã đồng ý thử buổi 1 — đang chốt tên/SĐT/QR
-  // KHÔNG lặp lại lý do tư vấn đã nói ở evaluation
+  // Khách đã đồng ý thử buổi 1 — thu gộp tên + SĐT + giờ trong 1 câu rồi DỪNG
   commitment_neutral:
-    "Trả lời câu hỏi khách NGẮN GỌN (1 câu) — sau đó HỎI NGAY tên/SĐT để giữ slot. " +
-    "TUYỆT ĐỐI KHÔNG lặp 'KTV sẽ đánh giá thực tế' / 'tư vấn lộ trình phù hợp' — đã nói rồi. " +
-    "Assumptive close: cư xử như đã chốt, hỏi 'Cho em xin tên với SĐT để giữ slot [giờ] nha?'",
+    "Hỏi GỘP 1 câu duy nhất: tên + SĐT + buổi sáng/chiều/tối. " +
+    "KHÔNG hỏi từng thứ riêng lẻ. KHÔNG lặp 'KTV đánh giá thực tế'. " +
+    "Sau khi đủ 3 thứ: XÁC NHẬN ngắn rồi DỪNG HẲN. Không hỏi thêm gì. " +
+    "KHÔNG gợi cọc/QR trừ khi khách tự hỏi.",
   commitment_excited:
-    "Trả lời nhanh + hỏi tên/SĐT. Assumptive: 'Ok em giữ slot luôn — cho em tên với SĐT nha!'",
+    "Trả lời nhanh nếu khách hỏi + hỏi GỘP: tên + SĐT + sáng/chiều/tối. Xác nhận rồi dừng.",
   commitment_hesitant:
-    "Trả lời ngắn + nhẹ nhàng: 'Cho em xin tên với SĐT để em giữ chỗ cho anh/chị trước nha?'",
+    "Nhẹ nhàng hỏi GỘP 1 câu: tên + SĐT + khung giờ mong muốn. Xác nhận rồi dừng.",
   commitment_trusting:
-    "Chốt nhanh: trả lời 1 câu + hỏi tên/SĐT + giờ muốn đặt.",
+    "Hỏi GỘP nhanh: tên + SĐT + giờ. Xác nhận 1 câu rồi dừng.",
 
   // ── OBJECTION ────────────────────────────────────────
   objection_neutral:

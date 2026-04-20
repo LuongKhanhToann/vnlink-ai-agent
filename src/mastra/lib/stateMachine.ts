@@ -82,6 +82,7 @@ export interface ConversationState {
   turnCount: number;
   qrShown: boolean;
   mediaShown: boolean;
+  sheetsWritten: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -292,27 +293,25 @@ export function computeNextStage(
   }
 
   // Evaluation → Negotiation / Commitment
-  // SỬA: Thêm guard cho giai-co khi có preferredTime
   if (currentStage === "evaluation") {
-    // Case 1: Khách sẵn sàng chốt ngay
-    if (intent === "ready") return "commitment";
-    
-    // Case 2: Khách đang chọn gói cụ thể
-    if (intent === "selecting") return "negotiation";
-    
-    // Case 3: Giải cơ - khách đã báo giờ (đồng ý thử 1 buổi)
-    // Đây là trường hợp khách nói "sáng nha", "chiều được", "9h" nhưng classifier vẫn ra explore
+    // Giải cơ: khách báo giờ = đồng ý thử 1 buổi → commitment LUÔN (kể cả khi intent=selecting)
+    // "sáng nha", "chiều được", "9h" đều là tín hiệu book lịch, không phải chọn gói
     if (flow === "giai-co" && info.preferredTime !== null) {
-      console.log(`[stateMachine] giai-co evaluation → commitment because preferredTime=${info.preferredTime}`);
+      console.log(`[stateMachine] giai-co evaluation → commitment (preferredTime=${info.preferredTime})`);
       return "commitment";
     }
-    
-    // Case 4: Fitness - khách đã có tên/SĐT (đồng ý đăng ký)
+
+    if (intent === "ready") return "commitment";
+
+    // Fitness: chỉ vào negotiation khi khách chủ động chọn gói cụ thể
+    if (intent === "selecting") return "negotiation";
+
+    // Fitness: đã có tên/SĐT → commitment
     if (flow === "fitness" && info.name !== null && info.phone !== null) {
-      console.log(`[stateMachine] fitness evaluation → commitment because name/phone filled`);
+      console.log(`[stateMachine] fitness evaluation → commitment (name/phone filled)`);
       return "commitment";
     }
-    
+
     return "evaluation";
   }
 
@@ -405,6 +404,7 @@ export function buildNextState(
     turnCount: previous.turnCount + 1,
     qrShown,
     mediaShown,
+    sheetsWritten: previous.sheetsWritten,
   };
 }
 
@@ -437,4 +437,5 @@ export const DEFAULT_STATE: ConversationState = {
   turnCount: 0,
   qrShown: false,
   mediaShown: false,
+  sheetsWritten: false,
 };

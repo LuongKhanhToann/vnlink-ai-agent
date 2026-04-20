@@ -196,32 +196,44 @@ export function buildLogicGate(state: ConversationState): string {
     );
   }
 
-  // ── COMMITMENT: chốt đơn ──
+  // ── COMMITMENT: chốt lịch ──
   if (stage === "commitment") {
     const { name, phone } = knownInfo;
+    const hasTime = knownInfo.preferredTime !== null;
     const qrShown = (state as any).qrShown ?? false;
 
     if (!name || !phone) {
-      const timeCtx = knownInfo.preferredTime
-        ? `khách muốn ${knownInfo.preferredTime}`
-        : "chưa biết giờ";
+      if (!hasTime) {
+        // Chưa có cả 3 → hỏi GỘP 1 lần
+        hints.push(
+          "[GATE: CHƯA CÓ tên, SĐT và giờ. " +
+            "Hỏi GỘP 1 câu duy nhất: 'Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng, chiều hay tối để em giữ slot nha?' " +
+            "TUYỆT ĐỐI KHÔNG hỏi từng thứ riêng lẻ. KHÔNG đề cập giá hay gói (10 buổi, liệu trình...) trong tin này. Chỉ 1 câu hỏi gộp.]",
+        );
+      } else {
+        // Đã biết giờ, chỉ cần tên/SĐT
+        hints.push(
+          `[GATE: đã biết giờ=${knownInfo.preferredTime} — chỉ cần tên và SĐT. ` +
+            "Hỏi: 'Cho em xin tên với SĐT để giữ slot nha?' " +
+            "TUYỆT ĐỐI KHÔNG đề cập giá hay gói (10 buổi, liệu trình...) trong tin này. Chỉ 1 câu hỏi tên/SĐT.]",
+        );
+      }
+    } else if (!hasTime) {
+      // Đã có tên/SĐT, cần giờ
       hints.push(
-        `[GATE: CHƯA CÓ TÊN/SĐT (${timeCtx}) — tin này CHỈ được phép hỏi tên và SĐT. ` +
-          "Nếu đã biết giờ → xác nhận giờ 1 câu rồi hỏi ngay tên/SĐT. " +
-          "TUYỆT ĐỐI KHÔNG: xác nhận slot, soft-close, hỏi 'cần thêm thông tin gì không', " +
-          "dùng nextStep='close' khi chưa có tên/SĐT.]",
-      );
-    } else if (!knownInfo.preferredTime) {
-      hints.push(
-        "[GATE: đã có tên/SĐT, chưa có giờ cụ thể. Hỏi khung giờ + gợi cọc nhẹ nếu slot đẹp.]",
+        "[GATE: đã có tên/SĐT — chỉ cần hỏi khung giờ: 'Anh/chị muốn đến buổi sáng, chiều hay tối ạ?' KHÔNG hỏi thêm gì khác.]",
       );
     } else if (!qrShown) {
+      // ĐỦ INFO (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG
       hints.push(
-        "[GATE: đủ info. Gợi cọc nhẹ — nếu khách đồng ý thì gọi get-qr, không thì xác nhận lịch thường.]",
+        `[GATE: ĐỦ INFO — tên=${name}, sđt=${phone}, giờ=${knownInfo.preferredTime}. ` +
+          "XÁC NHẬN lịch 1 câu ngắn gọn ('Em giữ slot [giờ] cho [tên] rồi nha') rồi DỪNG HẲN. " +
+          "TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ điều gì. Chỉ trả lời nếu khách tự hỏi. " +
+          "Gọi get-qr CHỈ KHI khách hỏi về cọc/thanh toán trước.]",
       );
     } else {
       hints.push(
-        "[GATE: BƯỚC 3 — đã gửi QR. Xác nhận và hướng dẫn bước tiếp theo.]",
+        "[GATE: đã gửi QR. Xác nhận và hướng dẫn bước tiếp theo. DỪNG.]",
       );
     }
   }
@@ -539,31 +551,24 @@ Bên em có KTV chuyên giải cơ chuyên sâu — ${h} thử 1 buổi trước
 ${h} tiện khung sáng hay chiều để em giữ slot nha?"`;
   }
 
-  // ── GIẢI CƠ: commitment — trả lời ngắn + hỏi tên/SĐT ──
-  if (flow === "giai-co" && stage === "commitment") {
-    return `[EXAMPLE — COMMITMENT: 3 SUB-STATE]
-⚠️ TUYỆT ĐỐI KHÔNG lặp "KTV sẽ đánh giá thực tế" / "tư vấn lộ trình phù hợp" — đã nói rồi
-⚠️ Khi khách hỏi giá/phí → trả lời 1 câu rồi hỏi tên/SĐT ngay — KHÔNG giải thích thêm
+  // ── GIẢI CƠ / FITNESS: commitment — hỏi GỘP 3 thứ, xác nhận và dừng ──
+  if (stage === "commitment") {
+    return `[EXAMPLE — COMMITMENT: HỎI GỘP → XÁC NHẬN → DỪNG]
+⚠️ KHÔNG lặp "KTV sẽ đánh giá thực tế" / "tư vấn lộ trình phù hợp" — đã nói rồi
+⚠️ KHÔNG đẩy QR trừ khi khách hỏi về cọc/thanh toán trước
 
---- BƯỚC 1: chưa có tên/SĐT ---
-Khách: "buổi đầu mất phí không"
-ĐÚNG: "Có tính phí ${h} — buổi 200k. Cho em xin tên với SĐT để giữ slot chiều nha?"
-SAI: "Buổi đầu có phí anh nhé, nhưng đây là cơ hội để KTV đánh giá thực tế..."
+--- CHƯA CÓ cả 3 thứ (tên + SĐT + giờ) ---
+ĐÚNG: "Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối để em giữ slot nha?"
+SAI: "Cho em xin tên với SĐT để giữ slot ạ" ← thiếu giờ
+SAI: "Em giữ slot buổi sáng cho ${h} nhé..." ← chưa có tên/SĐT
 
-Khách: "ok"
-ĐÚNG: "Cho em xin tên với SĐT để giữ slot ${h} nha?"
+--- Khách hỏi giá trước khi chốt ---
+ĐÚNG: "Có tính phí ${h} — buổi 200k. Cho em xin tên, SĐT với muốn đến buổi sáng, chiều hay tối nha?"
 
-Khách: "sáng nha" / "chiều được" / "tối nha" / [báo khung giờ bất kỳ]
-ĐÚNG: "Sáng bên em mở từ 9h, ${h} cho em xin tên với SĐT để giữ chỗ cho mình ạ"
-SAI: "Em giữ slot buổi sáng cho ${h} nhé. KTV sẽ đánh giá thực tế và tư vấn lộ trình phù hợp luôn."
-SAI: "Em giữ slot cho ${h} rồi nha."
-⚠️ Khách báo giờ ≠ đã chốt — vẫn phải hỏi tên/SĐT trước khi xác nhận bất cứ điều gì.
-
---- BƯỚC 2: đã có tên/SĐT, chưa có giờ ---
-ĐÚNG: "Chiều bên em còn 15h và 17h — ${h} tiện khung nào hơn?"
-
---- BƯỚC 3: đã có tên/SĐT/giờ ---
-ĐÚNG: "Em giữ slot [giờ] cho ${h} rồi. Nếu ${h} muốn chắc chỗ thì cọc trước giúp em, còn không qua rồi thanh toán cũng được nha."`;
+--- ĐÃ CÓ ĐỦ 3 THỨ (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG ---
+ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ. Đến trực tiếp thanh toán được nha."
+SAI: "Em giữ slot rồi. ${h} có muốn cọc trước không?" ← tự hỏi thêm
+⚠️ Sau khi xác nhận → DỪNG HẲN. Chờ khách hỏi gì thêm mới trả lời.`;
   }
 
   return null;
