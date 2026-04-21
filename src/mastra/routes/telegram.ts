@@ -17,6 +17,8 @@ const pool = new Pool({
   password: process.env.PG_DATABASE_PASSWORD!,
   database: process.env.PG_DATABASE_NAME!,
   ssl: { rejectUnauthorized: false },
+  max: 1,
+  idleTimeoutMillis: 10_000,
 });
 
 export const telegramWebhook = new Hono();
