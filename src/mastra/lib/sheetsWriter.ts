@@ -4,14 +4,9 @@
  */
 
 import { google } from "googleapis";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
 import type { ConversationState } from "./stateMachine";
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
-// Mastra bundle code vào .mastra/output/ — từ đó lên 2 cấp là project root
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const KEY_FILE = join(__dirname, "../..", "service_account.json");
 const SHEET_NAME = "Trang tính1";
 
 const HEADERS = [
@@ -102,7 +97,13 @@ export async function writeLeadToSheets(state: ConversationState): Promise<void>
     goalOrMethod,
   ];
 
-  const auth = new google.auth.GoogleAuth({ keyFile: KEY_FILE, scopes: SCOPES });
+  const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!saJson) throw new Error("[sheetsWriter] GOOGLE_SERVICE_ACCOUNT_JSON chưa được set");
+  const credentials = JSON.parse(
+    saJson.startsWith("{") ? saJson : Buffer.from(saJson, "base64").toString("utf8")
+  );
+
+  const auth = new google.auth.GoogleAuth({ credentials, scopes: SCOPES });
   const sheets = google.sheets({ version: "v4", auth });
   const spreadsheetId = requireSheetId();
 
