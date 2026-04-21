@@ -5,6 +5,7 @@ import { routerWorkflow } from "./workflows/routerWorkflow";
 import { fitnessAgent } from "./agents/fitness";
 import { giaiCoAgent } from "./agents/giaiCo";
 import { facebookWebhook } from "./routes/facebook";
+import { telegramWebhook } from "./routes/telegram";
 
 export const mastra = new Mastra({
   agents: { fitnessAgent, giaiCoAgent },
@@ -56,6 +57,10 @@ export const mastra = new Mastra({
             headers: { "Content-Type": mime, "Cache-Control": "public, max-age=86400" },
           });
         }
+
+        // Telegram webhook
+        const tgRes = await telegramWebhook.fetch(c.req.raw);
+        if (tgRes.status !== 404) return tgRes;
 
         // Facebook webhook
         const res = await facebookWebhook.fetch(c.req.raw);
