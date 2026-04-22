@@ -61,8 +61,9 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
   // TUYỆT ĐỐI KHÔNG show gói/giá ở bước này.
   // Thứ tự: (1) xác nhận lịch tập 1 câu → (2) pitch Inbody → (3) câu mời nhẹ
   inbody_neutral:
-    "Xác nhận lịch tập bằng 1 câu ngắn, mềm. " +
-    "Sau đó nhắc InBody miễn phí lần đầu như một lợi thế giúp khách yên tâm hơn. " +
+    "Xác nhận định hướng tập luyện bằng 1 câu ngắn, tự tin (không đề cập số buổi). " +
+    "Nhấn mạnh lộ trình phù hợp theo thể trạng. " +
+    "Nhắc InBody miễn phí lần đầu để tăng độ tin tưởng. " +
     "Kết bằng lời mời nhẹ, tự nhiên, không ép. Tuyệt đối không show gói hoặc giá ở tin này.",
   inbody_excited:
     "Match năng lượng ngắn. Xác nhận lịch + pitch Inbody nhanh. " +
@@ -94,9 +95,9 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "(2) KHÔNG dùng câu generic: 'không gian thoải mái sẽ giúp', 'Với mục tiêu X, [cơ sở Y] sẽ giúp hiệu quả hơn' " +
     "   ❌ Generic: 'Gym bên em rộng — với mục tiêu giảm mỡ sẽ giúp tập hiệu quả hơn' " +
     "   ✅ Cụ thể: 'Giảm mỡ hiệu quả cần cardio + weight kết hợp — thẻ Full cho dùng Gym + Bơi/Zumba 1 thẻ, đốt mỡ nhanh hơn hẳn' " +
-    "(3) SAU ĐÓ mới gợi tối đa 3 gói theo thứ tự Anchor cao → vừa → nhẹ. " +
-    "KHÔNG dùng **bold** hay *italic*. Mỗi gói 1 câu lý do gắn với mục tiêu. " +
-    "Kết bằng câu hỏi về lịch / số buổi — KHÔNG hỏi 'muốn đăng ký không'.",
+    "(3) SAU ĐÓ mới gợi tối đa 3 gói theo thứ tự Anchor CAO → VỪA → NHẸ. " +
+    "MỖI GÓI BẮT BUỘC kèm giá thật từ bảng giá — không bỏ giá. KHÔNG dùng **bold** hay *italic*. " +
+    "Kết bằng câu hỏi giờ/lịch đến InBody — KHÔNG hỏi 'muốn đăng ký không'.",
   evaluation_excited:
     "Match năng lượng. Nhấn nhanh điểm nổi bật nhất. Gợi 2-3 gói có storytelling. " +
     "Dùng social proof: 'Hội viên hay chọn nhất là...'",

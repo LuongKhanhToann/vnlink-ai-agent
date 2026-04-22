@@ -142,10 +142,11 @@ INTENT:
   
   ready     = muốn đăng ký / thanh toán / chốt luôn ("ok đăng ký luôn", "chị lấy gói đó", "cho tôi đặt cọc", "chuyển khoản")
 
-⚠️ QUAN TRỌNG: 
+⚠️ QUAN TRỌNG:
   - "ok", "ừ", "được" có thể là selecting hoặc explore - dựa vào ngữ cảnh:
     * Nếu tin trước bot hỏi "sáng hay chiều" → khách nói "sáng" = selecting
     * Nếu tin trước bot hỏi "có muốn thử không" → khách nói "ok" = selecting
+    * Nếu Stage=inbody và khách đồng ý ("ok", "được", "e cũng được", "thử đi", "ok thử") → selecting (đồng ý đến đo InBody)
     * Nếu không có ngữ cảnh chọn lịch/dịch vụ → explore
 
 SLOTS cho fitness:

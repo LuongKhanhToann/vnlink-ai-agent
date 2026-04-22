@@ -84,9 +84,12 @@ export function buildLogicGate(state: ConversationState): string {
     const scheduleCtx = knownInfo.schedule
       ? `lịch=${knownInfo.schedule}`
       : "chưa rõ lịch";
+    const step1 = knownInfo.schedule
+      ? "xác nhận định hướng tập luyện 1 câu ngắn, tự tin"
+      : `đưa ra định hướng tập luyện 1 câu ngắn, tự tin (không hỏi, không đề cập số buổi)`;
     hints.push(
       `[GATE: inbody — ${goalCtx}, ${scheduleCtx}. ` +
-        "BẮT BUỘC: (1) xác nhận lịch tập 1 câu → (2) pitch Inbody miễn phí → (3) câu mời nhẹ. " +
+        `BẮT BUỘC: (1) ${step1} → (2) pitch Inbody miễn phí → (3) câu mời nhẹ. ` +
         "TUYỆT ĐỐI KHÔNG show gói/giá ở bước này — Inbody phải xảy ra trước evaluation.]",
     );
   }
@@ -109,8 +112,10 @@ export function buildLogicGate(state: ConversationState): string {
         : "";
       hints.push(
         `[GATE: evaluation — ${svcCtx} ${goalCtx}. ` +
-          "BẮT BUỘC: nhấn điểm khác biệt của dịch vụ phù hợp mục tiêu TRƯỚC, " +
-          "SAU ĐÓ mới gợi tối đa 3 gói có narrative. KHÔNG liệt kê giá thẳng.]",
+          "BẮT BUỘC theo thứ tự: (1) 1-2 câu value CỤ THỂ theo mục tiêu → " +
+          "(2) gợi tối đa 3 gói ANCHOR CAO→VỪA→NHẸ, MỖI GÓI PHẢI ghi giá thật từ bảng giá kèm 1 lý do gắn mục tiêu → " +
+          "(3) kết bằng câu hỏi giờ/lịch đến InBody. " +
+          "TUYỆT ĐỐI KHÔNG bỏ giá trong mô tả gói — gói thiếu giá là sai.]",
       );
     }
   }
@@ -463,9 +468,9 @@ SAI (nhảy sang gói ngay):
 "Với lịch ${schedule}, ${h} có thể chọn: Full 12 tháng 7tr / Full 6 tháng 4.5tr..."
 
 ĐÚNG (inbody trước):
-"3 buổi/tuần là hợp lý để ${goal} rồi ${h}.
-Bên em có đo Inbody miễn phí lần đầu — HLV phân tích tỷ lệ mỡ/cơ và tư vấn lộ trình đúng luôn, không đoán mò.
-${h} qua thử 1 buổi trước cho dễ chọn gói nha?"
+“Dạ, để ${goal} hiệu quả thì mình cần kết hợp tập luyện và lộ trình phù hợp đó ${h}.
+Bên em có đo InBody miễn phí lần đầu — HLV sẽ phân tích tỷ lệ mỡ/cơ và tư vấn đúng hướng luôn.
+${h} qua thử 1 buổi trước cho dễ chọn gói nha?”
 
 Hoặc:
 "Tối ${schedule ? schedule.replace("toi", "").trim() || "mấy buổi/tuần" : "3 buổi/tuần"} thì bên em có khung giờ thoải mái ${h}.
@@ -494,28 +499,54 @@ ${h} qua thử không, em giữ slot HLV luôn nha?"`;
       goalHint[goal] ??
       `Nhấn điểm khác biệt cụ thể của ${svc} phù hợp mục tiêu ${goal}.`;
 
+    // Concrete package examples per goal — correct anchor order: high → mid → light
+    const goalPackages: Record<string, string> = {
+      "giam-mo":
+        `Full 12 tháng 7tr (~19k/ngày) — Gym + Bơi/Zumba 1 thẻ, cardio + weight kết hợp đốt mỡ nhanh nhất\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — chỉ gym, lịch ổn định cả năm\n` +
+        `Gym 3 buổi/tuần 6 tháng 2tr — thử nửa năm trước, ít áp lực hơn`,
+      "tang-co":
+        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 xây kỹ thuật nền đúng, tránh chấn thương\n` +
+        `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập theo lịch dài hơi`,
+      "thu-gian":
+        `Full 12 tháng 7tr (~19k/ngày) — Gym + Yoga + Zumba + Bơi trong 1 thẻ\n` +
+        `Yoga/Zumba fulltime 12 tháng 5.8tr — không giới hạn ca, GV Ấn Độ 4 ca/ngày\n` +
+        `Yoga/Zumba 3 buổi/tuần 12 tháng 4.5tr — lịch cố định 3 buổi/tuần`,
+      "hoc-boi":
+        `Học bơi 1-1 (12 buổi) 3tr + 3 tháng bể — HLV riêng, cam kết biết bơi, học lại miễn phí\n` +
+        `Học bơi lớp nhóm (12 buổi) 1.2tr + 1 tháng bể — lớp nhỏ, tiết kiệm hơn\n` +
+        `Bơi NL fulltime 12 tháng 5tr — sau khi biết bơi, tập tự do cả năm`,
+      "suc-khoe":
+        `Full 12 tháng 7tr (~19k/ngày) — Gym + Bơi + Yoga + Zumba 1 thẻ, toàn diện nhất\n` +
+        `Full 6 tháng 4.5tr — đủ 4 dịch vụ, thử 6 tháng trước\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — chỉ gym nếu muốn đơn giản`,
+    };
+    const concretePackages =
+      goalPackages[goal] ??
+      `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
+
     return `[EXAMPLE_STRUCTURE — BUILD VALUE RỒI MỚI GIÁ]
 ⚠️ TUYỆT ĐỐI KHÔNG dùng **bold** hay *italic* — TEXT THUẦN TÚY như nhắn Zalo
-⚠️ KHÔNG khen giả: "không gian thoải mái sẽ giúp", "mục tiêu đó rất hay", "Với mục tiêu X, [cơ sở Y] sẽ giúp..."
+⚠️ KHÔNG khen giả: "không gian thoải mái sẽ giúp", "Với mục tiêu X, [cơ sở Y] sẽ giúp..."
 ⚠️ Value phải CỤ THỂ theo goal, KHÔNG generic
 ⚠️ ${specificHint}
 
-SAI (generic + markdown + khen giả):
-"Với mục tiêu ${goal} của ${h}, không gian thoải mái sẽ giúp tập hiệu quả hơn.
-Có mấy gói: **Gói 12 tháng**: 7tr..."
+SAI (bỏ giá + sai thứ tự + "12 tháng = thử trước"):
+"Gói Full 12 tháng — cho phép ${h} tập gym và bơi thoải mái...
+Gói 3 buổi/tuần 6 tháng — duy trì đều đặn mà không quá áp lực...
+Gói 3 buổi/tuần 12 tháng — nếu ${h} muốn thử trước..."
 
-ĐÚNG (structure):
-"[1-2 câu nhấn điểm khác biệt CỤ THỂ của ${svc} cho mục tiêu ${goal} — không phải generic]
+ĐÚNG (value cụ thể + giá thật + thứ tự cao→vừa→nhẹ):
+"[1-2 câu nhấn điểm khác biệt CỤ THỂ của ${svc} cho mục tiêu ${goal}]
 
 Có mấy hướng cho ${h}:
-[tên gói mô tả ngắn] [giá] — [lý do phù hợp mục tiêu ${goal}]
-[tên gói 2] [giá] — [mô tả ngắn]
-[tên gói 3] [giá] — nếu ${h} muốn thử trước
+${concretePackages}
 
-Hội viên mục tiêu ${goal} thường chọn [gói phổ biến] nhất ${h}.
-[câu hỏi dẫn dắt về lịch / số buổi]"
+Hội viên ${goal} hay chọn [gói đầu tiên] nhất.
+[câu hỏi giờ/lịch đến InBody — KHÔNG hỏi 'muốn đăng ký không']"
 
-GIÁ PHẢI ĐÚNG THEO BẢNG GIÁ. KHÔNG liệt kê khô — mỗi gói cần 1 lý do gắn với mục tiêu ${goal}.`;
+BẮT BUỘC: mỗi gói PHẢI có giá — thiếu giá là sai. Thứ tự: cao → vừa → nhẹ.`;
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
