@@ -82,8 +82,11 @@ async function handleMessage(senderId: string, text: string) {
     };
 
     reply = reply
-      .replace(/\d+\.\s*!\[.*?\]\(.*?\)\s*/g, "")
-      .replace(/https?:\/\/[^\s\)"]+/g, "")
+      .replace(/!\[.*?\]\(.*?\)/g, "")              // xóa ![](url) kể cả url rỗng
+      .replace(/\d+\.\s*\[.*?\]\(.*?\)\s*/g, "")   // xóa "4. [text](url)"
+      .replace(/\[.*?\]\(.*?\)/g, "")               // xóa [text](url) còn sót
+      .replace(/https?:\/\/[^\s\)"]+/g, "")         // xóa URL thuần
+      .replace(/\n{3,}/g, "\n\n")                   // clean khoảng trắng thừa
       .trim();
 
     console.log(`[fb] sending reply: "${reply}"`);
