@@ -541,7 +541,7 @@ SAI (bán gói quá sớm):
 "Với tình trạng của ${h}, em gợi: CS-VIP 2 × 10 buổi (3.8tr)..."
 
 ĐÚNG (gọi get-media TRƯỚC rồi mới viết text):
-"[Hình ảnh hóa vùng ${pain}${duration ? ` đã ${duration}` : ""}: sợi guitar căng quá / cầu dao điện bị kẹt / cuộn len rối — dùng cái phù hợp nhất]
+"Hãy dùng hình ảnh hóa vùng ${pain}${duration ? ` đã ${duration}` : ""}: sợi guitar căng quá / cầu dao điện bị kẹt / cuộn len rối — dùng cái phù hợp nhất
 
 ${contrastText}
 
