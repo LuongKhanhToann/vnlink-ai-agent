@@ -9,6 +9,7 @@
  *   - Discovery: hỏi mục tiêu / context TRƯỚC khi show giá
  *   - Evaluation: BUILD VALUE (điểm khác biệt + cảm xúc) TRƯỚC khi list gói
  *   - Giá chỉ xuất hiện SAU khi đã có narrative
+ *   - Tất cả tactic chỉ là hướng dẫn nội bộ, agent không được lặp lại nguyên văn ra cho khách
  */
 
 import { Stage, Emotion, Flow } from "./stateMachine";
@@ -21,8 +22,8 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
 
   // ── OPENING ──────────────────────────────────────────
   opening_neutral:
-    "Chào ngắn 1 câu. Hỏi ngay dịch vụ quan tâm hoặc mục tiêu. " +
-    "KHÔNG dùng dấu '?' riêng dòng — kết bằng 'nha' hoặc 'ạ'. KHÔNG giới thiệu dài dòng.",
+    "Chào ngắn, tự nhiên và lễ phép. Hỏi ngay dịch vụ quan tâm hoặc mục tiêu. " +
+    "Không viết dài, không lên giọng bán hàng, không dùng dấu chấm hỏi trong câu mẫu.",
   opening_excited:
     "Match nhẹ năng lượng. Hỏi ngay dịch vụ quan tâm hoặc mục tiêu.",
   opening_hesitant:
@@ -40,13 +41,10 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
   // TUYỆT ĐỐI KHÔNG báo giá ở stage này khi chưa có schedule/số buổi.
   // KHÔNG giới thiệu trung tâm dài dòng — chỉ confirm và hỏi tiếp.
   discovery_neutral:
-    "Đã biết serviceType + fitnessGoal → KHÔNG giới thiệu trung tâm, KHÔNG show gói, KHÔNG báo giá. " +
-    "Chỉ cần: xác nhận ngắn 1 câu ('dạ, giảm mỡ thì [h] tập gym là hợp lý rồi ạ') " +
-    "rồi hỏi 1 câu context tiếp theo — ưu tiên theo thứ tự: " +
-    "1. Chưa biết schedule → 'Chị hay tập vào khung giờ nào, sáng hay chiều tối ạ' " +
-    "2. Chưa biết số buổi/tuần → 'Chị định tập mấy buổi một tuần?' " +
-    "3. Chưa biết memberType → 'Chị tập cùng gia đình hay cá nhân thôi?' " +
-    "Giữ câu xác nhận tự nhiên, ngắn, KHÔNG overload thông tin.",
+    "Đã biết serviceType + fitnessGoal thì chỉ xác nhận ngắn, mềm và tự nhiên. " +
+    "Không giới thiệu dài, không show gói, không báo giá. " +
+    "Hỏi tiếp đúng 1 ý context theo thứ tự ưu tiên: schedule → số buổi → memberType. " +
+    "Giữ giọng gần gũi, có thể dùng dạ, vâng, ạ, nha đúng nhịp. Không dùng dấu chấm hỏi trong câu mẫu.",
   discovery_excited:
     "Match nhẹ. Xác nhận ngắn + hỏi ngay 1 câu context (schedule hoặc số buổi). KHÔNG show gói, KHÔNG báo giá.",
   discovery_anxious:
@@ -63,10 +61,9 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
   // TUYỆT ĐỐI KHÔNG show gói/giá ở bước này.
   // Thứ tự: (1) xác nhận lịch tập 1 câu → (2) pitch Inbody → (3) câu mời nhẹ
   inbody_neutral:
-    "Xác nhận lịch tập ngắn 1 câu (dùng thông tin schedule đã biết). " +
-    "Sau đó pitch Inbody: 'Bên em đo Inbody miễn phí lần đầu — HLV phân tích mỡ/cơ tư vấn lộ trình luôn nha'. " +
-    "Kết bằng câu mời nhẹ tự nhiên: '[H] qua thử 1 buổi trước cho dễ chọn gói nha'. " +
-    "TUYỆT ĐỐI KHÔNG show gói/giá ở tin này.",
+    "Xác nhận lịch tập bằng 1 câu ngắn, mềm. " +
+    "Sau đó nhắc InBody miễn phí lần đầu như một lợi thế giúp khách yên tâm hơn. " +
+    "Kết bằng lời mời nhẹ, tự nhiên, không ép. Tuyệt đối không show gói hoặc giá ở tin này.",
   inbody_excited:
     "Match năng lượng ngắn. Xác nhận lịch + pitch Inbody nhanh. " +
     "Dùng social proof: 'Hội viên đo xong thường chọn gói chuẩn hơn hẳn'. KHÔNG show giá.",
@@ -135,10 +132,9 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
 
   // ── COMMITMENT ───────────────────────────────────────
   commitment_neutral:
-    "Hỏi GỘP 1 câu duy nhất để lấy đủ 3 thứ: tên + SĐT + khung giờ (sáng/chiều/tối). " +
-    "KHÔNG tách ra hỏi từng thứ riêng lẻ. " +
-    "Sau khi đủ 3 thứ: XÁC NHẬN 1 câu ngắn ('Em giữ slot [giờ] cho [tên] rồi nha') rồi DỪNG HẲN. " +
-    "KHÔNG hỏi thêm bất cứ điều gì. KHÔNG gợi cọc/QR trừ khi khách tự hỏi.",
+    "Hỏi gộp tên, SĐT và khung giờ trong 1 câu duy nhất. " +
+    "Giọng nhẹ, lịch sự và gọn. Khi đủ thông tin thì xác nhận 1 câu ngắn rồi dừng hẳn. " +
+    "Không hỏi thêm gì và không gợi cọc hoặc QR nếu khách chưa hỏi.",
   commitment_excited:
     "Hỏi GỘP nhanh: tên + SĐT + sáng/chiều/tối. Xác nhận ngắn rồi dừng.",
   commitment_anxious:
@@ -188,8 +184,8 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
 
   // ── OPENING ──────────────────────────────────────────
   opening_neutral:
-    "Chào ngắn, hỏi ngay: 'Anh/chị đang cảm thấy khó chịu ở vùng nào nhất'. " +
-    "KHÔNG báo giá ngay khi chưa hỏi về vùng đau.",
+    "Chào ngắn, nhẹ và lễ phép rồi hỏi ngay vùng khó chịu nhất. " +
+    "Không báo giá khi chưa biết vùng đau.",
   opening_excited:
     "Match nhẹ. Hỏi ngay vùng đau hoặc mục tiêu phục hồi.",
   opening_hesitant:
@@ -205,15 +201,8 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
   // Thứ tự BẮT BUỘC: painArea → painSpread → painDuration → pastMethod
   // Mỗi bước = 1 câu hỏi, KHÔNG hỏi dồn
   discovery_neutral:
-    "Hỏi tuần tự — 1 câu mỗi lần, KHÔNG hỏi dồn: " +
-    "BƯỚC 1: Chưa biết painArea → hỏi vùng đau " +
-    "BƯỚC 2: Biết painArea, chưa biết painSpread → hỏi: 'đau lan ra xung quanh hay một điểm cố định thôi ạ?' " +
-    "BƯỚC 3: Biết painSpread, chưa biết painDuration → hỏi: 'cơn đau này đã bao lâu rồi / hay nhắc nhở lúc nào nhất?' " +
-    "BƯỚC 4: Chưa biết pastMethod → HỎI BẮT BUỘC: 'Trước giờ anh/chị có đi massage hay dùng thuốc chưa — đỡ được lâu không?' " +
-    "   pastMethod là bước mở khóa contrast quan trọng nhất — dùng câu trả lời để dẫn dắt: " +
-    "   đã massage → 'Đúng, massage làm mềm bề mặt tạm thời, nhưng nút thắt sâu vẫn còn' " +
-    "   chưa thử → 'Vậy là chỗ này chưa được xử lý kỹ lần nào' " +
-    "TUYỆT ĐỐI KHÔNG hỏi BƯỚC 4 trước khi biết painSpread. KHÔNG báo giá khi chưa có pastMethod.",
+    "Hỏi tuần tự, mỗi lần chỉ 1 câu, không hỏi dồn. Thứ tự bắt buộc là painArea → painSpread → painDuration → pastMethod. " +
+    "Giữ giọng nhẹ, có tính trò chuyện, tránh làm khách thấy đang bị tra hỏi. Không báo giá khi chưa có pastMethod.",
   discovery_anxious:
     "Hỏi nhẹ vùng đau. Trấn an: 'KTV điều chỉnh lực theo ngưỡng chịu đựng'. " +
     "Khi có painArea → hỏi nhẹ pastMethod: 'Anh/chị đã thử massage chưa ạ'. KHÔNG báo giá.",
@@ -227,18 +216,9 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
   // Flow chuẩn: Pain → Chronic → Past Method → Visualize → Booking (1 buổi trước)
   // Sau buổi 1, HLV lên lộ trình 10 buổi tại chỗ — KHÔNG bán 10-buổi qua chat ngay.
   evaluation_neutral:
-    "THỨ TỰ BẮT BUỘC — visualize TRƯỚC, booking single session SAU: " +
-    "(1) Dùng hình ảnh hóa phù hợp vùng đau (cầu dao điện / sợi guitar căng / cuộn len rối). " +
-    "(2) CONTRAST với pastMethod đã biết: " +
-    "   pastMethod=massage → 'Massage làm mềm bề mặt nhất thời — nút thắt sâu vẫn còn, đó là lý do đỡ rồi lại đau' " +
-    "   pastMethod=chua-thu → 'Chỗ này chưa được xử lý kỹ lần nào — để lâu dễ cứng hơn, xử lý sớm sẽ nhanh đỡ' " +
-    "   pastMethod=thuoc → 'Thuốc giảm viêm bề mặt nhưng không gỡ được điểm kích hoạt bên trong' " +
-    "(3) VẼ VIỄN CẢNH SAU KHI GỠ: 'Sáng dậy không còn cảm giác khựng / cứng cổ nữa'. " +
-    "(4) Chỉ mời THỬ 1 BUỔI TRƯỚC — KHÔNG show gói 10 buổi ngay lần đầu. " +
-    "   'Bên em có kỹ thuật viên làm trị liệu cơ khá kỹ — anh/chị thử 1 buổi trước rồi xem hợp không nha'. " +
-    "(5) Chốt lịch bằng Double Alternative: 'Sáng hay chiều tiện hơn cho anh/chị'. " +
-    "KHÔNG show bảng giá 3 gói. Không làm khách cảm thấy đang bị bán. " +
-    "CHỈ hỏi giữ slot 1 LẦN DUY NHẤT trong cả cuộc trò chuyện — lặp lại nhiều lần nghe như ép chốt.",
+    "Flow bắt buộc là hình dung vấn đề → contrast với cách cũ → vẽ viễn cảnh dễ chịu hơn → mời thử 1 buổi trước. " +
+    "Giữ giọng chuyên môn nhưng mềm, dễ hiểu và không gây áp lực. " +
+    "Không show bảng giá 3 gói ngay lần đầu và chỉ hỏi giữ slot 1 lần trong cả cuộc trò chuyện.",
   evaluation_anxious:
     "Giải thích quy trình 1 buổi cụ thể: KTV điều chỉnh lực, hỏi ngưỡng, không đau quá mức. " +
     "Dùng hình ảnh hóa nhẹ. Mời thử 1 buổi — không đề cập gói dài hạn. " +

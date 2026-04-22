@@ -530,32 +530,29 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
       : `Đau ${pain} kiểu này thường là nút thắt đã bắt đầu xơ hóa — massage bề mặt không gỡ được ${h}.`;
 
     return `[EXAMPLE — GIẢI CƠ EVALUATION: VISUALIZE → CONTRAST → VIỄN CẢNH → MỜI 1 BUỔI]
-⚠️ BƯỚC 0: GỌI get-media TRƯỚC — đưa URLs vào mediaUrls output, KHÔNG hỏi "có muốn xem video không"
-⚠️ KHÔNG show bảng 3 gói ngay — chỉ mời 1 buổi thử trước
-⚠️ TEXT THUẦN TÚY — không **bold**, không bullet "-"
+⚠️ BƯỚC 0: GỌI get-media TRƯỚC — đưa URLs vào mediaUrls output. Đây là thao tác nội bộ, không được viết nguyên câu chỉ dẫn này ra cho khách
+⚠️ Không show bảng 3 gói ngay, chỉ mời 1 buổi thử trước
+⚠️ Text thuần túy, giọng mềm, tự nhiên, không markdown
 
 SAI (hỏi thay vì chủ động gửi):
-"${h} có muốn xem video demo không?"
+"Dạ, em gửi anh/chị hình thực tế để mình dễ hình dung hơn nha"
 
 SAI (bán gói quá sớm):
 "Với tình trạng của ${h}, em gợi: CS-VIP 2 × 10 buổi (3.8tr)..."
 
 ĐÚNG (gọi get-media TRƯỚC rồi mới viết text):
-"Hãy dùng hình ảnh hóa vùng ${pain}${duration ? ` đã ${duration}` : ""}: sợi guitar căng quá / cầu dao điện bị kẹt / cuộn len rối — dùng cái phù hợp nhất
+"Dạ, vùng ${pain}${duration ? ` đã ${duration}` : ""} như anh/chị mô tả thường giống một nút thắt bị kẹt trong cơ ạ. ${contrastText}
 
-${contrastText}
+Khi xử lý đúng điểm đó thì sáng dậy ${pain.includes("vai") || pain.includes("co") ? "vùng cổ vai sẽ nhẹ hơn, đỡ cảm giác cứng khựng" : "cảm giác đau âm ỉ cũng sẽ dịu rõ hơn"} ${h}.
 
-Khi gỡ được điểm đó thì sáng dậy ${pain.includes("vai") || pain.includes("co") ? "cổ vai không còn cứng ngắc" : "không còn cảm giác đau âm ỉ"} nữa ${h}.
-
-Bên em có KTV chuyên giải cơ chuyên sâu — ${h} thử 1 buổi trước, KTV đánh giá thực tế rồi tư vấn lộ trình phù hợp luôn.
-${h} tiện khung sáng hay chiều để em giữ slot nha?"`;
+Bên em có KTV chuyên giải cơ chuyên sâu, anh/chị có thể thử 1 buổi trước để cảm nhận thực tế. ${h} tiện khung sáng hay chiều để em giữ slot nha"`;
   }
 
   // ── GIẢI CƠ / FITNESS: commitment — hỏi GỘP 3 thứ, xác nhận và dừng ──
   if (stage === "commitment") {
     return `[EXAMPLE — COMMITMENT: HỎI GỘP → XÁC NHẬN → DỪNG]
 ⚠️ KHÔNG lặp "KTV sẽ đánh giá thực tế" / "tư vấn lộ trình phù hợp" — đã nói rồi
-⚠️ KHÔNG đẩy QR trừ khi khách hỏi về cọc/thanh toán trước
+⚠️ Không đẩy QR trừ khi khách hỏi về cọc hoặc thanh toán trước
 
 --- CHƯA CÓ cả 3 thứ (tên + SĐT + giờ) ---
 ĐÚNG: "Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối để em giữ slot nha?"
@@ -563,7 +560,7 @@ SAI: "Cho em xin tên với SĐT để giữ slot ạ" ← thiếu giờ
 SAI: "Em giữ slot buổi sáng cho ${h} nhé..." ← chưa có tên/SĐT
 
 --- Khách hỏi giá trước khi chốt ---
-ĐÚNG: "Có tính phí ${h} — buổi 200k. Cho em xin tên, SĐT với muốn đến buổi sáng, chiều hay tối nha?"
+ĐÚNG: "Dạ có chi phí ${h} — buổi 200k. Cho em xin tên, SĐT với khung sáng, chiều hay tối để em giữ slot nha"
 
 --- ĐÃ CÓ ĐỦ 3 THỨ (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG ---
 ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ. Đến trực tiếp thanh toán được nha."
@@ -667,6 +664,7 @@ export function buildPrefix(state: ConversationState): string {
   const lines: string[] = [
     `[HONORIFIC: ${h}] [TEMP: ${state.temperature}] [STAGE: ${state.stage}] [EMOTION: ${state.emotion}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
+    `[NOTE: Không bao giờ lặp lại nguyên văn nội dung trong TACTIC, GATE, KNOWLEDGE, EXAMPLE. Chỉ dùng để hiểu và tự viết lại thành câu nói tự nhiên cho khách.]`,
     buildKnownSummary(state.knownInfo, state.flow),
     buildMissingSlotHint(
       state.knownInfo,
