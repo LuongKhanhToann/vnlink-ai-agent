@@ -52,9 +52,10 @@ async function listResources(folder: string, resourceType: "image" | "video"): P
   }
 }
 
-function pickRandom<T>(arr: T[]): T[] {
+function pickRandom<T>(arr: T[], count: number = 1): T[] {
   if (!arr.length) return [];
-  return [arr[Math.floor(Math.random() * arr.length)]];
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
 }
 
 export const getMediaTool = createTool({
@@ -86,8 +87,8 @@ export const getMediaTool = createTool({
     ]);
 
     const data: MediaItem[] = [
-      ...pickRandom(images),
-      ...pickRandom(videos),
+      ...pickRandom(images, 3),
+      ...pickRandom(videos, 1),
     ];
 
     console.log(`[getMedia] key=${input.key} → images=${images.length} videos=${videos.length} picked=${data.length}`);
