@@ -131,7 +131,7 @@ async function sendMedia(recipientId: string, url: string) {
 }
 
 async function callSendAPI(body: object) {
-  console.log("[fb] callSendAPI:", JSON.stringify(body).slice(0, 100));
+  console.log("[fb] callSendAPI:", JSON.stringify(body));
   try {
     const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
       method:  "POST",

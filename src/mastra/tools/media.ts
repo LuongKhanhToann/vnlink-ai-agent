@@ -45,6 +45,7 @@ async function listResources(folder: string, resourceType: "image" | "video"): P
     _cache[cacheKey] = { items, ts: now };
     return items;
   } catch (e: unknown) {
+    console.error(`[getMedia] raw error:`, JSON.stringify(e), e);
     const err = e as { http_code?: number; message?: string };
     console.error(`[getMedia] error (${folder}, ${resourceType}):`, err?.message);
     return [];
