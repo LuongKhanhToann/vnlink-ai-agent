@@ -247,7 +247,9 @@ export function computeNextStage(
     return "commitment";
   }
 
-  // Opening → Discovery
+  // Opening → Discovery (hoặc xa hơn nếu slots đã đủ điều kiện)
+  // Multi-step: nếu khách cung cấp đủ info ngay tin đầu, nhảy thẳng đến stage phù hợp
+  // thay vì buộc phải đi qua discovery một lượt rỗng.
   if (currentStage === "opening") {
     if (
       info.serviceType !== null ||
@@ -255,7 +257,7 @@ export function computeNextStage(
       info.fitnessGoal !== null ||
       intent !== "explore"
     ) {
-      return "discovery";
+      return computeNextStage("discovery", info, intent, flow, llmSuggestedStage, turnCount);
     }
     return "opening";
   }
@@ -266,16 +268,27 @@ export function computeNextStage(
     const giaiCoReady  = flow === "giai-co" && giaiCoReadyForEvaluation(info, intent);
 
     if (fitnessReady || giaiCoReady) {
-      // GUARD — tin đầu tiên (turnCount <= 1): luôn giữ ở discovery
-      // trừ khi khách đã chủ động chọn gói / sẵn sàng đăng ký (selecting/ready).
-      // Ngăn trường hợp LLM classifier phân loại "tăng cơ giảm mỡ" = "compare"
-      // rồi nhảy thẳng vào evaluation khi chưa hỏi schedule / số buổi.
-      if (turnCount <= 1 && intent !== "selecting" && intent !== "ready") {
+      // GUARD — tin đầu tiên (turnCount <= 1): giữ ở discovery NẾU chưa có thông tin cốt lõi.
+      // Bypass guard khi slots cốt lõi đã đầy đủ (khách cung cấp hết 1 lần).
+      const coreSlotsFilled =
+        (flow === "giai-co" && info.preferredTime !== null) ||
+        (flow === "fitness" &&
+          info.serviceType !== null &&
+          (info.fitnessGoal !== null || info.memberType !== null || info.schedule !== null));
+
+      if (turnCount <= 1 && intent !== "selecting" && intent !== "ready" && !coreSlotsFilled) {
         return "discovery";
       }
+      // Giải cơ: khách đã báo giờ + chủ động đặt lịch → thẳng commitment, skip evaluation pitch
+      if (flow === "giai-co" && (intent === "selecting" || intent === "ready") && info.preferredTime !== null) {
+        return "commitment";
+      }
+      // Fitness: khách chủ động chọn gói / đăng ký → thẳng commitment
+      if (flow === "fitness" && (intent === "selecting" || intent === "ready")) {
+        return "commitment";
+      }
       // Fitness: mandatory Inbody funnel trước khi show gói
-      // Chỉ skip nếu khách đã chọn cụ thể (selecting/ready) — họ biết muốn gì rồi
-      if (flow === "fitness" && intent !== "selecting" && intent !== "ready") {
+      if (flow === "fitness") {
         return "inbody";
       }
       return "evaluation";
@@ -294,10 +307,14 @@ export function computeNextStage(
 
   // Evaluation → Negotiation / Commitment
   if (currentStage === "evaluation") {
-    // Giải cơ: khách báo giờ = đồng ý thử 1 buổi → commitment LUÔN (kể cả khi intent=selecting)
-    // "sáng nha", "chiều được", "9h" đều là tín hiệu book lịch, không phải chọn gói
-    if (flow === "giai-co" && info.preferredTime !== null) {
-      console.log(`[stateMachine] giai-co evaluation → commitment (preferredTime=${info.preferredTime})`);
+    // Giải cơ: commit khi khách đã cung cấp tên + SĐT — tức là evaluation pitch đã xảy ra xong
+    if (flow === "giai-co" && info.name !== null && info.phone !== null) {
+      console.log(`[stateMachine] giai-co evaluation → commitment (name/phone filled)`);
+      return "commitment";
+    }
+    // Giải cơ: intent cao + báo giờ → skip thẳng commitment (khách chủ động đặt lịch)
+    if (flow === "giai-co" && (intent === "selecting" || intent === "ready") && info.preferredTime !== null) {
+      console.log(`[stateMachine] giai-co evaluation → commitment (high intent + preferredTime=${info.preferredTime})`);
       return "commitment";
     }
 

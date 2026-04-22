@@ -93,17 +93,26 @@ export function buildLogicGate(state: ConversationState): string {
 
   // ── FITNESS: evaluation — nhắc build value trước ──
   if (flow === "fitness" && stage === "evaluation") {
-    const goalCtx = knownInfo.fitnessGoal
-      ? `mục_tiêu=${knownInfo.fitnessGoal}`
-      : "chưa có mục tiêu";
-    const svcCtx = knownInfo.serviceType
-      ? `dịch_vụ=${knownInfo.serviceType}`
-      : "";
-    hints.push(
-      `[GATE: evaluation — ${svcCtx} ${goalCtx}. ` +
-        "BẮT BUỘC: nhấn điểm khác biệt của dịch vụ phù hợp mục tiêu TRƯỚC, " +
-        "SAU ĐÓ mới gợi tối đa 3 gói có narrative. KHÔNG liệt kê giá thẳng.]",
-    );
+    // Khách chủ động chọn/đăng ký → skip pitch, hỏi ngay tên/SĐT
+    if (intent === "selecting" || intent === "ready") {
+      hints.push(
+        "[GATE: khách đã sẵn sàng đăng ký. KHÔNG pitch thêm gói — " +
+          "hỏi ngay tên và SĐT: 'Cho em xin tên với SĐT để giữ slot nha?' " +
+          "TUYỆT ĐỐI không giới thiệu lại dịch vụ hay giá ở tin này.]",
+      );
+    } else {
+      const goalCtx = knownInfo.fitnessGoal
+        ? `mục_tiêu=${knownInfo.fitnessGoal}`
+        : "chưa có mục tiêu";
+      const svcCtx = knownInfo.serviceType
+        ? `dịch_vụ=${knownInfo.serviceType}`
+        : "";
+      hints.push(
+        `[GATE: evaluation — ${svcCtx} ${goalCtx}. ` +
+          "BẮT BUỘC: nhấn điểm khác biệt của dịch vụ phù hợp mục tiêu TRƯỚC, " +
+          "SAU ĐÓ mới gợi tối đa 3 gói có narrative. KHÔNG liệt kê giá thẳng.]",
+      );
+    }
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
@@ -153,6 +162,7 @@ export function buildLogicGate(state: ConversationState): string {
     );
   }
 
+
   // ── GIẢI CƠ: đã biết vùng đau + pastMethod, đang evaluation ──
   if (
     flow === "giai-co" &&
@@ -187,13 +197,29 @@ export function buildLogicGate(state: ConversationState): string {
       mediaKey = "mr-sport";
     }
 
-    hints.push(
-      `[GATE: evaluation — vùng_đau=${knownInfo.painArea}, ${durationCtx}, ${methodCtx}. ` +
-        `BƯỚC 0 (BẮT BUỘC): gọi tool get-media với key="${mediaKey}" TRƯỚC KHI viết response — ` +
-        "đưa URLs vào output mediaUrls để Facebook gửi kèm. " +
-        "BẮT BUỘC tiếp theo: (1) hình ảnh hóa vùng đó → (2) contrast với pastMethod đã biết → (3) vẽ viễn cảnh sau khi gỡ → " +
-        "(4) CHỈ mời 1 buổi thử + chốt lịch. KHÔNG show bảng gói 3 dòng ngay lần đầu.]",
-    );
+    // Khách đã đồng ý + báo giờ → bỏ qua pitch, hỏi ngay tên/SĐT
+    if ((intent === "selecting" || intent === "ready") && knownInfo.preferredTime !== null) {
+      hints.push(
+        `[GATE: khách đã xác nhận đặt lịch buổi ${knownInfo.preferredTime}. ` +
+          "KHÔNG pitch lại — xác nhận ngắn 1 câu rồi hỏi ngay tên và SĐT: " +
+          "'Để em giữ slot [giờ] cho anh/chị, cho em xin tên với SĐT nha?' " +
+          "TUYỆT ĐỐI không lặp lại nội dung tư vấn đã nói.]",
+      );
+    } else {
+      const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
+      const closingInstruction = hasContact
+        ? `đã có tên=${knownInfo.name} và SĐT — KHÔNG hỏi lại tên/SĐT. Sau pitch xác nhận ngắn 1 câu ('Em giữ slot ${knownInfo.preferredTime ?? "..."} cho ${knownInfo.name} rồi ạ') rồi dừng`
+        : knownInfo.preferredTime
+          ? `đã biết giờ=${knownInfo.preferredTime} — sau khi pitch xong KẾT THÚC bằng xin tên/SĐT ('Để em giữ slot ${knownInfo.preferredTime} cho anh, cho em xin tên với SĐT nha'). TUYỆT ĐỐI không hỏi lại giờ`
+          : "sau khi pitch xong hỏi giờ muốn đến (sáng/chiều/tối) và xin tên/SĐT trong 1 câu gộp";
+      hints.push(
+        `[GATE: evaluation — vùng_đau=${knownInfo.painArea}, ${durationCtx}, ${methodCtx}. ` +
+          `BƯỚC 0 (BẮT BUỘC): gọi tool get-media với key="${mediaKey}" TRƯỚC KHI viết response — ` +
+          "đưa URLs vào output mediaUrls để Facebook gửi kèm. " +
+          "BẮT BUỘC tiếp theo: (1) hình ảnh hóa vùng đó → (2) contrast với pastMethod đã biết → (3) vẽ viễn cảnh sau khi gỡ → " +
+          `(4) CHỈ mời 1 buổi thử — ${closingInstruction}. KHÔNG show bảng gói 3 dòng ngay lần đầu.]`,
+      );
+    }
   }
 
   // ── COMMITMENT: chốt lịch ──
@@ -529,10 +555,19 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
         `Phương pháp trước chỉ xử lý bề mặt — giải cơ chuyên sâu đi vào tận lớp cơ sâu ${h}.`)
       : `Đau ${pain} kiểu này thường là nút thắt đã bắt đầu xơ hóa — massage bề mặt không gỡ được ${h}.`;
 
+    const preferredTime = knownInfo.preferredTime;
+    const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
+    const closingLine = hasContact
+      ? `Em giữ slot ${preferredTime ?? "..."} cho ${knownInfo.name} rồi ạ`
+      : preferredTime
+        ? `Để em giữ slot ${preferredTime} cho ${h}, cho em xin tên với SĐT nha`
+        : `${h} tiện khung sáng hay chiều để em giữ slot — cho em xin tên với SĐT luôn nha`;
+
     return `[EXAMPLE — GIẢI CƠ EVALUATION: VISUALIZE → CONTRAST → VIỄN CẢNH → MỜI 1 BUỔI]
 ⚠️ BƯỚC 0: GỌI get-media TRƯỚC — đưa URLs vào mediaUrls output. Đây là thao tác nội bộ, không được viết nguyên câu chỉ dẫn này ra cho khách
 ⚠️ Không show bảng 3 gói ngay, chỉ mời 1 buổi thử trước
 ⚠️ Text thuần túy, giọng mềm, tự nhiên, không markdown
+⚠️ ĐÃ BIẾT giờ-muốn=${preferredTime ?? "chưa có"} — ${preferredTime ? "KHÔNG hỏi giờ lại, kết bằng xin tên/SĐT" : "hỏi giờ ở cuối"}
 
 SAI (hỏi thay vì chủ động gửi):
 "Dạ, em gửi anh/chị hình thực tế để mình dễ hình dung hơn nha"
@@ -540,12 +575,15 @@ SAI (hỏi thay vì chủ động gửi):
 SAI (bán gói quá sớm):
 "Với tình trạng của ${h}, em gợi: CS-VIP 2 × 10 buổi (3.8tr)..."
 
+SAI (hỏi lại giờ khi đã biết giờ rồi):
+"${h} tiện khung sáng hay chiều để em giữ slot nha" ← đã biết giờ=${preferredTime ?? "?"}, đừng hỏi lại
+
 ĐÚNG (gọi get-media TRƯỚC rồi mới viết text):
 "Dạ, vùng ${pain}${duration ? ` đã ${duration}` : ""} như anh/chị mô tả thường giống một nút thắt bị kẹt trong cơ ạ. ${contrastText}
 
 Khi xử lý đúng điểm đó thì sáng dậy ${pain.includes("vai") || pain.includes("co") ? "vùng cổ vai sẽ nhẹ hơn, đỡ cảm giác cứng khựng" : "cảm giác đau âm ỉ cũng sẽ dịu rõ hơn"} ${h}.
 
-Bên em có KTV chuyên giải cơ chuyên sâu, anh/chị có thể thử 1 buổi trước để cảm nhận thực tế. ${h} tiện khung sáng hay chiều để em giữ slot nha"`;
+Bên em có KTV chuyên giải cơ chuyên sâu, anh/chị có thể thử 1 buổi trước để cảm nhận thực tế. ${closingLine}"`;
   }
 
   // ── GIẢI CƠ / FITNESS: commitment — hỏi GỘP 3 thứ, xác nhận và dừng ──

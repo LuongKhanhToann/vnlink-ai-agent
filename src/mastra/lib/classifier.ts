@@ -184,7 +184,7 @@ SLOTS cho giai-co:
                   "thứ 4" → "thu-4"
 
 SLOTS chung:
-  name  = họ tên đầy đủ
+  name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào)
   phone = số điện thoại
 
 Chỉ extract ${missingSlots.length > 0 ? missingSlots.join(", ") : "— không cần extract"} — để null nếu không đề cập.`;
