@@ -132,12 +132,21 @@ async function sendMedia(recipientId: string, url: string) {
 
 async function callSendAPI(body: object) {
   console.log("[fb] callSendAPI:", JSON.stringify(body));
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+    console.error("[fb] callSendAPI TIMEOUT after 15s");
+  }, 15000);
+
   try {
     const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(body),
+      signal:  controller.signal,
     });
+    clearTimeout(timeout);
 
     const responseText = await res.text();
     if (!res.ok) {
@@ -146,6 +155,7 @@ async function callSendAPI(body: object) {
       console.log(`[fb] Graph API ok ${res.status}:`, responseText);
     }
   } catch (e) {
+    clearTimeout(timeout);
     console.error("[fb] fetch exception:", e);
   }
 }
