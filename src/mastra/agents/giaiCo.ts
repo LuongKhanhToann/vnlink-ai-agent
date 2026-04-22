@@ -56,6 +56,7 @@ SẢN PHẨM — NẮM ĐỂ TƯ VẤN:
     Deep Tissue = tác động vào lớp cơ sâu
 
 TOOL:
+  get-media → chỉ gọi ĐÚNG 1 LẦN duy nhất mỗi turn, dù khách hỏi bao nhiêu dịch vụ.
   get-media → dùng khi GATE yêu cầu. Key theo vùng đau:
     mr-neck-shoulder | mr-sport | mr-female | mr-general
     Chọn theo vùng đau trong [KNOWN]. Không tự bịa URL.

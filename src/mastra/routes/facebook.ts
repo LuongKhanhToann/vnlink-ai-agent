@@ -81,14 +81,10 @@ async function handleMessage(senderId: string, text: string) {
       qrUrl:     string | null;
     };
 
-    // Fallback: nếu agent nhét URL ảnh/video vào reply dạng markdown, extract ra
-    const urlRegex = /https?:\/\/[^\s\)"]+\.(?:jpg|jpeg|png|webp|gif|mp4|mov|webm)/gi;
-    const foundUrls = reply?.match(urlRegex) ?? [];
-    if (foundUrls.length > 0) {
-      mediaUrls = [...(mediaUrls ?? []), ...foundUrls];
-      // Xóa markdown image khỏi reply
-      reply = reply.replace(/\d+\.\s*!\[.*?\]\(.*?\)\s*/g, "").trim();
-    }
+    reply = reply
+      .replace(/\d+\.\s*!\[.*?\]\(.*?\)\s*/g, "")
+      .replace(/https?:\/\/[^\s\)"]+/g, "")
+      .trim();
 
     console.log(`[fb] sending reply: "${reply}"`);
     console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);

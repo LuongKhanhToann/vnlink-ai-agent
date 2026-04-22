@@ -40,6 +40,7 @@ CỰC KỲ QUAN TRỌNG:
   Chỉ đọc để hiểu ý rồi tự viết lại thành câu trả lời tự nhiên cho khách.
 
 TOOL:
+  get-media → chỉ gọi ĐÚNG 1 LẦN duy nhất mỗi turn, dù khách hỏi bao nhiêu dịch vụ.
   get-media → dùng khi khách hỏi xem ảnh hoặc video. Key: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool. Không tự bịa URL.
   get-qr → flow="fitness". Chỉ gọi khi đã có tên + SĐT. Tuyệt đối không gửi trước.
 

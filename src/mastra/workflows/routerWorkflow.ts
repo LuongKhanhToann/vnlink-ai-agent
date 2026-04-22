@@ -172,8 +172,8 @@ async function updateStateFlags(
 
 const STRUCTURED_OUTPUT_INSTRUCTIONS =
   "Trích xuất phản hồi vào các trường sau:\n" +
-  "- 'text': văn bản thuần túy gửi cho khách. TUYỆT ĐỐI KHÔNG chứa URL, markdown ![](url), hay link ảnh.\n" +
-  "- 'mediaUrls': nếu vừa gọi tool get-media thì copy TOÀN BỘ URL từ kết quả tool vào đây dưới dạng mảng string. Null nếu không gọi get-media.\n" +
+  "- 'text': văn bản thuần túy gửi cho khách. TUYỆT ĐỐI KHÔNG chứa URL, markdown ![](url), hay link ảnh dưới bất kỳ hình thức nào.\n" +
+  "- 'mediaUrls': nếu vừa gọi tool get-media thì copy TOÀN BỘ URL từ kết quả tool vào đây dưới dạng mảng string. Null nếu không gọi get-media. TUYỆT ĐỐI KHÔNG duplicate URL.\n" +
   "- 'qrUrl': nếu vừa gọi tool get-qr thì copy URL qrUrl từ kết quả tool vào đây. Null nếu không gọi get-qr.\n" +
   "- 'nextStep': 'show_media' khi mediaUrls có dữ liệu, 'show_qr' khi qrUrl có dữ liệu, 'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.";
 
