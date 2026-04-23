@@ -10,11 +10,11 @@ const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
 const SHEET_NAME = "Trang tính1";
 
 const HEADERS = [
-  "Thời gian",
+  "Thời gian nhắn",
   "Dịch vụ",
   "Tên",
   "Số điện thoại",
-  "Buổi",
+  "Thời gian đến",
   "Dịch vụ / Vùng đau",
   "Mục tiêu / Đã thử",
 ];

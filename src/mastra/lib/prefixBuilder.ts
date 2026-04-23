@@ -19,6 +19,7 @@ import {
   Stage,
 } from "./stateMachine";
 import { getTactic } from "./playbook";
+import { buildDateContext } from "./dateHelper";
 
 // ─────────────────────────────────────────────
 // DIGRESSION CLASSIFIER
@@ -229,6 +230,7 @@ export function buildLogicGate(state: ConversationState): string {
 
   // ── COMMITMENT: chốt lịch ──
   if (stage === "commitment") {
+    const dateCtx = buildDateContext();
     const { name, phone } = knownInfo;
     const hasTime = knownInfo.preferredTime !== null;
     const qrShown = (state as any).qrShown ?? false;
@@ -258,9 +260,12 @@ export function buildLogicGate(state: ConversationState): string {
       // ĐỦ INFO (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG
       hints.push(
         `[GATE: ĐỦ INFO — tên=${name}, sđt=${phone}, giờ=${knownInfo.preferredTime}. ` +
-          "XÁC NHẬN lịch 1 câu ngắn gọn ('Em giữ slot [giờ] cho [tên] rồi nha') rồi DỪNG HẲN. " +
-          "TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ điều gì. Chỉ trả lời nếu khách tự hỏi. " +
-          "Gọi get-qr CHỈ KHI khách hỏi về cọc/thanh toán trước.]",
+        `NGÀY HÔM NAY:\n${dateCtx}\n` +
+        "XÁC NHẬN lịch 1 câu ngắn gọn, ghi ngày cụ thể nếu preferredTime đã có ngày " +
+        "('Em giữ slot [thời gian] cho [tên] rồi nha') rồi DỪNG HẲN. " +
+        "Nếu preferredTime chỉ có buổi (sáng/chiều/tối) thì hỏi thêm ngày: " +
+        "'Anh/chị muốn đến [buổi] ngày nào để em giữ slot nha?' " +
+        "TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ điều gì khác.]"
       );
     } else {
       hints.push(
@@ -632,7 +637,7 @@ SAI: "Em giữ slot buổi sáng cho ${h} nhé..." ← chưa có tên/SĐT
 ĐÚNG: "Dạ có chi phí ${h} — buổi 200k. Cho em xin tên, SĐT với khung sáng, chiều hay tối để em giữ slot nha"
 
 --- ĐÃ CÓ ĐỦ 3 THỨ (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG ---
-ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ. Đến trực tiếp thanh toán được nha."
+ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ."
 SAI: "Em giữ slot rồi. ${h} có muốn cọc trước không?" ← tự hỏi thêm
 ⚠️ Sau khi xác nhận → DỪNG HẲN. Chờ khách hỏi gì thêm mới trả lời.`;
   }

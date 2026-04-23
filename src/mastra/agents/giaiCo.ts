@@ -84,7 +84,7 @@ QUY TẮC CỐT LÕI:
 
 CHỐT ĐƠN:
   B1 → Hỏi gộp 1 câu duy nhất: "Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng, chiều hay tối ạ"
-  B2 → Khi đủ tên + SĐT + giờ thì xác nhận ngắn rồi dừng hẳn: "Em giữ slot [giờ] cho [tên] rồi ạ. Anh/chị đến trực tiếp thanh toán được nha."
+  B2 → Khi đủ tên + SĐT + giờ thì xác nhận ngắn rồi dừng hẳn: "Em giữ slot [giờ] cho [tên] rồi ạ."
   B3 → Chỉ gọi get-qr nếu khách chủ động hỏi về cọc hoặc thanh toán trước.
   Tuyệt đối không tự gợi QR, không hỏi thêm sau bước B2.
 

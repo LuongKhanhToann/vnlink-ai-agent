@@ -20,6 +20,7 @@ import {
   nullSlots,
 } from "./stateMachine";
 import "dotenv/config";
+import { buildDateContext } from "./dateHelper";
 
 const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -90,6 +91,7 @@ function buildPrompt(
   needFlow: boolean
 ): string {
   const knownParts: string[] = [];
+  const dateContext = buildDateContext();
   if (knownInfo.name)           knownParts.push(`tên=${knownInfo.name}`);
   if (knownInfo.phone)          knownParts.push(`sđt=${knownInfo.phone}`);
   if (knownInfo.serviceType)    knownParts.push(`dịch_vụ=${knownInfo.serviceType}`);
@@ -117,6 +119,9 @@ function buildPrompt(
   return `Tin nhắn khách: "${message}"
 Đã biết: ${knownSummary}
 Flow trước: "${previousFlow}", Stage trước: "${previousStage}"
+
+NGÀY HIỆN TẠI (múi giờ VN):
+${dateContext}
 
 Trả JSON thuần:
 {
@@ -176,17 +181,40 @@ SLOTS cho giai-co:
                   "vật lý trị liệu" / "châm cứu" → "vat-ly-tri-lieu"
                   khác → "khac"
   sessionPackage = le/5-buoi/10-buoi/20-buoi
-  preferredTime = giờ muốn đặt lịch — EXTRACT NGAY khi khách báo giờ cụ thể:
-                  "sáng" → "sáng"
-                  "chiều" → "chiều"  
-                  "tối" → "tối"
-                  "9h" → "9h"
-                  "mai sáng" → "mai-sang"
-                  "thứ 4" → "thu-4"
 
-SLOTS chung:
+SLOTS chung (áp dụng cả fitness và giai-co):
   name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào)
   phone = số điện thoại
+  preferredTime = thời gian khách muốn đến — RESOLVE dựa vào NGÀY HIỆN TẠI ở trên.
+    Mục tiêu: gom đủ {giờ + buổi + ngày DD/MM} khi khách cho đủ info; giữ generic khi khách nói mơ hồ.
+
+    A) CỤ THỂ (khách chắc chắn về giờ/ngày):
+      "9h sáng mai"       → "9h sáng DD/MM"      (DD/MM = ngày mai)
+      "15h thứ 7"         → "15h chiều DD/MM"    (thứ 7 gần nhất chưa qua, tự suy buổi: <12=sáng, 12-17=chiều, ≥18=tối)
+      "tối mai 7h"        → "19h tối DD/MM"
+      "3h chiều cn"       → "15h chiều DD/MM"
+      "tối nay"           → "tối DD/MM"          (= hôm nay)
+      "chiều mai"         → "chiều DD/MM"
+      "thứ 4 tuần sau"    → "thứ 4 DD/MM"
+      "cuối tuần"         → "thứ 7 DD/MM"        (thứ 7 gần nhất)
+      "ngày kia"          → "DD/MM"              (hôm nay + 2)
+
+    B) CHỈ CÓ GIỜ (không kèm ngày):
+      "9h"          → "9h sáng DD/MM"  — nếu giờ hiện tại < 9h hôm nay thì lấy hôm nay, không thì ngày mai
+      "19h" / "7h tối" → "19h tối DD/MM" theo cùng logic
+      Tự suy buổi từ giờ (sáng <12, chiều 12-17, tối ≥18).
+
+    C) MƠ HỒ / KHÔNG CHẮC (khách dùng "tầm", "khoảng", "chắc", "cỡ", "đại khái" hoặc chỉ nói buổi không kèm ngày/giờ):
+      "tầm chiều"         → "chiều"               (giữ generic, KHÔNG gán ngày)
+      "khoảng sáng"       → "sáng"
+      "chắc là tối"       → "tối"
+      "sáng" (đứng 1 mình, không ngữ cảnh) → "sáng"
+      "lúc nào rảnh em báo" / "chưa biết"  → null
+
+    QUY TẮC:
+      - Ưu tiên gom đủ {giờ + buổi + ngày} khi khách cho đủ tín hiệu.
+      - Có cue mơ hồ (tầm/khoảng/chắc/cỡ) → CHỈ ghi buổi, KHÔNG tự thêm ngày.
+      - Không suy đoán vượt quá info khách cho — thà generic còn hơn gán sai ngày.
 
 Chỉ extract ${missingSlots.length > 0 ? missingSlots.join(", ") : "— không cần extract"} — để null nếu không đề cập.`;
 }
