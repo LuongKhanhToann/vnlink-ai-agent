@@ -101,6 +101,18 @@ export function mergeSlots(
     return null;
   }
 
+  // Ngoại lệ: preferredTime có thể refine lên cụ thể hơn.
+  // Ví dụ: existing="sáng" (chỉ buổi) → extracted="sáng 26/04" → lấy extracted.
+  // Chỉ override khi extracted thực sự cụ thể HƠN existing.
+  function pickPreferredTime(
+    e: string | null,
+    x: string | null | undefined
+  ): string | null {
+    if (x === null || x === undefined) return e;
+    if (e === null) return x;
+    return preferredTimeScore(x) > preferredTimeScore(e) ? x : e;
+  }
+
   return {
     name:           pick(existing.name,           extracted.name),
     phone:          pick(existing.phone,          extracted.phone),
@@ -114,8 +126,35 @@ export function mergeSlots(
     painDuration:   pick(existing.painDuration,   extracted.painDuration),
     pastMethod:     pick(existing.pastMethod,     extracted.pastMethod),
     sessionPackage: pick(existing.sessionPackage, extracted.sessionPackage),
-    preferredTime:  pick(existing.preferredTime,  extracted.preferredTime),
+    preferredTime:  pickPreferredTime(existing.preferredTime, extracted.preferredTime),
   };
+}
+
+/**
+ * Chấm độ cụ thể của preferredTime để quyết định có override hay không.
+ *   +2 = có ngày DD/MM
+ *   +2 = có giờ cụ thể (VD "9h", "15h30")
+ *   +1 = có buổi (sáng/chiều/tối)
+ *   +1 = có thứ trong tuần (thứ 2..7, chủ nhật, CN)
+ * Value càng cụ thể → điểm càng cao.
+ */
+export function preferredTimeScore(s: string | null): number {
+  if (s === null) return -1;
+  let score = 0;
+  if (/\d{1,2}\/\d{1,2}/.test(s)) score += 2;
+  if (/\d{1,2}h/i.test(s)) score += 2;
+  if (/(sáng|chiều|tối|trưa)/i.test(s)) score += 1;
+  if (/(thứ\s?[2-7]|chủ\s?nhật|\bcn\b)/i.test(s)) score += 1;
+  return score;
+}
+
+/**
+ * Kiểm tra preferredTime đã đủ cụ thể chưa (có ngày hoặc thứ).
+ * Dùng để quyết định có nên re-extract không.
+ */
+export function isPreferredTimeSpecific(s: string | null): boolean {
+  if (s === null) return false;
+  return /\d{1,2}\/\d{1,2}/.test(s) || /(thứ\s?[2-7]|chủ\s?nhật|\bcn\b)/i.test(s);
 }
 
 export function nullSlots(info: KnownInfo): (keyof KnownInfo)[] {

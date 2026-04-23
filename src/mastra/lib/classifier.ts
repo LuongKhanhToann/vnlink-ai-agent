@@ -18,6 +18,7 @@ import {
   KnownInfo,
   LLMClassification,
   nullSlots,
+  isPreferredTimeSpecific,
 } from "./stateMachine";
 import "dotenv/config";
 import { buildDateContext } from "./dateHelper";
@@ -55,12 +56,24 @@ export async function classify(
   } = input;
 
   const missingSlots = nullSlots(currentKnownInfo);
+
+  // preferredTime có thể REFINE lên cụ thể hơn: nếu value hiện tại chưa có ngày/thứ
+  // (VD "sáng", "cuối tuần", "cuoi tuan") → cho classifier cơ hội upgrade.
+  const slotsToExtract: (keyof KnownInfo)[] = [...missingSlots];
+  if (
+    currentKnownInfo.preferredTime !== null &&
+    !isPreferredTimeSpecific(currentKnownInfo.preferredTime) &&
+    !slotsToExtract.includes("preferredTime")
+  ) {
+    slotsToExtract.push("preferredTime");
+  }
+
   const prompt = buildPrompt(
     message,
     previousFlow,
     previousStage,
     currentKnownInfo,
-    missingSlots,
+    slotsToExtract,
     needFlowClassification
   );
 
@@ -71,7 +84,7 @@ export async function classify(
       .replace(/```json|```/g, "")
       .trim();
     const parsed = JSON.parse(raw);
-    return mapToClassification(parsed, needFlowClassification, missingSlots);
+    return mapToClassification(parsed, needFlowClassification, slotsToExtract);
   } catch (e) {
     console.error("[classifier] LLM error:", e);
     return getDefaultClassification(previousFlow, previousStage);
@@ -186,35 +199,48 @@ SLOTS chung (áp dụng cả fitness và giai-co):
   name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào)
   phone = số điện thoại
   preferredTime = thời gian khách muốn đến — RESOLVE dựa vào NGÀY HIỆN TẠI ở trên.
-    Mục tiêu: gom đủ {giờ + buổi + ngày DD/MM} khi khách cho đủ info; giữ generic khi khách nói mơ hồ.
+    ⚠️ Viết có dấu tiếng Việt, KHÔNG slugify (KHÔNG viết "cuoi tuan", "sang", "chieu" — phải là "cuối tuần", "sáng", "chiều").
+    ⚠️ Format: "[giờ] [buổi] [thứ] DD/MM" — gom đủ thành phần khách cho, bỏ qua phần khách không đề cập.
 
-    A) CỤ THỂ (khách chắc chắn về giờ/ngày):
+    A) CỤ THỂ (khách có ngày/thứ/giờ rõ):
       "9h sáng mai"       → "9h sáng DD/MM"      (DD/MM = ngày mai)
-      "15h thứ 7"         → "15h chiều DD/MM"    (thứ 7 gần nhất chưa qua, tự suy buổi: <12=sáng, 12-17=chiều, ≥18=tối)
+      "15h thứ 7"         → "15h chiều thứ 7 DD/MM"   (thứ 7 gần nhất chưa qua, buổi suy từ giờ: <12=sáng, 12-17=chiều, ≥18=tối)
       "tối mai 7h"        → "19h tối DD/MM"
-      "3h chiều cn"       → "15h chiều DD/MM"
+      "3h chiều cn"       → "15h chiều chủ nhật DD/MM"
       "tối nay"           → "tối DD/MM"          (= hôm nay)
       "chiều mai"         → "chiều DD/MM"
       "thứ 4 tuần sau"    → "thứ 4 DD/MM"
-      "cuối tuần"         → "thứ 7 DD/MM"        (thứ 7 gần nhất)
+      "cuối tuần"         → "thứ 7 DD/MM"        (chọn thứ 7 gần nhất — nếu khách bổ sung "chủ nhật" sau thì đổi sang CN)
+      "sáng cuối tuần"    → "sáng thứ 7 DD/MM"
       "ngày kia"          → "DD/MM"              (hôm nay + 2)
 
     B) CHỈ CÓ GIỜ (không kèm ngày):
-      "9h"          → "9h sáng DD/MM"  — nếu giờ hiện tại < 9h hôm nay thì lấy hôm nay, không thì ngày mai
-      "19h" / "7h tối" → "19h tối DD/MM" theo cùng logic
+      "9h"              → "9h sáng DD/MM"        — nếu giờ hiện tại < 9h hôm nay thì lấy hôm nay, không thì ngày mai
+      "19h" / "7h tối"  → "19h tối DD/MM"        theo cùng logic
       Tự suy buổi từ giờ (sáng <12, chiều 12-17, tối ≥18).
 
-    C) MƠ HỒ / KHÔNG CHẮC (khách dùng "tầm", "khoảng", "chắc", "cỡ", "đại khái" hoặc chỉ nói buổi không kèm ngày/giờ):
-      "tầm chiều"         → "chiều"               (giữ generic, KHÔNG gán ngày)
+    C) MƠ HỒ / KHÔNG CHẮC (cue: "tầm", "khoảng", "chắc", "cỡ", "đại khái" — HOẶC chỉ nói buổi trơ):
+      "tầm chiều"         → "chiều"               (KHÔNG gán ngày)
       "khoảng sáng"       → "sáng"
       "chắc là tối"       → "tối"
       "sáng" (đứng 1 mình, không ngữ cảnh) → "sáng"
       "lúc nào rảnh em báo" / "chưa biết"  → null
 
-    QUY TẮC:
-      - Ưu tiên gom đủ {giờ + buổi + ngày} khi khách cho đủ tín hiệu.
+    D) REFINE (quan trọng — khi đã có preferredTime cũ trong "Đã biết"):
+      Nếu tin mới của khách BỔ SUNG thông tin (buổi mới, ngày mới, giờ mới) →
+      GỘP với value cũ thành value mới CỤ THỂ HƠN, rồi trả về.
+      Ví dụ:
+        Cũ="cuối tuần",  tin mới="sáng nha"              → "sáng thứ 7 DD/MM"
+        Cũ="sáng",       tin mới="chủ nhật"              → "sáng chủ nhật DD/MM"
+        Cũ="thứ 7 25/04", tin mới="9h nha"               → "9h sáng thứ 7 25/04"
+        Cũ="chiều",      tin mới="mai"                   → "chiều DD/MM" (ngày mai)
+      Nếu tin mới KHÔNG nói gì về thời gian → giữ nguyên value cũ (trả value cũ y hệt).
+
+    QUY TẮC CHUNG:
+      - Ưu tiên gom đủ {giờ + buổi + thứ/ngày} khi khách cho đủ tín hiệu.
       - Có cue mơ hồ (tầm/khoảng/chắc/cỡ) → CHỈ ghi buổi, KHÔNG tự thêm ngày.
-      - Không suy đoán vượt quá info khách cho — thà generic còn hơn gán sai ngày.
+      - KHÔNG suy đoán vượt info khách cho — thà generic còn hơn gán sai.
+      - KHÔNG slugify, viết đầy đủ có dấu tiếng Việt.
 
 Chỉ extract ${missingSlots.length > 0 ? missingSlots.join(", ") : "— không cần extract"} — để null nếu không đề cập.`;
 }
