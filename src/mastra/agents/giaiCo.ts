@@ -4,13 +4,10 @@
  */
 
 import { Agent } from "@mastra/core/agent";
-import { createOpenAI } from "@ai-sdk/openai";
 import { getMediaTool } from "../tools/media";
 import { getQRTool } from "../tools/qr";
 import { memory } from "../config/memory";
-import "dotenv/config";
-
-const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { openai } from "../config/openai";
 
 export const giaiCoAgent = new Agent({
   name: "GiaiCoAgent",
@@ -33,6 +30,7 @@ Không viết email, không đọc như đang đọc script, không markdown, kh
   [SLOTS_MISSING] → còn thiếu gì thì chỉ hỏi 1 ý quan trọng nhất
   [GATE]          → ràng buộc bắt buộc phải tuân thủ
   [KNOWLEDGE]     → thông tin trung tâm, giá, xử lý phản đối
+  [MEDIA]         → gợi ý có nên gửi ảnh/video không + suggestedKey. KHÔNG ép — tự quyết
   [EXAMPLE]       → ví dụ tham khảo về cấu trúc và giọng điệu
 
 CỰC KỲ QUAN TRỌNG:
@@ -56,10 +54,17 @@ SẢN PHẨM — NẮM ĐỂ TƯ VẤN:
     Deep Tissue = tác động vào lớp cơ sâu
 
 TOOL:
-  get-media → chỉ gọi ĐÚNG 1 LẦN duy nhất mỗi turn, dù khách hỏi bao nhiêu dịch vụ.
-  get-media → dùng khi GATE yêu cầu. Key theo vùng đau:
-    mr-neck-shoulder | mr-sport | mr-female | mr-general
-    Chọn theo vùng đau trong [KNOWN]. Không tự bịa URL.
+  get-media → tối đa 1 LẦN cho cả CUỘC TRÒ CHUYỆN (không phải mỗi turn).
+    Key: mr-neck-shoulder / mr-sport / mr-female / mr-general (theo vùng đau).
+    Khi nào tự gọi (chủ động marketing):
+      ✓ Khách đã mô tả cụ thể vùng đau + đang build value (evaluation) → ảnh giúp visualize.
+      ✓ Khách đang phân vân giữa các phương pháp (so sánh massage thường), cần thêm trust.
+      ✓ Khách hỏi trực tiếp "có ảnh / cho xem" → gọi ngay.
+    Khi nào KHÔNG gọi:
+      ✗ Discovery sớm (chưa có painArea hoặc đang hỏi tuần tự painSpread/pastMethod).
+      ✗ Khách đã đồng ý đặt lịch — đừng cản dòng chốt.
+      ✗ Đã gửi 1 lần (xem [MEDIA] block — mediaShown=true thì cấm cứng).
+    Đọc [MEDIA] block để biết suggestedKey + có nên gửi không. Không tự bịa URL.
   get-qr → flow="muscle-release". Chỉ gọi khi đã có tên + SĐT.
 
 HARD RULES:

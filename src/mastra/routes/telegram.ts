@@ -10,6 +10,15 @@ import "dotenv/config";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
+// Whitelist các chat_id được phép chạy /reset (admin). Set qua env:
+//   TELEGRAM_ADMIN_IDS=123456789,987654321
+const TELEGRAM_ADMIN_IDS = new Set(
+  (process.env.TELEGRAM_ADMIN_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
 const pool = new Pool({
   host:     process.env.PG_DATABASE_HOST!,
   port:     Number(process.env.PG_DATABASE_PORT!),
@@ -35,6 +44,12 @@ telegramWebhook.post("/telegram", async (c) => {
   console.log(`[tg] from=${chatId} text="${text}"`);
 
   if (text === "/reset") {
+    if (!TELEGRAM_ADMIN_IDS.has(String(chatId))) {
+      console.warn(`[tg] reset DENIED: chatId=${chatId} không nằm trong whitelist`);
+      await sendMessage(chatId, "❌ Bạn không có quyền chạy lệnh này.");
+      return c.text("OK");
+    }
+
     try {
       await pool.query(`
         DO $$ DECLARE

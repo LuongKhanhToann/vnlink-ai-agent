@@ -52,10 +52,16 @@ async function listResources(folder: string, resourceType: "image" | "video"): P
   }
 }
 
+// Fisher-Yates: random uniform thật. `sort(() => Math.random() - 0.5)` cũ
+// có bias (không phân phối đều) → một số phần tử hay được chọn hơn.
 function pickRandom<T>(arr: T[], count: number = 1): T[] {
   if (!arr.length) return [];
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, count);
 }
 
 export const getMediaTool = createTool({
@@ -87,7 +93,7 @@ export const getMediaTool = createTool({
     ]);
 
     const data: MediaItem[] = [
-      ...pickRandom(images, 3),
+      ...pickRandom(images, 2),
       ...pickRandom(videos, 1),
     ];
 

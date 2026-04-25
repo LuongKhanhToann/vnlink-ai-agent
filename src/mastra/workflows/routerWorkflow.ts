@@ -10,7 +10,7 @@ import { z } from "zod";
 import { fitnessAgent } from "../agents/fitness";
 import { giaiCoAgent } from "../agents/giaiCo";
 
-import { loadState, saveState, debugStorageApi } from "../lib/stateStore";
+import { loadState, saveState } from "../lib/stateStore";
 import { classify } from "../lib/classifier";
 import { buildNextState, detectFlowByKeyword } from "../lib/stateMachine";
 import { buildPrefix } from "../lib/prefixBuilder";
@@ -88,8 +88,6 @@ const processStep = createStep({
   execute: async ({ inputData, mastra }) => {
     const { message, threadId, resourceId } = inputData;
 
-    await debugStorageApi(mastra);
-
     const previousState = await loadState(mastra, threadId, resourceId);
     console.log(
       `[process] loaded: flow=${previousState.flow} stage=${previousState.stage} temp=${previousState.temperature}`
@@ -121,7 +119,7 @@ const processStep = createStep({
 
     await saveState(mastra, threadId, resourceId, nextState);
 
-    const prefix = buildPrefix(nextState);
+    const prefix = buildPrefix(nextState, message);
     console.log(`[process] prefix:\n${prefix}`);
 
     return {
@@ -178,82 +176,92 @@ const STRUCTURED_OUTPUT_INSTRUCTIONS =
   "- 'nextStep': 'show_media' khi mediaUrls có dữ liệu, 'show_qr' khi qrUrl có dữ liệu, 'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.";
 
 // ─────────────────────────────────────────────
-// STEP 2a: FitnessAgent
+// STEP 2: gọi agent (fitness hoặc giai-co) — DRY chung
 // ─────────────────────────────────────────────
 
-const callFitnessStep = createStep({
-  id: "call-fitness",
+type ChatAgent = typeof fitnessAgent | typeof giaiCoAgent;
+
+function buildAgentStep(
+  id: "call-fitness" | "call-giai-co",
+  agent: ChatAgent,
+) {
+  return createStep({
+    id,
+    inputSchema: processedStateSchema,
+    outputSchema,
+    execute: async ({ inputData, mastra }) => {
+      const { prefix, message, threadId, resourceId, qrShown, mediaShown } =
+        inputData;
+      const fullMessage = [prefix, message].filter(Boolean).join("\n");
+
+      const result = await agent.generate(fullMessage, {
+        maxSteps: 4,
+        memory: {
+          thread: { id: threadId },
+          resource: resourceId,
+          options: { lastMessages: 20 },
+        },
+        structuredOutput: {
+          schema: agentReplySchema,
+          instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
+        },
+      });
+
+      const obj = result.object ?? {
+        text: result.text,
+        mediaUrls: null,
+        qrUrl: null,
+        nextStep: "close" as const,
+      };
+
+      await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, {
+        qrShown,
+        mediaShown,
+      });
+
+      return {
+        reply: obj.text,
+        mediaUrls: obj.mediaUrls ?? null,
+        qrUrl: obj.qrUrl ?? null,
+        nextStep: obj.nextStep ?? null,
+      };
+    },
+  });
+}
+
+const callFitnessStep = buildAgentStep("call-fitness", fitnessAgent);
+const callGiaiCoStep  = buildAgentStep("call-giai-co",  giaiCoAgent);
+
+// Safety net: nếu flow lạ (DB corrupt, edge case không lường) thì vẫn reply
+// thay vì im lặng để khách bị bỏ rơi.
+const fallbackStep = createStep({
+  id: "fallback",
   inputSchema: processedStateSchema,
   outputSchema,
-  execute: async ({ inputData, mastra }) => {
-    const { prefix, message, threadId, resourceId, qrShown, mediaShown } = inputData;
+  execute: async ({ inputData }) => {
+    console.error(
+      `[router] flow không hợp lệ: "${inputData.flow}" — dùng fallback fitness`,
+    );
+    const { prefix, message, threadId, resourceId } = inputData;
     const fullMessage = [prefix, message].filter(Boolean).join("\n");
-
     const result = await fitnessAgent.generate(fullMessage, {
-      maxSteps: 10,
+      maxSteps: 4,
       memory: {
         thread: { id: threadId },
         resource: resourceId,
-        options: { lastMessages: 40 },
+        options: { lastMessages: 20 },
       },
       structuredOutput: {
         schema: agentReplySchema,
         instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
       },
     });
-
     const obj = result.object ?? {
       text: result.text,
       mediaUrls: null,
       qrUrl: null,
-      nextStep: "close",
+      nextStep: "close" as const,
     };
-
-    await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, { qrShown, mediaShown });
-
-    return {
-      reply: obj.text,
-      mediaUrls: obj.mediaUrls ?? null,
-      qrUrl: obj.qrUrl ?? null,
-      nextStep: obj.nextStep ?? null,
-    };
-  },
-});
-
-// ─────────────────────────────────────────────
-// STEP 2b: GiaiCoAgent
-// ─────────────────────────────────────────────
-
-const callGiaiCoStep = createStep({
-  id: "call-giai-co",
-  inputSchema: processedStateSchema,
-  outputSchema,
-  execute: async ({ inputData, mastra }) => {
-    const { prefix, message, threadId, resourceId, qrShown, mediaShown } = inputData;
-    const fullMessage = [prefix, message].filter(Boolean).join("\n");
-
-    const result = await giaiCoAgent.generate(fullMessage, {
-      maxSteps: 10,
-      memory: {
-        thread: { id: threadId },
-        resource: resourceId,
-        options: { lastMessages: 40 },
-      },
-      structuredOutput: {
-        schema: agentReplySchema,
-        instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
-      },
-    });
-
-    const obj = result.object ?? {
-      text: result.text,
-      mediaUrls: null,
-      qrUrl: null,
-      nextStep: "close",
-    };
-
-    await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, { qrShown, mediaShown });
-
     return {
       reply: obj.text,
       mediaUrls: obj.mediaUrls ?? null,
@@ -276,5 +284,11 @@ export const routerWorkflow = createWorkflow({
   .branch([
     [async ({ inputData }) => inputData.flow === "fitness", callFitnessStep],
     [async ({ inputData }) => inputData.flow === "giai-co", callGiaiCoStep],
+    // Safety net — flow lạ (DB corrupt) vẫn có reply thay vì im lặng.
+    [
+      async ({ inputData }) =>
+        inputData.flow !== "fitness" && inputData.flow !== "giai-co",
+      fallbackStep,
+    ],
   ])
   .commit();

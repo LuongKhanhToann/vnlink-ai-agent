@@ -15,8 +15,6 @@
  *   - Extract slots còn thiếu từ message mới
  */
 
-import { z } from "zod";
-
 // ─────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────
@@ -101,16 +99,27 @@ export function mergeSlots(
     return null;
   }
 
-  // Ngoại lệ: preferredTime có thể refine lên cụ thể hơn.
-  // Ví dụ: existing="sáng" (chỉ buổi) → extracted="sáng 26/04" → lấy extracted.
-  // Chỉ override khi extracted thực sự cụ thể HƠN existing.
+  // Ngoại lệ: preferredTime có thể refine HOẶC đổi ý.
+  //   Refine:   existing="sáng"            extracted="sáng thứ 7 26/04"  → lấy extracted
+  //   Đổi ý:    existing="thứ 7 26/04 9h"  extracted="sáng mai"          → lấy extracted
+  //                                                                       (khách chủ động đổi)
+  // Logic:
+  //   1) extracted null/undefined → giữ existing (classifier không thấy tín hiệu thời gian).
+  //   2) extracted bằng existing → no-op.
+  //   3) extracted có tín hiệu thời gian rõ ràng → trust extracted (refine hoặc đổi ý).
+  //   4) còn lại → giữ existing để tránh classifier nhiễu xóa mất giá trị tốt.
   function pickPreferredTime(
     e: string | null,
     x: string | null | undefined
   ): string | null {
     if (x === null || x === undefined) return e;
     if (e === null) return x;
-    return preferredTimeScore(x) > preferredTimeScore(e) ? x : e;
+    if (x === e) return e;
+    const hasTimeSignal =
+      /(sáng|chiều|tối|trưa|thứ|chủ\s?nhật|\bcn\b|\d{1,2}h|\d{1,2}\/\d{1,2}|mai|hôm nay|hôm qua|cuối tuần|ngày kia)/i.test(
+        x,
+      );
+    return hasTimeSignal ? x : e;
   }
 
   return {
@@ -175,7 +184,7 @@ const GIAI_CO_KEYWORDS =
 
 export function detectFlowByKeyword(
   message: string,
-  previousFlow: Flow | null
+  _previousFlow: Flow | null
 ): Flow | null {
   const isGiaiCo = GIAI_CO_KEYWORDS.test(message);
   const isFitness = FITNESS_KEYWORDS.test(message);
@@ -194,8 +203,21 @@ export function detectHonorific(
   previous: "anh" | "chị" | "anh/chị"
 ): "anh" | "chị" | "anh/chị" {
   const msg = message.toLowerCase();
-  if (/\b(chị|chj)\b/.test(msg)) return "chị";
-  if (/\b(anh|a)\b/.test(msg) && !/anh\/chị/.test(msg)) return "anh";
+
+  // Khách viết "anh/chị" → khách dùng dạng generic, giữ nguyên previous
+  if (/anh\s*\/\s*ch(ị|i)/.test(msg)) return previous;
+
+  // Boundary an toàn cho Unicode tiếng Việt: dùng start/end, whitespace hoặc dấu câu.
+  // KHÔNG match "a" lẻ — quá nhiều false-positive ("a ơi", "a a a", filler).
+  const boundary = "(^|[\\s,.!?:;()\\-/])";
+  const tail     = "([\\s,.!?:;()\\-/]|$)";
+
+  const isChi = new RegExp(`${boundary}(chị|chj)${tail}`).test(msg);
+  if (isChi) return "chị";
+
+  const isAnh = new RegExp(`${boundary}anh${tail}`).test(msg);
+  if (isAnh) return "anh";
+
   return previous;
 }
 
@@ -357,10 +379,12 @@ export function computeNextStage(
       return "commitment";
     }
 
-    if (intent === "ready") return "commitment";
-
-    // Fitness: chỉ vào negotiation khi khách chủ động chọn gói cụ thể
-    if (intent === "selecting") return "negotiation";
+    // Fitness: khách đã báo giờ InBody (preferredTime filled) → commitment để hỏi tên/SĐT.
+    // Evaluation pitch đã xảy ra ở turn trước — KHÔNG lặp lại. Song song với quy tắc giai-co ở trên.
+    if (flow === "fitness" && info.preferredTime !== null) {
+      console.log(`[stateMachine] fitness evaluation → commitment (preferredTime=${info.preferredTime})`);
+      return "commitment";
+    }
 
     // Fitness: đã có tên/SĐT → commitment
     if (flow === "fitness" && info.name !== null && info.phone !== null) {
@@ -368,12 +392,22 @@ export function computeNextStage(
       return "commitment";
     }
 
+    if (intent === "ready") return "commitment";
+
+    // Fitness: chỉ vào negotiation khi khách chủ động chọn gói cụ thể
+    if (intent === "selecting") return "negotiation";
+
     return "evaluation";
   }
 
   // Negotiation → Commitment
   if (currentStage === "negotiation") {
     if (intent === "ready" || intent === "selecting") return "commitment";
+    // Khách đã báo giờ → commit (tránh lặp pitch). Áp dụng cho cả 2 flow.
+    if (info.preferredTime !== null) {
+      console.log(`[stateMachine] negotiation → commitment (preferredTime=${info.preferredTime})`);
+      return "commitment";
+    }
     return "negotiation";
   }
 

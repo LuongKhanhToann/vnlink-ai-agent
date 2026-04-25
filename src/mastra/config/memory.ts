@@ -4,7 +4,7 @@ import { storage } from "./storage";
 export const memory = new Memory({
   storage,
   options: {
-    lastMessages: 40,
+    lastMessages: 20,
     semanticRecall: false,
   },
 });

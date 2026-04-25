@@ -51,8 +51,19 @@ export async function loadState(
       slots: m.knownInfo,
     });
 
+    // Clamp flow về union hợp lệ — nếu DB corrupt (giá trị lạ) → fallback fitness.
+    const flow =
+      m.flow === "fitness" || m.flow === "giai-co"
+        ? m.flow
+        : DEFAULT_STATE.flow;
+    if (m.flow && m.flow !== flow) {
+      console.warn(
+        `[stateStore] flow corrupt cho ${tid}: "${m.flow}" → fallback "${flow}"`,
+      );
+    }
+
     return {
-      flow: m.flow ?? DEFAULT_STATE.flow,
+      flow,
       stage: m.stage ?? DEFAULT_STATE.stage,
       temperature: m.temperature ?? DEFAULT_STATE.temperature,
       emotion: m.emotion ?? DEFAULT_STATE.emotion,

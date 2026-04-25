@@ -10,6 +10,17 @@ const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
 const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
+// Debounce: gom các tin liên tiếp của cùng 1 khách trong DEBOUNCE_MS thành 1 turn.
+// Khách hay chia 1 ý thành nhiều tin nhỏ — bot trả lời 1 lần thay vì lủng củng nhiều lần.
+const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "2000");
+
+type PendingEntry = { texts: string[]; timer: NodeJS.Timeout };
+const pending = new Map<string, PendingEntry>();
+
+// Serialize: đảm bảo 1 senderId tại 1 thời điểm chỉ có 1 handleMessage chạy →
+// tránh race khi load/save state trong workflow.
+const queues = new Map<string, Promise<unknown>>();
+
 export const facebookWebhook = new Hono();
 
 facebookWebhook.get("/webhook", (c) => {
@@ -39,14 +50,47 @@ facebookWebhook.post("/webhook", async (c) => {
 
       console.log(`[fb] from=${senderId} text="${text}"`);
 
-      handleMessage(senderId, text).catch((e) =>
-        console.error("[fb] handleMessage error:", e)
-      );
+      enqueueMessage(senderId, text);
     }
   }
 
   return c.text("EVENT_RECEIVED");
 });
+
+function enqueueMessage(senderId: string, text: string) {
+  const existing = pending.get(senderId);
+  if (existing) {
+    existing.texts.push(text);
+    clearTimeout(existing.timer);
+    existing.timer = setTimeout(() => flush(senderId), DEBOUNCE_MS);
+    return;
+  }
+  pending.set(senderId, {
+    texts: [text],
+    timer: setTimeout(() => flush(senderId), DEBOUNCE_MS),
+  });
+}
+
+function flush(senderId: string) {
+  const entry = pending.get(senderId);
+  if (!entry) return;
+  pending.delete(senderId);
+
+  const combined = entry.texts.join("\n");
+  console.log(
+    `[fb] flush sender=${senderId} count=${entry.texts.length} text="${combined}"`,
+  );
+
+  const prev = queues.get(senderId) ?? Promise.resolve();
+  const next = prev
+    .then(() => handleMessage(senderId, combined))
+    .catch((e) => console.error("[fb] handleMessage error:", e));
+
+  queues.set(senderId, next);
+  void next.finally(() => {
+    if (queues.get(senderId) === next) queues.delete(senderId);
+  });
+}
 
 async function handleMessage(senderId: string, text: string) {
   try {
@@ -68,7 +112,8 @@ async function handleMessage(senderId: string, text: string) {
 
     const steps = result.steps as any;
     const output = steps?.["call-fitness"]?.output
-                ?? steps?.["call-giai-co"]?.output;
+                ?? steps?.["call-giai-co"]?.output
+                ?? steps?.["fallback"]?.output;
 
     if (!output?.reply) {
       console.error("[fb] no output found");
@@ -131,30 +176,48 @@ async function sendMedia(recipientId: string, url: string) {
 
 async function callSendAPI(body: object) {
   console.log("[fb] callSendAPI:", JSON.stringify(body));
-  
-  const controller = new AbortController();
-  const timeout = setTimeout(() => {
-    controller.abort();
-    console.error("[fb] callSendAPI TIMEOUT after 15s");
-  }, 15000);
 
-  try {
-    const res = await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(body),
-      signal:  controller.signal,
-    });
-    clearTimeout(timeout);
+  const MAX_ATTEMPTS = 3;
+  // Status không nên retry: 4xx (bad request) trừ 408 (timeout) và 429 (rate limit).
+  const isRetriableStatus = (s: number) =>
+    s === 408 || s === 429 || s >= 500;
 
-    const responseText = await res.text();
-    if (!res.ok) {
-      console.error(`[fb] Graph API error ${res.status}:`, responseText);
-    } else {
-      console.log(`[fb] Graph API ok ${res.status}:`, responseText);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const res = await fetch(
+        `${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        },
+      );
+      clearTimeout(timeout);
+
+      const responseText = await res.text();
+      if (res.ok) {
+        console.log(`[fb] Graph API ok ${res.status} (attempt ${attempt}):`, responseText);
+        return;
+      }
+
+      console.error(
+        `[fb] Graph API error ${res.status} (attempt ${attempt}):`,
+        responseText,
+      );
+
+      if (!isRetriableStatus(res.status) || attempt === MAX_ATTEMPTS) return;
+    } catch (e) {
+      clearTimeout(timeout);
+      console.error(`[fb] fetch exception (attempt ${attempt}):`, e);
+      if (attempt === MAX_ATTEMPTS) return;
     }
-  } catch (e) {
-    clearTimeout(timeout);
-    console.error("[fb] fetch exception:", e);
+
+    // Exponential backoff: 500ms → 1500ms → 3500ms (jitter nhỏ).
+    const delay = 500 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200);
+    await new Promise((r) => setTimeout(r, delay));
   }
 }

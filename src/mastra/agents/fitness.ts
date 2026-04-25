@@ -4,13 +4,10 @@
  */
 
 import { Agent } from "@mastra/core/agent";
-import { createOpenAI } from "@ai-sdk/openai";
 import { getMediaTool } from "../tools/media";
 import { getQRTool } from "../tools/qr";
 import { memory } from "../config/memory";
-import "dotenv/config";
-
-const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { openai } from "../config/openai";
 
 export const fitnessAgent = new Agent({
   name: "FitnessAgent",
@@ -32,6 +29,7 @@ Không viết email, không đọc như đang đọc script, không markdown, kh
   [SLOTS_MISSING] → còn thiếu gì thì chỉ hỏi 1 ý quan trọng nhất
   [GATE]          → ràng buộc bắt buộc phải tuân thủ
   [KNOWLEDGE]     → thông tin trung tâm, giá, xử lý phản đối
+  [MEDIA]         → gợi ý có nên gửi ảnh/video không + suggestedKey. KHÔNG ép — tự quyết
   [EXAMPLE]       → ví dụ tham khảo về phong cách và cấu trúc
 
 CỰC KỲ QUAN TRỌNG:
@@ -40,8 +38,17 @@ CỰC KỲ QUAN TRỌNG:
   Chỉ đọc để hiểu ý rồi tự viết lại thành câu trả lời tự nhiên cho khách.
 
 TOOL:
-  get-media → chỉ gọi ĐÚNG 1 LẦN duy nhất mỗi turn, dù khách hỏi bao nhiêu dịch vụ.
-  get-media → dùng khi khách hỏi xem ảnh hoặc video. Key: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool. Không tự bịa URL.
+  get-media → tối đa 1 LẦN cho cả CUỘC TRÒ CHUYỆN (không phải mỗi turn).
+    Key: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool.
+    Khi nào tự gọi (chủ động marketing):
+      ✓ Khách đang interest cụ thể 1 dịch vụ + ở stage build value (discovery sâu / inbody / evaluation).
+      ✓ Khách đang phân vân, cần thêm trust mà text suông chưa đủ.
+      ✓ Khách hỏi trực tiếp "có ảnh không / cho xem" → gọi ngay.
+    Khi nào KHÔNG gọi:
+      ✗ Khách chỉ chào hỏi/cảm ơn, hoặc tin ngắn không có ý so sánh.
+      ✗ Đã sẵn sàng đăng ký — đừng cản dòng chốt.
+      ✗ Đã gửi 1 lần trong cuộc thoại này (xem [MEDIA] block — nếu mediaShown=true thì cấm cứng).
+    Đọc [MEDIA] block trong prefix để biết suggestedKey + có nên gửi không. Không tự bịa URL.
   get-qr → flow="fitness". Chỉ gọi khi đã có tên + SĐT. Tuyệt đối không gửi trước.
 
 HARD RULES:

@@ -9,7 +9,7 @@
  */
 
 import { Agent } from "@mastra/core/agent";
-import { createOpenAI } from "@ai-sdk/openai";
+import { z } from "zod";
 import {
   Flow,
   Stage,
@@ -18,18 +18,42 @@ import {
   KnownInfo,
   LLMClassification,
   nullSlots,
-  isPreferredTimeSpecific,
 } from "./stateMachine";
-import "dotenv/config";
 import { buildDateContext } from "./dateHelper";
-
-const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { openai } from "../config/openai";
 
 const classifierAgent = new Agent({
   name: "classifier",
   id: "val-classifier",
   model: openai("gpt-4o-mini"),
-  instructions: `Bạn phân tích tin nhắn khách hàng. Chỉ trả JSON thuần, không markdown, không giải thích.`,
+  instructions: `Bạn phân tích tin nhắn khách hàng. Trả JSON theo schema, không markdown, không giải thích.`,
+});
+
+// Schema tĩnh: tất cả field nullable. Cho phép gpt-4o-mini bỏ qua slot không cần.
+const classifierSchema = z.object({
+  flow: z.enum(["fitness", "giai-co"]).nullable().optional(),
+  emotion: z.enum([
+    "neutral", "excited", "anxious", "frustrated", "hesitant", "trusting",
+  ]),
+  intent: z.enum(["explore", "compare", "selecting", "ready"]),
+  slots: z
+    .object({
+      name:           z.string().nullable().optional(),
+      phone:          z.string().nullable().optional(),
+      serviceType:    z.string().nullable().optional(),
+      memberType:     z.string().nullable().optional(),
+      durationMonths: z.number().nullable().optional(),
+      schedule:       z.string().nullable().optional(),
+      fitnessGoal:    z.string().nullable().optional(),
+      painArea:       z.string().nullable().optional(),
+      painSpread:     z.string().nullable().optional(),
+      painDuration:   z.string().nullable().optional(),
+      pastMethod:     z.string().nullable().optional(),
+      sessionPackage: z.string().nullable().optional(),
+      preferredTime:  z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 // ─────────────────────────────────────────────
@@ -57,14 +81,13 @@ export async function classify(
 
   const missingSlots = nullSlots(currentKnownInfo);
 
-  // preferredTime có thể REFINE lên cụ thể hơn: nếu value hiện tại chưa có ngày/thứ
-  // (VD "sáng", "cuối tuần", "cuoi tuan") → cho classifier cơ hội upgrade.
+  // preferredTime LUÔN có thể re-extract:
+  //  - nếu value hiện tại chưa specific (chỉ "sáng", "cuối tuần") → upgrade khi khách bổ sung
+  //  - nếu khách ĐỔI Ý ("thôi sáng mai" sau khi đã chốt thứ 7) → cập nhật theo tin mới
+  // Việc override an toàn vì mergeSlots dùng score-based: chỉ override khi mới >= cũ về độ cụ thể,
+  // hoặc khi khách chủ động nhắc lại thời gian khác.
   const slotsToExtract: (keyof KnownInfo)[] = [...missingSlots];
-  if (
-    currentKnownInfo.preferredTime !== null &&
-    !isPreferredTimeSpecific(currentKnownInfo.preferredTime) &&
-    !slotsToExtract.includes("preferredTime")
-  ) {
+  if (!slotsToExtract.includes("preferredTime")) {
     slotsToExtract.push("preferredTime");
   }
 
@@ -78,12 +101,21 @@ export async function classify(
   );
 
   try {
-    const result = await classifierAgent.generate(prompt);
-    const raw = result.text
-      .trim()
-      .replace(/```json|```/g, "")
-      .trim();
-    const parsed = JSON.parse(raw);
+    const result = await classifierAgent.generate(prompt, {
+      structuredOutput: {
+        schema: classifierSchema,
+        instructions:
+          "Trả đúng schema JSON. Slot nào không có trong tin → để null. " +
+          "Không bao gồm slot không nằm trong yêu cầu extract.",
+      },
+    });
+
+    const parsed = result.object;
+    if (!parsed) {
+      console.error("[classifier] structuredOutput trả về null");
+      return getDefaultClassification(previousFlow, previousStage);
+    }
+
     return mapToClassification(parsed, needFlowClassification, slotsToExtract);
   } catch (e) {
     console.error("[classifier] LLM error:", e);

@@ -36,12 +36,146 @@ function canAnswerWithoutCoreSlot(
 }
 
 // ─────────────────────────────────────────────
+// DEPOSIT / PAYMENT-AHEAD DETECTION
+// ─────────────────────────────────────────────
+
+/**
+ * True khi tin nhắn khách chủ động hỏi về cọc / thanh toán trước / chuyển khoản / QR.
+ * Dùng để kích hoạt GATE gọi get-qr, vượt lên các lệnh "DỪNG HẲN" khác.
+ */
+export function detectDepositAsk(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    /\bcọc\b|đặt\s?cọc/.test(m) ||
+    /thanh\s?toán\s?trước|trả\s?trước/.test(m) ||
+    /chuyển\s?(khoản|tiền)/.test(m) ||
+    /\bqr\b|mã\s?qr/.test(m) ||
+    /số\s?tài\s?khoản|\bstk\b|số\s?tk/.test(m)
+  );
+}
+
+// ─────────────────────────────────────────────
+// MEDIA KEY SUGGESTION
+// ─────────────────────────────────────────────
+
+/**
+ * Map slots → key tool get-media phù hợp nhất.
+ * Trả null nếu chưa đủ info để gợi key tốt (vd fitness chưa có serviceType).
+ *
+ * Fitness:
+ *   gym/full → fitness-gym
+ *   yoga    → fitness-yoga
+ *   zumba   → fitness-zumba
+ *   boi     → fitness-pool
+ *   pilates → fitness-gym (cùng phòng tập, fallback an toàn)
+ *
+ * Giải cơ:
+ *   vai/gáy/cổ → mr-neck-shoulder
+ *   chân/gối   → mr-sport
+ *   khác       → mr-general
+ */
+function computeSuggestedMediaKey(state: ConversationState): string | null {
+  const { flow, knownInfo } = state;
+
+  if (flow === "fitness") {
+    const svc = knownInfo.serviceType;
+    if (!svc) return null;
+    const mapFitness: Record<string, string> = {
+      gym: "fitness-gym",
+      full: "fitness-gym",
+      pilates: "fitness-gym",
+      yoga: "fitness-yoga",
+      zumba: "fitness-zumba",
+      boi: "fitness-pool",
+    };
+    return mapFitness[svc] ?? null;
+  }
+
+  // giai-co
+  const pain = knownInfo.painArea;
+  if (!pain) return null;
+  const tokens = pain.toLowerCase().split(/[\s,/\-_]+/).filter(Boolean);
+  const has = (...words: string[]) => words.some((w) => tokens.includes(w));
+  if (has("vai", "gáy", "gay", "cổ", "co")) return "mr-neck-shoulder";
+  if (has("chân", "chan", "gối", "goi")) return "mr-sport";
+  return "mr-general";
+}
+
+/**
+ * Block [MEDIA]: hint MỀM, không ép.
+ * Bot tự quyết có gọi get-media hay không dựa trên moment phù hợp.
+ *
+ * Nguyên tắc inject:
+ *   - mediaShown=true            → cấm cứng (đã handle ở đầu buildLogicGate).
+ *   - opening / commitment       → không khuyến khích (sai moment).
+ *   - không có suggestedKey      → không gợi.
+ *   - còn lại                    → gợi key + để LLM tự quyết.
+ */
+function buildMediaHint(state: ConversationState): string {
+  if (state.mediaShown) return "";
+  if (state.stage === "opening" || state.stage === "commitment") return "";
+
+  const key = computeSuggestedMediaKey(state);
+  if (!key) return "";
+
+  const target = state.flow === "fitness" ? "phòng tập" : "vùng đang đau";
+  return (
+    `[MEDIA: chưa gửi ảnh/video. suggestedKey="${key}" (${target}). ` +
+    "TỰ QUYẾT có gọi tool get-media hay không trong turn này dựa trên cảm nhận: " +
+    "  ✓ NÊN gửi khi: khách đang quan tâm cụ thể (so sánh, hỏi chi tiết), đang phân vân cần thêm trust, " +
+    "    đang ở stage build-value mà text suông chưa đủ thuyết phục. " +
+    "  ✗ KHÔNG gửi khi: khách chỉ chào hỏi/cảm ơn, đang chốt giờ, message ngắn không có ý so sánh, " +
+    "    hoặc khách đã thể hiện sẵn sàng đăng ký (đừng cản dòng chốt). " +
+    "Chỉ gửi 1 LẦN/cuộc trò chuyện. Đây là moment marketing — gửi đúng thì tăng trust, sai thì spam.]"
+  );
+}
+
+// ─────────────────────────────────────────────
 // LOGIC GATES
 // ─────────────────────────────────────────────
 
-export function buildLogicGate(state: ConversationState): string {
-  const { stage, intent, flow, knownInfo } = state;
+export function buildLogicGate(state: ConversationState, message?: string): string {
+  const { stage, intent, flow, knownInfo, mediaShown } = state;
   const hints: string[] = [];
+
+  // ── CROSS-CUTTING: media đã gửi rồi → cấm gọi lại ──
+  if (mediaShown) {
+    hints.push(
+      "[GATE: mediaShown=true — ĐÃ gửi ảnh/video cho khách. " +
+        "TUYỆT ĐỐI KHÔNG gọi lại tool get-media trong turn này, dù GATE khác có yêu cầu. " +
+        "Nếu khách hỏi xem thêm/khác vùng → trả lời text rồi mời ghé trực tiếp xem.]",
+    );
+  }
+
+  // ── CROSS-CUTTING: khách chủ động hỏi cọc / thanh toán trước ──
+  // Phải check TRƯỚC các GATE commitment "DỪNG HẲN" để không bị che.
+  if (message && detectDepositAsk(message)) {
+    const qrShown = (state as any).qrShown ?? false;
+    if (!qrShown) {
+      if (knownInfo.name && knownInfo.phone) {
+        const qrFlow = flow === "fitness" ? "fitness" : "muscle-release";
+        return (
+          `[GATE ƯU TIÊN TUYỆT ĐỐI: khách chủ động hỏi về cọc / thanh toán trước. ` +
+          `BẮT BUỘC GỌI tool get-qr với flow="${qrFlow}" NGAY trong turn này. ` +
+          `Sau đó viết reply ngắn: xác nhận đặt cọc được + gửi kèm QR + 1 dòng hướng dẫn ghi nội dung chuyển khoản là tên và SĐT khách. ` +
+          `Copy qrUrl từ kết quả tool vào field "qrUrl" của output, set nextStep="show_qr". ` +
+          `BỎ QUA mọi lệnh "DỪNG HẲN" khác — cọc là yêu cầu chủ động của khách, phải đáp ứng.]`
+        );
+      }
+      // Chưa có tên/SĐT → xin trước, chưa gọi QR
+      return (
+        `[GATE: khách hỏi về cọc/thanh toán trước nhưng CHƯA đủ tên/SĐT. ` +
+        `Trả lời: "Dạ cọc trước được nha ${flow === "fitness" ? "anh/chị" : "anh/chị"} — cho em xin tên với SĐT để lập đơn rồi em gửi QR ngay ạ". ` +
+        `KHÔNG gọi get-qr cho đến khi có đủ tên/SĐT.]`
+      );
+    }
+    // Đã gửi QR rồi mà khách hỏi lại → hướng dẫn lại
+    return (
+      `[GATE: QR đã được gửi trước đó. Không gọi lại get-qr. ` +
+      `Xác nhận nội dung chuyển khoản (tên + SĐT khách) và hướng dẫn bước tiếp theo.]`
+    );
+  }
 
   // ── FITNESS: chưa biết dịch vụ ──
   if (
@@ -182,27 +316,6 @@ export function buildLogicGate(state: ConversationState): string {
       ? `đã_thử=${knownInfo.pastMethod}`
       : "chưa có pastMethod";
 
-    // Map painArea → media key để chỉ agent gọi đúng key
-    const pain = knownInfo.painArea.toLowerCase();
-    let mediaKey = "mr-general";
-    if (
-      pain.includes("vai") ||
-      pain.includes("gay") ||
-      pain.includes("co") ||
-      pain.includes("gay")
-    ) {
-      mediaKey = "mr-neck-shoulder";
-    } else if (pain.includes("lung") || pain.includes("lưng")) {
-      mediaKey = "mr-general";
-    } else if (
-      pain.includes("chan") ||
-      pain.includes("chân") ||
-      pain.includes("goi") ||
-      pain.includes("gối")
-    ) {
-      mediaKey = "mr-sport";
-    }
-
     // Khách đã đồng ý + báo giờ → bỏ qua pitch, hỏi ngay tên/SĐT
     if ((intent === "selecting" || intent === "ready") && knownInfo.preferredTime !== null) {
       hints.push(
@@ -220,10 +333,9 @@ export function buildLogicGate(state: ConversationState): string {
           : "sau khi pitch xong hỏi giờ muốn đến (sáng/chiều/tối) và xin tên/SĐT trong 1 câu gộp";
       hints.push(
         `[GATE: evaluation — vùng_đau=${knownInfo.painArea}, ${durationCtx}, ${methodCtx}. ` +
-          `BƯỚC 0 (BẮT BUỘC): gọi tool get-media với key="${mediaKey}" TRƯỚC KHI viết response — ` +
-          "đưa URLs vào output mediaUrls để Facebook gửi kèm. " +
-          "BẮT BUỘC tiếp theo: (1) hình ảnh hóa vùng đó → (2) contrast với pastMethod đã biết → (3) vẽ viễn cảnh sau khi gỡ → " +
-          `(4) CHỈ mời 1 buổi thử — ${closingInstruction}. KHÔNG show bảng gói 3 dòng ngay lần đầu.]`,
+          "Cấu trúc response: (1) hình ảnh hóa vùng đó → (2) contrast với pastMethod đã biết → (3) vẽ viễn cảnh sau khi gỡ → " +
+          `(4) CHỈ mời 1 buổi thử — ${closingInstruction}. KHÔNG show bảng gói 3 dòng ngay lần đầu. ` +
+          "Quyết định gửi ảnh/video xem [MEDIA] block riêng — KHÔNG ép.]",
       );
     }
   }
@@ -424,15 +536,10 @@ Em: "Fami có 4 dịch vụ chính ${h}, điểm đặc biệt là dùng chung 1
   ) {
     const svc = knownInfo.serviceType;
     const goal = knownInfo.fitnessGoal;
-    return `[EXAMPLE — TIN ĐẦU: XÁC NHẬN NGẮN + HỎI SCHEDULE, KHÔNG GIỚI THIỆU, KHÔNG GIÁ]
+    return `[EXAMPLE — TIN ĐẦU: 1 CÂU HỎI SCHEDULE, KHÔNG KHEN, KHÔNG GIỚI THIỆU, KHÔNG GIÁ]
 Khách: "mình muốn tập ${svc} ${goal}"
-Em (ĐÚNG): "${h} tập mấy buổi một tuần?"
-Em (ĐÚNG): "${h} hay tập sáng hay chiều tối hơn?"
-Em (SAI — khen giả): "Dạ, tập Gym để giảm mỡ là hợp lý rồi đó anh/chị..."
-Em (SAI — khen giả): "Tuyệt vời! Buổi sáng là thời điểm lý tưởng..."
-Em (SAI — giới thiệu): "Gym bên em rộng lắm... có cả trong nhà và ngoài trời..."
-Em (SAI — list gói): "Có mấy gói phù hợp: Gói 12 tháng 7tr..."
-⚠️ Chỉ: 1 câu tự nhiên dẫn vào câu hỏi context. Không khen. Không giới thiệu. Không báo giá.`;
+ĐÚNG: "${h} tập mấy buổi một tuần?" hoặc "${h} hay tập sáng hay chiều tối hơn?"
+SAI: "Tuyệt vời!", "Dạ, tập Gym để giảm mỡ là hợp lý...", giới thiệu cơ sở, list gói/giá.`;
   }
 
   // ── FITNESS: biết dịch vụ, chưa có mục tiêu, đang discovery → hỏi mục tiêu ──
@@ -464,23 +571,11 @@ Em: "${highlight}
   // ── FITNESS: inbody pitch — few-shot ──
   if (flow === "fitness" && stage === "inbody") {
     const goal = knownInfo.fitnessGoal ?? "mục tiêu";
-    const schedule = knownInfo.schedule ?? "lịch tập";
-    return `[EXAMPLE — INBODY PITCH: XÁC NHẬN LỊCH + MỜI ĐO, TUYỆT ĐỐI KHÔNG GIÁ/GÓI]
-⚠️ TEXT THUẦN TÚY — không dùng **bold**, không bullet "-"
-⚠️ 1 message = 1 bước: CHỈ xác nhận lịch + pitch Inbody + câu mời. KHÔNG làm gì thêm.
+    return `[EXAMPLE — INBODY PITCH: text thuần, KHÔNG **bold**, KHÔNG giá/gói]
+1 message = xác nhận lịch ngắn + pitch Inbody + câu mời. KHÔNG kèm bất cứ gì khác.
 
-SAI (nhảy sang gói ngay):
-"Với lịch ${schedule}, ${h} có thể chọn: Full 12 tháng 7tr / Full 6 tháng 4.5tr..."
-
-ĐÚNG (inbody trước):
-“Dạ, để ${goal} hiệu quả thì mình cần kết hợp tập luyện và lộ trình phù hợp đó ${h}.
-Bên em có đo InBody miễn phí lần đầu — HLV sẽ phân tích tỷ lệ mỡ/cơ và tư vấn đúng hướng luôn.
-${h} qua thử 1 buổi trước cho dễ chọn gói nha?”
-
-Hoặc:
-"Tối ${schedule ? schedule.replace("toi", "").trim() || "mấy buổi/tuần" : "3 buổi/tuần"} thì bên em có khung giờ thoải mái ${h}.
-Trước khi chọn gói, bên em đo Inbody miễn phí lần đầu — biết được % mỡ và cơ thực tế để HLV lên lịch tập chuẩn hơn.
-${h} qua thử không, em giữ slot HLV luôn nha?"`;
+SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy gói
+ĐÚNG: "Dạ, để ${goal} hiệu quả thì cần kết hợp tập luyện đúng hướng ${h}. Bên em đo InBody miễn phí lần đầu, HLV phân tích tỷ lệ mỡ cơ rồi tư vấn lộ trình chuẩn luôn. ${h} qua thử 1 buổi cho dễ chọn gói nha"`;
   }
 
   // ── FITNESS: đang evaluation → show gói có narrative ──
@@ -531,27 +626,22 @@ ${h} qua thử không, em giữ slot HLV luôn nha?"`;
       goalPackages[goal] ??
       `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
 
-    return `[EXAMPLE_STRUCTURE — BUILD VALUE RỒI MỚI GIÁ]
-⚠️ TUYỆT ĐỐI KHÔNG dùng **bold** hay *italic* — TEXT THUẦN TÚY như nhắn Zalo
-⚠️ KHÔNG khen giả: "không gian thoải mái sẽ giúp", "Với mục tiêu X, [cơ sở Y] sẽ giúp..."
-⚠️ Value phải CỤ THỂ theo goal, KHÔNG generic
-⚠️ ${specificHint}
+    return `[EXAMPLE — BUILD VALUE TRƯỚC, RỒI 3 GÓI CÓ GIÁ THẬT, THỨ TỰ CAO→VỪA→NHẸ]
+⚠️ Text thuần, KHÔNG **bold**/*italic*. KHÔNG khen giả ("không gian thoải mái sẽ giúp...").
+⚠️ Value CỤ THỂ theo goal: ${specificHint}
 
-SAI (bỏ giá + sai thứ tự + "12 tháng = thử trước"):
-"Gói Full 12 tháng — cho phép ${h} tập gym và bơi thoải mái...
-Gói 3 buổi/tuần 6 tháng — duy trì đều đặn mà không quá áp lực...
-Gói 3 buổi/tuần 12 tháng — nếu ${h} muốn thử trước..."
+SAI: bỏ giá khỏi gói; "12 tháng = thử trước"; thứ tự sai.
 
-ĐÚNG (value cụ thể + giá thật + thứ tự cao→vừa→nhẹ):
-"[1-2 câu nhấn điểm khác biệt CỤ THỂ của ${svc} cho mục tiêu ${goal}]
+ĐÚNG (cấu trúc):
+"[1-2 câu nhấn điểm khác biệt CỤ THỂ của ${svc} cho ${goal}]
 
 Có mấy hướng cho ${h}:
 ${concretePackages}
 
 Hội viên ${goal} hay chọn [gói đầu tiên] nhất.
-[câu hỏi giờ/lịch đến InBody — KHÔNG hỏi 'muốn đăng ký không']"
+[câu hỏi giờ đến InBody — KHÔNG hỏi 'muốn đăng ký không']"
 
-BẮT BUỘC: mỗi gói PHẢI có giá — thiếu giá là sai. Thứ tự: cao → vừa → nhẹ.`;
+BẮT BUỘC: mỗi gói có giá thật, thứ tự cao→vừa→nhẹ.`;
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
@@ -599,47 +689,40 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
         ? `Để em giữ slot ${preferredTime} cho ${h}, cho em xin tên với SĐT nha`
         : `${h} tiện khung sáng hay chiều để em giữ slot — cho em xin tên với SĐT luôn nha`;
 
+    const timeNote = preferredTime
+      ? `ĐÃ BIẾT giờ=${preferredTime} → KHÔNG hỏi giờ lại, kết bằng xin tên/SĐT.`
+      : "Chưa có giờ → hỏi giờ ở cuối.";
+    const visualHint =
+      pain.includes("vai") || pain.includes("co")
+        ? "vùng cổ vai sẽ nhẹ hơn, đỡ cứng khựng"
+        : "cảm giác đau âm ỉ cũng dịu rõ hơn";
     return `[EXAMPLE — GIẢI CƠ EVALUATION: VISUALIZE → CONTRAST → VIỄN CẢNH → MỜI 1 BUỔI]
-⚠️ BƯỚC 0: GỌI get-media TRƯỚC — đưa URLs vào mediaUrls output. Đây là thao tác nội bộ, không được viết nguyên câu chỉ dẫn này ra cho khách
-⚠️ Không show bảng 3 gói ngay, chỉ mời 1 buổi thử trước
-⚠️ Text thuần túy, giọng mềm, tự nhiên, không markdown
-⚠️ ĐÃ BIẾT giờ-muốn=${preferredTime ?? "chưa có"} — ${preferredTime ? "KHÔNG hỏi giờ lại, kết bằng xin tên/SĐT" : "hỏi giờ ở cuối"}
+⚠️ Không show bảng 3 gói. Text thuần, không markdown. ${timeNote}
+⚠️ Quyết định gửi ảnh xem [MEDIA] block — nếu thấy moment phù hợp (khách đang phân vân, cần thêm trust)
+   thì gọi get-media với suggestedKey. Nếu khách đã rõ ràng/đang chốt → bỏ qua, gửi text thôi.
 
-SAI (hỏi thay vì chủ động gửi):
-"Dạ, em gửi anh/chị hình thực tế để mình dễ hình dung hơn nha"
+SAI: "em gửi hình để dễ hình dung nha" (hỏi thay vì chủ động gửi nếu đã quyết gửi);
+     "em gợi CS-VIP 2 × 10 buổi 3.8tr..." (bán gói sớm);
+     hỏi lại giờ khi đã có.
 
-SAI (bán gói quá sớm):
-"Với tình trạng của ${h}, em gợi: CS-VIP 2 × 10 buổi (3.8tr)..."
-
-SAI (hỏi lại giờ khi đã biết giờ rồi):
-"${h} tiện khung sáng hay chiều để em giữ slot nha" ← đã biết giờ=${preferredTime ?? "?"}, đừng hỏi lại
-
-ĐÚNG (gọi get-media TRƯỚC rồi mới viết text):
-"Dạ, vùng ${pain}${duration ? ` đã ${duration}` : ""} như anh/chị mô tả thường giống một nút thắt bị kẹt trong cơ ạ. ${contrastText}
-
-Khi xử lý đúng điểm đó thì sáng dậy ${pain.includes("vai") || pain.includes("co") ? "vùng cổ vai sẽ nhẹ hơn, đỡ cảm giác cứng khựng" : "cảm giác đau âm ỉ cũng sẽ dịu rõ hơn"} ${h}.
-
-Bên em có KTV chuyên giải cơ chuyên sâu, anh/chị có thể thử 1 buổi trước để cảm nhận thực tế. ${closingLine}"`;
+ĐÚNG (text response, có hoặc không kèm media tùy moment):
+"Dạ, vùng ${pain}${duration ? ` đã ${duration}` : ""} như ${h} mô tả thường giống một nút thắt bị kẹt trong cơ ạ. ${contrastText}
+Khi xử lý đúng điểm đó thì sáng dậy ${visualHint} ${h}.
+Bên em có KTV chuyên giải cơ chuyên sâu, ${h} có thể thử 1 buổi trước để cảm nhận thực tế. ${closingLine}"`;
   }
 
   // ── GIẢI CƠ / FITNESS: commitment — hỏi GỘP 3 thứ, xác nhận và dừng ──
   if (stage === "commitment") {
     return `[EXAMPLE — COMMITMENT: HỎI GỘP → XÁC NHẬN → DỪNG]
-⚠️ KHÔNG lặp "KTV sẽ đánh giá thực tế" / "tư vấn lộ trình phù hợp" — đã nói rồi
-⚠️ Không đẩy QR trừ khi khách hỏi về cọc hoặc thanh toán trước
+⚠️ Không lặp "KTV đánh giá thực tế / tư vấn lộ trình". Không đẩy QR trừ khi khách hỏi.
 
---- CHƯA CÓ cả 3 thứ (tên + SĐT + giờ) ---
-ĐÚNG: "Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối để em giữ slot ạ"
-SAI: "Cho em xin tên với SĐT để giữ slot ạ" ← thiếu giờ
-SAI: "Em giữ slot buổi sáng cho ${h} nhé..." ← chưa có tên/SĐT
+CHƯA đủ 3 (tên+SĐT+giờ):
+ĐÚNG: "Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối ạ"
+SAI:  thiếu giờ; xác nhận khi chưa có tên/SĐT.
 
---- Khách hỏi giá trước khi chốt ---
-ĐÚNG: "Dạ có chi phí ${h} — buổi 200k. Cho em xin tên, SĐT với khung sáng, chiều hay tối để em giữ slot nha"
-
---- ĐÃ CÓ ĐỦ 3 THỨ (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG ---
-ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ."
-SAI: "Em giữ slot rồi. ${h} có muốn cọc trước không?" ← tự hỏi thêm
-⚠️ Sau khi xác nhận → DỪNG HẲN. Chờ khách hỏi gì thêm mới trả lời.`;
+ĐÃ đủ 3:
+ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ." → DỪNG HẲN.
+SAI:  hỏi thêm "cọc trước không".`;
   }
 
   return null;
@@ -731,7 +814,7 @@ function buildMissingSlotHint(
 // MAIN PREFIX BUILDER
 // ─────────────────────────────────────────────
 
-export function buildPrefix(state: ConversationState): string {
+export function buildPrefix(state: ConversationState, message?: string): string {
   const h = resolveHonorific(state.honorific);
   const tactic = getTactic(state.flow, state.stage, state.emotion);
 
@@ -747,7 +830,8 @@ export function buildPrefix(state: ConversationState): string {
       state.stage,
     ),
     buildKnowledgeBlock(state, h),
-    buildLogicGate(state),
+    buildMediaHint(state),
+    buildLogicGate(state, message),
     buildFewShot(state, h) ?? "",
   ];
 
