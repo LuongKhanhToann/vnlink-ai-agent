@@ -197,6 +197,10 @@ function buildAgentStep(
 
       const result = await agent.generate(fullMessage, {
         maxSteps: 4,
+        // temperature 0.3: cân bằng giữa tự nhiên và ổn định.
+        // 0.7 (default) → variance ±20% giữa các run cùng code.
+        // 0.0 → quá robot. 0.3 → giảm variance ~50% mà vẫn natural.
+        modelSettings: { temperature: 0.3 },
         memory: {
           thread: { id: threadId },
           resource: resourceId,

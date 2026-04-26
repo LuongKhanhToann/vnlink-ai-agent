@@ -308,6 +308,7 @@ export function computeNextStage(
   llmSuggestedStage: Stage,
   turnCount: number = 0
 ): Stage {
+
   // Recovery / retention — giữ nguyên
   if (currentStage === "recovery" || currentStage === "retention") {
     return currentStage;
@@ -511,6 +512,7 @@ export function buildNextState(
     qrShown,
     mediaShown,
     sheetsWritten: previous.sheetsWritten,
+    lastBotReply: previous.lastBotReply,
   };
 }
 
