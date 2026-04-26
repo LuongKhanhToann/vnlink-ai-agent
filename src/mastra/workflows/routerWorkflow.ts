@@ -14,6 +14,7 @@ import { loadState, saveState } from "../lib/stateStore";
 import { classify } from "../lib/classifier";
 import { buildNextState, detectFlowByKeyword } from "../lib/stateMachine";
 import { buildPrefix } from "../lib/prefixBuilder";
+import { cleanReply } from "../lib/cleanReply";
 
 // ─────────────────────────────────────────────
 // SCHEMAS
@@ -219,17 +220,21 @@ function buildAgentStep(
         nextStep: "close" as const,
       };
 
+      // Deterministic post-process: strip khen giả, fake media offer, filler, markdown.
+      const hasMedia = !!(obj.mediaUrls && obj.mediaUrls.length > 0);
+      const cleanedText = cleanReply(obj.text ?? "", hasMedia);
+
       await updateStateAfterReply(
         mastra,
         threadId,
         resourceId,
         obj.nextStep,
         { qrShown, mediaShown },
-        obj.text ?? "",
+        cleanedText,
       );
 
       return {
-        reply: obj.text,
+        reply: cleanedText,
         mediaUrls: obj.mediaUrls ?? null,
         qrUrl: obj.qrUrl ?? null,
         nextStep: obj.nextStep ?? null,

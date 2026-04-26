@@ -1296,6 +1296,14 @@ export function buildPrefix(
       "TUYỆT ĐỐI KHÔNG hỏi gộp lại tên/SĐT/giờ. KHÔNG gợi cọc/QR.";
   }
 
+  // Override TACTIC khi khách lạnh (thôi/tham khảo/để mai/chưa quyết) — KHÔNG xin info
+  if (message && detectColdLead(message)) {
+    tactic =
+      "Khách đang lạnh / muốn tham khảo thêm. Reply CHỈ 1 câu LÙI nhẹ: " +
+      "'Dạ vâng nha anh/chị, anh/chị cứ tham khảo thoải mái, có gì cần em sẵn ạ' rồi DỪNG. " +
+      "❌ TUYỆT ĐỐI KHÔNG xin tên/SĐT/giờ trong tin này. KHÔNG pitch gói. KHÔNG nhắc giá.";
+  }
+
   // Override TACTIC discovery cho 3 trường hợp đặc biệt
   if (state.stage === "discovery" && state.flow === "fitness") {
     // (a) Khách bảo "chỉ tập X" → ack + hỏi schedule, không hỏi mục tiêu, không ép Full
