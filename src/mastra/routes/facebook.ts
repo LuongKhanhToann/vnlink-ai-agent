@@ -58,6 +58,10 @@ facebookWebhook.post("/webhook", async (c) => {
 });
 
 function enqueueMessage(senderId: string, text: string) {
+  // Hiện "..." typing indicator để khách biết bot đang đọc → giảm cảm giác lag
+  // khi debounce wait. Typing tự tắt sau 20s hoặc khi gửi message.
+  void sendTyping(senderId);
+
   const existing = pending.get(senderId);
   if (existing) {
     existing.texts.push(text);
@@ -69,6 +73,22 @@ function enqueueMessage(senderId: string, text: string) {
     texts: [text],
     timer: setTimeout(() => flush(senderId), DEBOUNCE_MS),
   });
+}
+
+async function sendTyping(recipientId: string) {
+  try {
+    await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        sender_action: "typing_on",
+      }),
+    });
+  } catch (e) {
+    // Lỗi typing không quan trọng — bot vẫn reply bình thường
+    console.warn("[fb] typing_on failed:", e);
+  }
 }
 
 function flush(senderId: string) {
