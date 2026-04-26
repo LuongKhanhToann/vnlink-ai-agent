@@ -88,6 +88,7 @@ export async function loadState(
       qrShown: m.qrShown ?? false,
       mediaShown: m.mediaShown ?? false,
       sheetsWritten: (m as any).sheetsWritten ?? false,
+      lastBotReply: (m as any).lastBotReply,
     };
   } catch (e) {
     console.error(`[stateStore] loadState failed for ${tid}:`, e);

@@ -19,7 +19,7 @@ import {
   LLMClassification,
   nullSlots,
 } from "./stateMachine";
-import { buildDateContext } from "./dateHelper";
+import { buildDateContext, verifyWeekdayInTime } from "./dateHelper";
 import { openai } from "../config/openai";
 
 const classifierAgent = new Agent({
@@ -87,8 +87,45 @@ export async function classify(
   // Việc override an toàn vì mergeSlots dùng score-based: chỉ override khi mới >= cũ về độ cụ thể,
   // hoặc khi khách chủ động nhắc lại thời gian khác.
   const slotsToExtract: (keyof KnownInfo)[] = [...missingSlots];
+
+  // preferredTime: luôn cho re-extract (refine + đổi ý).
   if (!slotsToExtract.includes("preferredTime")) {
     slotsToExtract.push("preferredTime");
+  }
+
+  // pastMethod: cho re-extract khi tin mới có cue về phương pháp đã thử
+  // (vì lần đầu LLM hay suy diễn sai → "chua-thu" mặc dù khách chưa nói).
+  const pastMethodCue =
+    /(thuốc|massage|xoa\s?bóp|vật\s?lý|châm\s?cứu|cao\s?dán|dán\s?cao|chưa\s?thử|đã\s?thử|đi\s?spa)/i;
+  if (
+    pastMethodCue.test(message) &&
+    !slotsToExtract.includes("pastMethod")
+  ) {
+    slotsToExtract.push("pastMethod");
+  }
+
+  // painArea/painSpread: tương tự — cho re-extract khi khách nhắc cụ thể hơn
+  const painAreaCue = /(vai|gáy|cổ|lưng|chân|gối|đầu|hông|mông|tay|cơ)/i;
+  if (painAreaCue.test(message) && !slotsToExtract.includes("painArea")) {
+    slotsToExtract.push("painArea");
+  }
+  const painSpreadCue = /(lan|cố\s?định|một\s?(chỗ|điểm)|không\s?lan)/i;
+  if (
+    painSpreadCue.test(message) &&
+    !slotsToExtract.includes("painSpread")
+  ) {
+    slotsToExtract.push("painSpread");
+  }
+
+  // memberType: re-extract khi khách nhắc tới "sinh viên / vợ chồng / gia đình".
+  // Cần để bot pitch đúng gói HS/SV hoặc gói gia đình.
+  const memberTypeCue =
+    /(sinh\s*viên|\bsv\b|học\s*sinh|\bhs\b|vợ\s*chồng|gia\s*đình|cả\s*nhà|với\s+(vợ|chồng|con))/i;
+  if (
+    memberTypeCue.test(message) &&
+    !slotsToExtract.includes("memberType")
+  ) {
+    slotsToExtract.push("memberType");
   }
 
   const prompt = buildPrompt(
@@ -201,7 +238,10 @@ INTENT:
 
 SLOTS cho fitness:
   serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể
-  memberType    = ca-nhan/gia-dinh/hoc-sinh
+  memberType    = ca-nhan/gia-dinh/hoc-sinh — extract khi có cue:
+                  "sinh viên" / "sv" / "học sinh" / "hs" / "đang học" → "hoc-sinh"
+                  "vợ chồng" / "gia đình" / "cả nhà" / "2 vợ chồng" / "với vợ/chồng/con" → "gia-dinh"
+                  không có cue → null (đừng đoán "ca-nhan")
   durationMonths = số tháng muốn đăng ký
   schedule      = khung giờ / số buổi mỗi tuần (VD: "sáng" → "sáng", "chiều tối" → "chiều-tối", "3 buổi/tuần" → "3-buoi-tuan")
   fitnessGoal   = giam-mo/tang-co/thu-gian/hoc-boi/suc-khoe/linh-hoat
@@ -219,12 +259,14 @@ SLOTS cho giai-co:
                   "một chỗ" / "điểm cố định" / "không lan" → "diem-co-dinh"
                   mô tả cụ thể khác → ghi nguyên văn ngắn gọn
   painDuration  = đau bao lâu (VD: "mấy hôm", "1 tuần", "vài tháng")
-  pastMethod    = phương pháp đã thử — extract ngay khi khách đề cập:
-                  "chưa thử gì" / "chưa" → "chua-thu"
+  pastMethod    = phương pháp đã thử — CHỈ extract khi khách EXPLICITLY nói về phương pháp đã/đang dùng:
+                  "chưa thử gì" / "chưa thử cách nào" → "chua-thu"
                   "có massage" / "đã đi massage" / "xoa bóp" → "massage"
-                  "uống thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
-                  "vật lý trị liệu" / "châm cứu" → "vat-ly-tri-lieu"
+                  "uống thuốc" / "có thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
+                  "vật lý trị liệu" / "châm cứu" / "trị liệu" → "vat-ly-tri-lieu"
                   khác → "khac"
+                  ⚠️ TUYỆT ĐỐI KHÔNG suy diễn "chua-thu" chỉ vì khách chưa nói. Nếu khách chưa nhắc gì về phương pháp → để null.
+                  ⚠️ Khi khách bổ sung sau ("chị có uống thuốc giảm đau") dù slot cũ đã có giá trị → phải UPDATE thành value mới.
   sessionPackage = le/5-buoi/10-buoi/20-buoi
 
 SLOTS chung (áp dụng cả fitness và giai-co):
@@ -258,15 +300,23 @@ SLOTS chung (áp dụng cả fitness và giai-co):
       "sáng" (đứng 1 mình, không ngữ cảnh) → "sáng"
       "lúc nào rảnh em báo" / "chưa biết"  → null
 
-    D) REFINE (quan trọng — khi đã có preferredTime cũ trong "Đã biết"):
+    D) REFINE — khi đã có preferredTime cũ và tin mới BỔ SUNG (cùng hướng, không trái):
       Nếu tin mới của khách BỔ SUNG thông tin (buổi mới, ngày mới, giờ mới) →
-      GỘP với value cũ thành value mới CỤ THỂ HƠN, rồi trả về.
+      GỘP với value cũ thành value mới CỤ THỂ HƠN.
       Ví dụ:
         Cũ="cuối tuần",  tin mới="sáng nha"              → "sáng thứ 7 DD/MM"
         Cũ="sáng",       tin mới="chủ nhật"              → "sáng chủ nhật DD/MM"
         Cũ="thứ 7 25/04", tin mới="9h nha"               → "9h sáng thứ 7 25/04"
         Cũ="chiều",      tin mới="mai"                   → "chiều DD/MM" (ngày mai)
       Nếu tin mới KHÔNG nói gì về thời gian → giữ nguyên value cũ (trả value cũ y hệt).
+
+    E) ĐỔI Ý — khi khách CHỦ ĐỘNG đổi sang giờ khác (cue: "thôi", "đổi", "chuyển", "không", "ko"):
+      THAY THẾ HOÀN TOÀN value cũ bằng tin mới. KHÔNG gộp với cũ.
+      Ví dụ:
+        Cũ="9h sáng thứ 7 02/05",   tin mới="thôi sáng mai luôn nha"   → "sáng DD/MM" (ngày mai)
+        Cũ="chiều thứ 6 26/04",     tin mới="đổi sang tối được không"  → "tối DD/MM" (giữ ngày cũ)
+        Cũ="thứ 7",                 tin mới="ko thứ 7, chuyển cn"      → "chủ nhật DD/MM"
+      Cue đổi ý PHẢI rõ — không nhầm với refine. Nếu chỉ thấy "à" hay câu khác chủ đề → giữ cũ.
 
     QUY TẮC CHUNG:
       - Ưu tiên gom đủ {giờ + buổi + thứ/ngày} khi khách cho đủ tín hiệu.
@@ -310,6 +360,19 @@ function mapToClassification(
       if (parsed.slots[slot] !== undefined) {
         (extractedSlots as any)[slot] = parsed.slots[slot];
       }
+    }
+  }
+
+  // Verify thứ-trong-tuần khớp với DD/MM. Nếu LLM lỡ ghi "thứ 7 26/04" mà
+  // 26/04 thực ra là CN → tự sửa lại thành "chủ nhật 26/04".
+  if (typeof extractedSlots.preferredTime === "string") {
+    const before = extractedSlots.preferredTime;
+    const after = verifyWeekdayInTime(before);
+    if (after !== before) {
+      console.warn(
+        `[classifier] sửa thứ-trong-tuần: "${before}" → "${after}"`,
+      );
+      extractedSlots.preferredTime = after ?? before;
     }
   }
 

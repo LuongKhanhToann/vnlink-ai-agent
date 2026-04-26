@@ -57,14 +57,11 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Lắng nghe. Xác nhận ngắn. Hỏi mục tiêu thực sự nếu chưa rõ. KHÔNG báo giá.",
 
   // ── INBODY ───────────────────────────────────────────
-  // Mục tiêu: pitch Inbody miễn phí — công cụ build trust + justify gói TRƯỚC khi show giá.
-  // TUYỆT ĐỐI KHÔNG show gói/giá ở bước này.
-  // Thứ tự: (1) xác nhận lịch tập 1 câu → (2) pitch Inbody → (3) câu mời nhẹ
+  // Pitch InBody = công cụ build trust. Nhưng cần tự nhiên, ĐA DẠNG cách diễn đạt.
+  // CẤM cụm sáo rỗng: "cần tập đúng hướng" / "lộ trình chuẩn" / "qua thử 1 buổi cho dễ chọn gói".
   inbody_neutral:
-    "Xác nhận định hướng tập luyện bằng 1 câu ngắn, tự tin (không đề cập số buổi). " +
-    "Nhấn mạnh lộ trình phù hợp theo thể trạng. " +
-    "Nhắc InBody miễn phí lần đầu để tăng độ tin tưởng. " +
-    "Kết bằng lời mời nhẹ, tự nhiên, không ép. Tuyệt đối không show gói hoặc giá ở tin này.",
+    "Pitch InBody đa dạng (vd 'máy đọc tỷ lệ mỡ/cơ thật, HLV gợi gói chuẩn không thừa'). " +
+    "Mời mở: 'tiện ghé sáng hay chiều'. ❌ CẤM 'tập đúng hướng / lộ trình chuẩn / qua thử cho dễ chọn'. KHÔNG show gói/giá.",
   inbody_excited:
     "Match năng lượng ngắn. Xác nhận lịch + pitch Inbody nhanh. " +
     "Dùng social proof: 'Hội viên đo xong thường chọn gói chuẩn hơn hẳn'. KHÔNG show giá.",

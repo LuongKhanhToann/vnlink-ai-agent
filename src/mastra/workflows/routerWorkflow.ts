@@ -119,7 +119,8 @@ const processStep = createStep({
 
     await saveState(mastra, threadId, resourceId, nextState);
 
-    const prefix = buildPrefix(nextState, message);
+    // Pass lastBotReply (từ turn trước) để buildPrefix tạo ANTI_LOOP hint
+    const prefix = buildPrefix(nextState, message, previousState.lastBotReply);
     console.log(`[process] prefix:\n${prefix}`);
 
     return {
@@ -138,17 +139,16 @@ const processStep = createStep({
 // HELPER: Update flags sau khi agent run
 // ─────────────────────────────────────────────
 
-async function updateStateFlags(
+async function updateStateAfterReply(
   mastra: any,
   threadId: string,
   resourceId: string,
   nextStep: string | null,
-  currentFlags: { qrShown: boolean; mediaShown: boolean }
+  currentFlags: { qrShown: boolean; mediaShown: boolean },
+  botReply: string,
 ): Promise<void> {
   const needQR    = nextStep === "show_qr"    && !currentFlags.qrShown;
   const needMedia = nextStep === "show_media" && !currentFlags.mediaShown;
-
-  if (!needQR && !needMedia) return;
 
   try {
     const current = await loadState(mastra, threadId, resourceId);
@@ -156,11 +156,12 @@ async function updateStateFlags(
       ...current,
       qrShown:    needQR    ? true : current.qrShown,
       mediaShown: needMedia ? true : current.mediaShown,
+      lastBotReply: botReply || current.lastBotReply,
     };
     await saveState(mastra, threadId, resourceId, updated);
-    console.log(`[flags] updated → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown}`);
+    console.log(`[flags] saved → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown} replyLen=${(botReply||'').length}`);
   } catch (e) {
-    console.error("[flags] updateStateFlags failed:", e);
+    console.error("[flags] updateStateAfterReply failed:", e);
   }
 }
 
@@ -214,10 +215,14 @@ function buildAgentStep(
         nextStep: "close" as const,
       };
 
-      await updateStateFlags(mastra, threadId, resourceId, obj.nextStep, {
-        qrShown,
-        mediaShown,
-      });
+      await updateStateAfterReply(
+        mastra,
+        threadId,
+        resourceId,
+        obj.nextStep,
+        { qrShown, mediaShown },
+        obj.text ?? "",
+      );
 
       return {
         reply: obj.text,

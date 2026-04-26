@@ -81,6 +81,7 @@ export interface ConversationState {
   qrShown: boolean;
   mediaShown: boolean;
   sheetsWritten: boolean;
+  lastBotReply?: string;
 }
 
 // ─────────────────────────────────────────────
@@ -122,6 +123,14 @@ export function mergeSlots(
     return hasTimeSignal ? x : e;
   }
 
+  // Slot có thể bị classifier suy diễn sai ngay turn đầu (vd pastMethod="chua-thu"
+  // khi khách chưa nói gì). Khi re-extract trả về value mới non-null → trust mới.
+  // Classifier chỉ được yêu cầu extract slot này khi có cue rõ ràng → an toàn để override.
+  function pickWithReextract<T>(e: T | null, x: T | null | undefined): T | null {
+    if (x === null || x === undefined) return e;
+    return x;
+  }
+
   return {
     name:           pick(existing.name,           extracted.name),
     phone:          pick(existing.phone,          extracted.phone),
@@ -130,10 +139,10 @@ export function mergeSlots(
     durationMonths: pick(existing.durationMonths, extracted.durationMonths),
     schedule:       pick(existing.schedule,       extracted.schedule),
     fitnessGoal:    pick(existing.fitnessGoal,    extracted.fitnessGoal),
-    painArea:       pick(existing.painArea,       extracted.painArea),
-    painSpread:     pick(existing.painSpread,     extracted.painSpread),
+    painArea:       pickWithReextract(existing.painArea,   extracted.painArea),
+    painSpread:     pickWithReextract(existing.painSpread, extracted.painSpread),
     painDuration:   pick(existing.painDuration,   extracted.painDuration),
-    pastMethod:     pick(existing.pastMethod,     extracted.pastMethod),
+    pastMethod:     pickWithReextract(existing.pastMethod, extracted.pastMethod),
     sessionPackage: pick(existing.sessionPackage, extracted.sessionPackage),
     preferredTime:  pickPreferredTime(existing.preferredTime, extracted.preferredTime),
   };
@@ -182,10 +191,17 @@ const FITNESS_KEYWORDS =
 const GIAI_CO_KEYWORDS =
   /\b(giải cơ|massage|xoa bóp|đau lưng|đau vai|đau cổ|đau gáy|vật lý trị liệu|trigger|fascia|cứng cơ|đau mỏi|nhức mỏi|spa|xông hơi|ngâm bồn|regenix|hoa sen)\b/i;
 
+// Cue đau cụ thể có ưu tiên ABSOLUTE — kể cả khi cũng có "gym/yoga"
+// (vd "tập gym sai tư thế đau lưng" → khách cần giải cơ, không phải fitness).
+const PAIN_PRIORITY = /(đau\s+(lưng|vai|cổ|gáy|chân|gối|hông|mông)|nhức\s+(mỏi|cơ)|cứng\s+cơ)/i;
+
 export function detectFlowByKeyword(
   message: string,
   _previousFlow: Flow | null
 ): Flow | null {
+  // Pain priority: ngay khi có cue đau cụ thể → giải cơ, bất kể fitness keyword
+  if (PAIN_PRIORITY.test(message)) return "giai-co";
+
   const isGiaiCo = GIAI_CO_KEYWORDS.test(message);
   const isFitness = FITNESS_KEYWORDS.test(message);
 

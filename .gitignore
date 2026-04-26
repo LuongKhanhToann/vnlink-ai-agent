@@ -10,3 +10,4 @@ dist
 .vercel
 *.mp4
 service_account.json
+test-results/
