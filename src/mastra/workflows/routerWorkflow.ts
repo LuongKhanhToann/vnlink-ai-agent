@@ -197,10 +197,10 @@ function buildAgentStep(
       const fullMessage = [prefix, message].filter(Boolean).join("\n");
 
       const result = await agent.generate(fullMessage, {
-        maxSteps: 4,
+        // maxSteps 2: cho phép 1 LLM step + 1 tool call (get-media or get-qr).
+        // Trước là 4 → bot đôi khi gọi tool 2-3 lần → duplicate media.
+        maxSteps: 2,
         // temperature 0.3: cân bằng giữa tự nhiên và ổn định.
-        // 0.7 (default) → variance ±20% giữa các run cùng code.
-        // 0.0 → quá robot. 0.3 → giảm variance ~50% mà vẫn natural.
         modelSettings: { temperature: 0.3 },
         memory: {
           thread: { id: threadId },
@@ -220,8 +220,13 @@ function buildAgentStep(
         nextStep: "close" as const,
       };
 
+      // Dedupe mediaUrls (defensive — bot có thể gọi tool 2 lần trả URLs duplicate)
+      const dedupedMediaUrls = obj.mediaUrls
+        ? [...new Set(obj.mediaUrls)]
+        : null;
+
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown.
-      const hasMedia = !!(obj.mediaUrls && obj.mediaUrls.length > 0);
+      const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
       const cleanedText = cleanReply(obj.text ?? "", hasMedia);
 
       await updateStateAfterReply(
@@ -235,7 +240,7 @@ function buildAgentStep(
 
       return {
         reply: cleanedText,
-        mediaUrls: obj.mediaUrls ?? null,
+        mediaUrls: dedupedMediaUrls,
         qrUrl: obj.qrUrl ?? null,
         nextStep: obj.nextStep ?? null,
       };

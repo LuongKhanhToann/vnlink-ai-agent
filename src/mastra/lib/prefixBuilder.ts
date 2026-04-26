@@ -264,12 +264,14 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const { stage, intent, flow, knownInfo, mediaShown } = state;
   const hints: string[] = [];
 
-  // ── CROSS-CUTTING: media đã gửi rồi → cấm gọi lại ──
-  if (mediaShown) {
+  // ── CROSS-CUTTING: media đã gửi rồi → cấm gọi lại
+  // EXCEPT khi khách EXPLICIT xin xem (bypass 1 lần — handled bởi GATE media-request bên dưới)
+  const customerAskingMedia = message ? detectMediaRequest(message) : false;
+  if (mediaShown && !customerAskingMedia) {
     hints.push(
       "[GATE: mediaShown=true — ĐÃ gửi ảnh/video cho khách. " +
-        "TUYỆT ĐỐI KHÔNG gọi lại tool get-media trong turn này, dù GATE khác có yêu cầu. " +
-        "Nếu khách hỏi xem thêm/khác vùng → trả lời text rồi mời ghé trực tiếp xem.]",
+        "TUYỆT ĐỐI KHÔNG gọi lại tool get-media trong turn này. " +
+        "Nếu khách hỏi xem thêm → trả lời text 'em đã gửi rồi nha, anh/chị xem lại giúp em', mời ghé trực tiếp.]",
     );
   }
 
@@ -366,18 +368,18 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách xin xem ảnh/video → BẮT BUỘC gọi get-media ──
+  // ── ƯU TIÊN: khách xin xem ảnh/video → gọi get-media ĐÚNG 1 LẦN ──
   // (Bypass mediaShown=true 1 lần — khách EXPLICIT yêu cầu thì phải đáp ứng)
   if (message && detectMediaRequest(message)) {
     const key = computeSuggestedMediaKey(state);
     if (key) {
       hints.push(
         `[GATE ƯU TIÊN: khách CHỦ ĐỘNG xin xem ảnh/video. ` +
-          `BẮT BUỘC gọi tool get-media với key="${key}" NGAY (kể cả khi mediaShown=true). ` +
-          `Reply text NGẮN GỌN tối đa 1-2 câu (~100 ký tự), CHỈ dẫn dắt việc gửi ảnh: ` +
-          `vd "Dạ, em gửi ${state.flow === "fitness" ? "vài hình phòng tập" : "vài hình giải cơ"} cho ${state.honorific} xem nha". ` +
-          `❌ KHÔNG pitch package / liệt kê gói / nói về giá trong tin này — đó là spam. ` +
-          `Copy URLs vào mediaUrls output. set nextStep="show_media".]`,
+          `Gọi tool get-media với key="${key}" ĐÚNG 1 LẦN DUY NHẤT trong turn này. ` +
+          `❌ TUYỆT ĐỐI KHÔNG gọi tool 2-3 lần liên tiếp (gây duplicate). ` +
+          `Reply text NGẮN ≤ 80 ký tự, CHỈ 1 câu: ` +
+          `"Dạ em gửi ${state.flow === "fitness" ? "vài hình phòng tập" : "vài hình"} cho ${state.honorific} xem nha". ` +
+          `Copy URLs từ tool result vào mediaUrls output, set nextStep="show_media". KHÔNG pitch giá/gói.]`,
       );
     }
   }
