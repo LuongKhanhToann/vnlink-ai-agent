@@ -37,11 +37,57 @@ const MARKDOWN_LINK = /\[([^\]]+)\]\([^)]+\)/g;
 /**
  * Clean reply text. `hasMedia` = bot có thực sự gửi media qua tool — nếu false,
  * cắt cụm "em gửi hình" giả.
+ *
+ * `prevReply` = reply turn trước. Nếu prev đã có pitch package (≥2 số tiền) và
+ * current lặp y số tiền đó → strip câu chứa số tiền (giảm lặp ý).
  */
-export function cleanReply(text: string, hasMedia: boolean = false): string {
+export function cleanReply(
+  text: string,
+  hasMedia: boolean = false,
+  prevReply: string = "",
+): string {
   if (!text) return text;
 
   let r = text;
+
+  // Anti-loop pitch: detect các phrase đặc trưng trong prev → strip current sentences chứa chúng.
+  // Targets:
+  //   - ≥2 số tiền (list package)
+  //   - "PT X buổi" (PT pitch)
+  //   - "InBody miễn phí" (InBody pitch)
+  if (prevReply) {
+    const forbidPhrases: string[] = [];
+
+    // 1. Số tiền (chỉ khi prev có ≥2 → list package)
+    const prevPrices = Array.from(
+      new Set(
+        (prevReply.match(/\d+(?:\.\d+)?\s*(?:tr|triệu|k)\b/gi) || []).map((s) =>
+          s.toLowerCase().replace(/\s+/g, ""),
+        ),
+      ),
+    );
+    if (prevPrices.length >= 2) {
+      forbidPhrases.push(...prevPrices);
+    }
+
+    // 2. PT X buổi (PT pitch — lặp giữa turns)
+    const ptMatch = prevReply.match(/PT\s*\d+\s*buổi/i);
+    if (ptMatch) {
+      forbidPhrases.push(ptMatch[0].toLowerCase().replace(/\s+/g, ""));
+    }
+
+    if (forbidPhrases.length > 0) {
+      const sentences = r.match(/[^.!?]+[.!?]?/g) || [];
+      const kept = sentences.filter((sent) => {
+        const norm = sent.toLowerCase().replace(/\s+/g, "");
+        return !forbidPhrases.some((p) => norm.includes(p));
+      });
+      if (kept.length >= 1) {
+        r = kept.join(" ").trim();
+      }
+      // Nếu strip hết → giữ nguyên text gốc (an toàn, không trả empty)
+    }
+  }
 
   // 1. Khen giả
   for (const [pattern, replacement] of FAKE_PRAISE_PATTERNS) {

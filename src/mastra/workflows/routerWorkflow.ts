@@ -225,9 +225,14 @@ function buildAgentStep(
         ? [...new Set(obj.mediaUrls)]
         : null;
 
-      // Deterministic post-process: strip khen giả, fake media offer, filler, markdown.
+      // Load prev reply để cleanReply strip pitch lặp
+      const stateBeforeReply = await loadState(mastra, threadId, resourceId);
+      const prevReply = stateBeforeReply.lastBotReply ?? "";
+
+      // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
+      // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
-      const cleanedText = cleanReply(obj.text ?? "", hasMedia);
+      const cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply);
 
       await updateStateAfterReply(
         mastra,

@@ -1064,9 +1064,9 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     // Concrete package examples per goal — correct anchor order: high → mid → light
     const goalPackages: Record<string, string> = {
       "giam-mo":
-        `Full 12 tháng 7tr (~19k/ngày) — Gym + Bơi/Zumba 1 thẻ, cardio + weight kết hợp đốt mỡ nhanh nhất\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — chỉ gym, lịch ổn định cả năm\n` +
-        `Gym 3 buổi/tuần 6 tháng 2tr — thử nửa năm trước, ít áp lực hơn`,
+        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 kèm sát, đốt mỡ nhanh + đúng kỹ thuật\n` +
+        `Full 12 tháng 7tr (~19k/ngày) — Gym + Bơi/Zumba 1 thẻ, cardio + weight đa năng\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập, tiết kiệm`,
       "tang-co":
         `PT 20 buổi (2 tháng) 6tr — HLV 1-1 xây kỹ thuật nền đúng, tránh chấn thương\n` +
         `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
@@ -1088,12 +1088,13 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
       goalPackages[goal] ??
       `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
 
-    // Pitch 1 gói anchor cụ thể, không list 3 dòng → reply ngắn hơn, ít trùng turn sau
-    const firstPackage = concretePackages.split("\n")[0] ?? concretePackages;
-    return `[EXAMPLE — Reply ≤ 200 ký tự. Value 1 câu + 1 gói anchor (CỤ THỂ) + câu hỏi chốt]
+    // Pitch 3 gói anchor đa dạng (cao→vừa→nhẹ) — khách thấy nhiều choice dễ chọn theo budget
+    return `[EXAMPLE — Reply ≤ 320 ký tự. Value 1 câu + 3 GÓI ANCHOR + câu hỏi chốt]
 Value cụ thể: ${specificHint}
-Gói anchor (CHỈ pitch 1, KHÔNG list 3): ${firstPackage}
-Mẫu: "[value 1 câu]. Hội viên ${goal} hay chọn ${firstPackage.split(" — ")[0]}. ${h} tiện ghé InBody sáng hay chiều"`;
+Gói (giá thật, thứ tự cao→vừa→nhẹ):
+${concretePackages}
+Mẫu reply: "[1 câu value]. Bên em có mấy hướng cho ${h}: [3 gói trên]. ${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình nha"
+⚠️ MỖI gói PHẢI có giá. KHÔNG hỏi lại nhu cầu/giờ đã có trong [KNOWN].`;
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
@@ -1329,8 +1330,11 @@ export function buildPrefix(
 
   // Override TACTIC inbody khi cần SKIP InBody pitch
   // (khách compare/hỏi giá/chỉ 1 dịch vụ/sinh viên/gia đình/yoga-zumba-bơi-pilates)
+  // Hoặc đã có ĐỦ goal+schedule → KHÔNG hỏi lại, pitch THẲNG package
   if (state.stage === "inbody" && state.flow === "fitness") {
     const ki = state.knownInfo;
+    const hasGoalAndSchedule =
+      ki.fitnessGoal !== null && ki.schedule !== null;
     const shouldSkip =
       state.intent === "compare" ||
       ki.memberType === "hoc-sinh" ||
@@ -1341,6 +1345,7 @@ export function buildPrefix(
       ki.serviceType === "pilates" ||
       ki.fitnessGoal === "thu-gian" ||
       ki.fitnessGoal === "hoc-boi" ||
+      hasGoalAndSchedule ||
       (message && detectPriceQuestion(message)) ||
       (message && detectPriceObjection(message)) ||
       (message && detectMediaRequest(message));
@@ -1373,6 +1378,13 @@ export function buildPrefix(
       } else if (message && detectMediaRequest(message)) {
         tactic =
           "Khách xin xem ảnh. GỌI tool get-media NGAY. Reply text 1 câu ngắn dẫn dắt.";
+      } else if (hasGoalAndSchedule) {
+        // ĐÃ ĐỦ goal+schedule → KHÔNG hỏi lại, pitch THẲNG 3 gói anchor đa dạng
+        const goal = ki.fitnessGoal ?? "tổng thể";
+        tactic =
+          `Khách đã đủ goal=${goal} + schedule=${ki.schedule}. KHÔNG hỏi lại "muốn tập gym/yoga/zumba". ` +
+          "Pitch THẲNG 3 GÓI ANCHOR đa dạng (cao→vừa→nhẹ): PT 6tr (kèm sát) | Full 7tr/12m (đa năng ~19k/ngày) | Gym 4.5tr/12m (tự tập tiết kiệm). " +
+          "Câu kết: 'tiện ghé InBody buổi sáng để HLV thiết kế lộ trình nha'.";
       } else {
         tactic =
           "Khách compare. Trả lời thẳng nhu cầu khách (giá/dịch vụ cụ thể). " +

@@ -9,6 +9,23 @@
 - **Output cap**: 16K tokens
 - **TTL prompt cache**: 5 phút
 
+### Models đã thử nghiệm (đừng thử lại)
+
+| Model | Iter | Avg | Pass | Cost | Verdict |
+|---|---|---|---|---|---|
+| gpt-4o-mini (current) | 32 | **8.44** | **11/21** | 20đ/turn | ✅ best ratio |
+| gpt-4.1-mini | 33 | 8.06 | 5/21 | ~50đ/turn | ❌ tệ hơn + 2.5x đắt |
+
+### Models có thể thử trong tương lai (chưa test)
+
+- **gpt-4o** (full): est avg 9.0+, cost ~335đ/turn (16x). Nên hybrid cho objection/closing.
+- **Claude Haiku 4.5**: est avg ~8.8, cost ~50đ/turn. Cần đổi Anthropic SDK.
+
+## Cost estimate (production)
+
+- 20đ/turn × 3-5 turn/conv = ~65đ/conversation
+- 100 conv/ngày → 200k đồng/tháng
+
 ## Soft limits cho quality (gpt-4o-mini)
 
 | Component | Limit khuyến nghị | Hậu quả nếu vượt |
