@@ -58,6 +58,67 @@ facebookWebhook.post("/webhook", async (c) => {
   return c.text("EVENT_RECEIVED");
 });
 
+// ─────────────────────────────────────────────
+// Follow-up: load state + pre-fetch media → schedule
+// (dynamic import để tránh circular dep với index.ts)
+// ─────────────────────────────────────────────
+
+const SERVICE_TO_MEDIA_KEY: Record<string, string> = {
+  gym: "fitness-gym",
+  full: "fitness-gym",
+  pilates: "fitness-gym",
+  yoga: "fitness-yoga",
+  zumba: "fitness-zumba",
+  boi: "fitness-pool",
+};
+
+async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
+  try {
+    const { mastra } = await import("../index");
+    const { loadState } = await import("../lib/stateStore");
+    const { getMediaTool } = await import("../tools/media");
+
+    const state = await loadState(mastra, senderId, "facebook-customer");
+
+    // Compute media key dựa trên state
+    let mediaKey: string | null = null;
+    if (state.flow === "fitness" && state.knownInfo.serviceType) {
+      mediaKey = SERVICE_TO_MEDIA_KEY[state.knownInfo.serviceType] ?? null;
+    } else if (state.flow === "giai-co" && state.knownInfo.painArea) {
+      const pain = state.knownInfo.painArea.toLowerCase();
+      if (/vai|gáy|gay|cổ|co\b/.test(pain)) mediaKey = "mr-neck-shoulder";
+      else if (/chân|chan|gối|goi/.test(pain)) mediaKey = "mr-sport";
+      else mediaKey = "mr-general";
+    }
+
+    // Fetch media URLs (nếu có key)
+    let mediaUrls: string[] = [];
+    if (mediaKey) {
+      try {
+        const result = await (getMediaTool as any).execute({
+          context: { key: mediaKey },
+        });
+        const data = typeof result?.data === "string" ? JSON.parse(result.data) : [];
+        mediaUrls = data.map((d: { url: string }) => d.url).filter(Boolean);
+      } catch (e) {
+        console.warn("[followup] fetch media failed:", e);
+      }
+    }
+
+    scheduleFollowup(
+      senderId,
+      state,
+      {
+        sendText: (text) => sendText(senderId, text),
+        sendMedia: (url) => sendMedia(senderId, url),
+      },
+      mediaUrls,
+    );
+  } catch (e) {
+    console.error("[followup] scheduleFollowupWithMedia failed:", e);
+  }
+}
+
 function enqueueMessage(senderId: string, text: string) {
   // Khách vừa nhắn → cancel follow-up timer (nếu có) vì khách đang active
   cancelFollowup(senderId);
@@ -165,12 +226,10 @@ async function handleMessage(senderId: string, text: string) {
     if (mediaUrls?.length) for (const url of mediaUrls) await sendMedia(senderId, url);
     if (qrUrl)             await sendMedia(senderId, qrUrl);
 
-    // Schedule follow-up sau 24h nếu khách ghost.
+    // Schedule follow-up sau 10p nếu khách ghost.
     // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)
     if (!qrUrl) {
-      scheduleFollowup(senderId, async (text) => {
-        await sendText(senderId, text);
-      });
+      void scheduleFollowupWithMedia(senderId);
     }
   } catch (e) {
     console.error("[fb] workflow error:", e);
