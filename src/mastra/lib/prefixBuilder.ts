@@ -384,6 +384,25 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
+  // ── PROACTIVE: lần đầu vào inbody/evaluation, chưa gửi media → CHỦ ĐỘNG gửi ảnh build trust ──
+  // (User feedback: bot chưa kích thích nhu cầu khách bằng visual)
+  if (
+    !mediaShown &&
+    !customerAskingMedia &&
+    (stage === "inbody" || stage === "evaluation")
+  ) {
+    const key = computeSuggestedMediaKey(state);
+    if (key) {
+      hints.push(
+        `[GATE PROACTIVE MEDIA: lần đầu vào ${stage}, chưa gửi ảnh. ` +
+          `CHỦ ĐỘNG gọi tool get-media key="${key}" trong turn này để build trust visual. ` +
+          `Reply text vẫn theo TACTIC chính (pitch/InBody) + 1 câu ngắn dẫn dắt: ` +
+          `"Em gửi ${flow === "fitness" ? "vài hình phòng tập" : "vài hình thực tế"} cho ${state.honorific} hình dung nha". ` +
+          `Copy URLs vào mediaUrls, set nextStep="show_media". Gọi 1 LẦN duy nhất.]`,
+      );
+    }
+  }
+
   // ── Multi-service: khách nhắc 2+ dịch vụ trong 1 tin → ack combo, không lặp goal ──
   if (
     flow === "fitness" &&

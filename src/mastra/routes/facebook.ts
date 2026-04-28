@@ -4,6 +4,7 @@
 
 import { Hono } from "hono";
 import { routerWorkflow } from "../workflows/routerWorkflow";
+import { scheduleFollowup, cancelFollowup } from "../lib/followup";
 import "dotenv/config";
 
 const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
@@ -58,6 +59,9 @@ facebookWebhook.post("/webhook", async (c) => {
 });
 
 function enqueueMessage(senderId: string, text: string) {
+  // Khách vừa nhắn → cancel follow-up timer (nếu có) vì khách đang active
+  cancelFollowup(senderId);
+
   // Hiện "..." typing indicator để khách biết bot đang đọc → giảm cảm giác lag
   // khi debounce wait. Typing tự tắt sau 20s hoặc khi gửi message.
   void sendTyping(senderId);
@@ -161,6 +165,13 @@ async function handleMessage(senderId: string, text: string) {
     if (mediaUrls?.length) for (const url of mediaUrls) await sendMedia(senderId, url);
     if (qrUrl)             await sendMedia(senderId, qrUrl);
 
+    // Schedule follow-up sau 24h nếu khách ghost.
+    // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)
+    if (!qrUrl) {
+      scheduleFollowup(senderId, async (text) => {
+        await sendText(senderId, text);
+      });
+    }
   } catch (e) {
     console.error("[fb] workflow error:", e);
     await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");

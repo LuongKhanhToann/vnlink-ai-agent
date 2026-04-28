@@ -82,10 +82,13 @@ export function cleanReply(
         const norm = sent.toLowerCase().replace(/\s+/g, "");
         return !forbidPhrases.some((p) => norm.includes(p));
       });
-      if (kept.length >= 1) {
-        r = kept.join(" ").trim();
+      const stripped = kept.join(" ").trim();
+      // Chỉ apply strip nếu reply sau strip còn ĐỦ context (≥ 60 chars).
+      // Nếu strip quá nhiều → giữ text gốc (tránh reply cụt như "Tiện ghé đo InBody hôm nào ạ").
+      if (kept.length >= 1 && stripped.length >= 60) {
+        r = stripped;
       }
-      // Nếu strip hết → giữ nguyên text gốc (an toàn, không trả empty)
+      // Nếu strip hết hoặc còn quá ngắn → giữ text gốc (chấp nhận lặp 1 chút còn hơn cụt)
     }
   }
 
