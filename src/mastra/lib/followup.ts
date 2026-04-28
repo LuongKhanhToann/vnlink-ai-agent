@@ -87,11 +87,11 @@ const GOAL_LABEL: Record<string, string> = {
 
 // Pricing snippets ngắn theo serviceType
 const FITNESS_PRICING: Record<string, string> = {
-  gym: "Gym fulltime 12 tháng 5tr | 3 buổi/tuần 12 tháng 4.5tr | PT 20 buổi 6tr (HLV 1-1)",
+  gym: "Gym fulltime 12 tháng 5tr | 3 buổi/tuần 12 tháng 4.5tr | PT 20 buổi 5tr (1-1) hoặc 20b 2 mom 6tr",
   yoga: "Yoga 12 tháng 5.8tr fulltime | 4.5tr (3 buổi/tuần), GV người Ấn Độ 4 ca/ngày",
   zumba: "Zumba 12 tháng 5.8tr fulltime | 4.5tr (3 buổi/tuần)",
-  boi: "Bơi NL fulltime 12 tháng 5tr | Học bơi 1-1 (12 buổi) 3tr+3 tháng bể, cam kết biết bơi",
-  pilates: "Pilates thảm 10 buổi 1.5tr | Pilates máy 10 buổi 1.9tr (1:6) | nhóm 1:3 = 3tr",
+  boi: "Bơi NL fulltime: 12m=5tr | 24m=8.6tr | Học bơi 1-1 (12 buổi) 3tr+3 tháng bể, cam kết biết bơi",
+  pilates: "Pilates thảm 10b=1.5tr | máy(1:6) 10b=1.9tr/20b=3.6tr | nhóm(1:3) 10b=3tr/20b=5.8tr | 1-1 10b=4.5tr/20b=8.6tr",
   full: "Thẻ Full 4 dịch vụ: 1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng (~19k/ngày)",
 };
 

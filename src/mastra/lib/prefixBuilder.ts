@@ -843,9 +843,9 @@ function buildFitnessPricing(info: KnownInfo): string {
   const lines: string[] = [];
 
   if (!svc || svc === "boi") {
-    lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr|+lớp=3.5tr");
-    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|+lớp=5.5tr");
-    lines.push("  Học bơi: lớp(12b)=1.2tr+1m | 1-1(12b)=3tr+3m | 1-1(20b,2kiểu)=5tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
+    lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr|+lớp=3.5tr|24m=6.5tr|36m=8.6tr");
+    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|+lớp=5.5tr|24m=8.6tr");
+    lines.push("  Học bơi: lớp(12b)=1.2tr+1m | TE-3m/NL-học+bơi=1.5tr | 1-1(12b)=3tr+3m | 1-1(20b,2kiểu)=5tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
   }
   if (!svc || svc === "gym" || svc === "full") {
     lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr");
@@ -856,12 +856,14 @@ function buildFitnessPricing(info: KnownInfo): string {
   }
   if (!svc || svc === "pilates") {
     lines.push("  Pilates thảm(1:7): 10b=1.5tr|20b=2.4tr|30b=3tr");
-    lines.push("  Pilates máy(1:6): 10b=1.9tr|20b=3.6tr|30b=5.1tr | Nhóm(1:3): 10b=3tr | Cá nhân(1:1): 10b=4.5tr");
+    lines.push("  Pilates máy(1:6): 10b=1.9tr|20b=3.6tr|30b=5.1tr");
+    lines.push("  Pilates nhóm(1:3): 10b=3tr|20b=5.8tr|30b=8.1tr | Cá nhân(1:1): 10b=4.5tr|20b=8.6tr");
   }
   if (mt === "hoc-sinh") {
     lines.push("  FULL HS/SV(14-22t): 1m=700k|3m=2tr|6m=3tr|12m=4tr ← anchor chính");
   } else if (mt === "gia-dinh") {
     lines.push("  FULL cá nhân: 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày)");
+    // Giá Full gia đình áng chừng — PDF chính thức đang che số. Khi có giá chốt → update.
     lines.push("  FULL gia đình: 2ng=12tr|3ng=17tr|4ng=20tr ← anchor chính");
   } else {
     lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày) ← anchor chính");
