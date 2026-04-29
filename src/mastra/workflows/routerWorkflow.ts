@@ -58,6 +58,7 @@ const agentReplySchema = z.object({
     ),
   nextStep: z
     .enum(["ask_info", "show_media", "show_qr", "confirm", "close"])
+    .nullable()
     .describe(
       "Bước tiếp theo: " +
       "'show_media' khi vừa gọi get-media và có mediaUrls, " +
@@ -196,22 +197,29 @@ function buildAgentStep(
         inputData;
       const fullMessage = [prefix, message].filter(Boolean).join("\n");
 
-      const result = await agent.generate(fullMessage, {
-        // maxSteps 2: cho phép 1 LLM step + 1 tool call (get-media or get-qr).
-        // Trước là 4 → bot đôi khi gọi tool 2-3 lần → duplicate media.
-        maxSteps: 2,
-        // temperature 0.3: cân bằng giữa tự nhiên và ổn định.
-        modelSettings: { temperature: 0.3 },
-        memory: {
-          thread: { id: threadId },
-          resource: resourceId,
-          options: { lastMessages: 20 },
-        },
-        structuredOutput: {
-          schema: agentReplySchema,
-          instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
-        },
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let result: any;
+      try {
+        result = await agent.generate(fullMessage, {
+          // maxSteps 2: cho phép 1 LLM step + 1 tool call (get-media or get-qr).
+          // Trước là 4 → bot đôi khi gọi tool 2-3 lần → duplicate media.
+          maxSteps: 2,
+          // temperature 0.3: cân bằng giữa tự nhiên và ổn định.
+          modelSettings: { temperature: 0.3 },
+          memory: {
+            thread: { id: threadId },
+            resource: resourceId,
+            options: { lastMessages: 20 },
+          },
+          structuredOutput: {
+            schema: agentReplySchema,
+            instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
+          },
+        });
+      } catch (e) {
+        console.error(`[${id}] agent.generate failed:`, e);
+        throw e;
+      }
 
       const obj = result.object ?? {
         text: result.text,

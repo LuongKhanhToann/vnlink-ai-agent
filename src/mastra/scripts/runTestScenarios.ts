@@ -235,6 +235,143 @@ const SCENARIOS: Scenario[] = [
       "minh tap toi 3b/tuan",
     ],
   },
+
+  // ═══════════ REAL-CASE REPLICATION (Messenger screenshots) ═══════════
+  // Mô phỏng pattern thực tế khách production. Focus vào bugs đã thấy:
+  // - Bot lặp hỏi service type dù khách đã trả lời/đã được recommend
+  // - Bot không nhận khách đã chốt time → vẫn hỏi service thay vì xin tên/SĐT
+  // - Bot không show pricing dù khách explicit "báo giá"
+  // - Khách indecisive ("chưa biết tập gì") → bot phải recommend dứt khoát theo goal
+  {
+    name: "real_giam_can_open_vague",
+    description:
+      "Replicate screenshot: 'quan tâm' → 'giảm cân + báo chi phí' → rảnh sáng → 'chưa biết tập gì' → đắt → 'qua thời điểm nào' → 'sáng mai qua'. Bot KHÔNG được lặp hỏi gym/yoga/zumba sau khi đã chốt time.",
+    messages: [
+      "quan tâm",
+      "Mình muốn giảm cân tư vấn mình dịch vụ phù hợp và báo các chi phí",
+      "Mình rảnh vào buổi sáng hàng ngày",
+      "Mình chưa biết tập gì, tư vấn cho mình",
+      "Chi phí cao quá",
+      "Mình có thể qua thời điểm nào",
+      "Vậy sáng mai mình sẽ qua",
+    ],
+  },
+  {
+    name: "real_tang_co_bao_gia_ngay",
+    description:
+      "Khách hỏi pricing thẳng turn 1 cho mục tiêu tăng cơ — bot phải show pricing trong 1-2 turn đầu, không loop hỏi info.",
+    messages: [
+      "shop ơi tăng cơ thì gói nào báo giá luôn",
+      "anh mới tập, chưa có nền",
+      "anh tập 4 buổi/tuần, tối 7-9h",
+      "ok cho anh xem hình phòng gym với",
+    ],
+  },
+  {
+    name: "real_indecisive_recommend",
+    description:
+      "Khách lười nghĩ — chỉ nói goal rồi 'chọn giúp em'. Bot phải recommend rõ + lý do, không hỏi lại.",
+    messages: [
+      "em muốn giảm cân với giảm stress",
+      "em chưa biết môn nào, chị chọn giúp em",
+      "vậy giá bao nhiêu chị",
+    ],
+  },
+  {
+    name: "real_chot_time_phai_xin_info",
+    description:
+      "Khách chốt time sớm — bot phải xin tên/SĐT để giữ slot, KHÔNG hỏi lại nhu cầu/bộ môn.",
+    messages: [
+      "có gói gym không",
+      "anh tập sáng, để giảm mỡ",
+      "ok mai 6h sáng anh qua",
+    ],
+  },
+  {
+    name: "real_so_sanh_2_dich_vu",
+    description:
+      "Khách so sánh 2 môn — bot phải tư vấn dứt khoát recommend môn phù hợp goal, không neutral.",
+    messages: [
+      "gym với yoga cái nào giảm cân tốt hơn",
+      "chị mới sinh con 6 tháng, cần lấy lại dáng",
+      "tập sáng hoặc tối tùy",
+    ],
+  },
+  {
+    name: "real_yoga_thu_gian_ngu",
+    description:
+      "Khách stress công việc, mất ngủ → yoga thư giãn. Bot pitch đúng yoga + lịch GV Ấn Độ.",
+    messages: [
+      "chị stress công việc, mất ngủ mấy tuần",
+      "muốn tập yoga để thư giãn",
+      "chị tập tối được, sau giờ làm",
+      "1 tháng bao nhiêu chị",
+    ],
+  },
+  {
+    name: "real_boi_cho_con_hoc",
+    description:
+      "Khách đăng ký học bơi cho con — bot pitch học bơi 1-1 cam kết biết bơi, hỏi tuổi để chọn gói.",
+    messages: [
+      "shop có dạy bơi cho trẻ con không",
+      "bé nhà chị 7 tuổi, chưa biết bơi tí nào",
+      "muốn học 1-1 cho an toàn",
+      "1 khóa hết bao nhiêu",
+    ],
+  },
+  {
+    name: "real_pilates_dau_lung",
+    description:
+      "Khách đau lưng do ngồi văn phòng → pilates. Bot recommend pilates máy phù hợp + giá.",
+    messages: [
+      "chị đau lưng do ngồi văn phòng nhiều",
+      "có pilates không em",
+      "muốn tập máy có HLV hướng dẫn",
+      "lịch sao em báo chị",
+    ],
+  },
+  {
+    name: "real_zumba_giam_can_vui",
+    description:
+      "Khách trẻ thích zumba để vui + giảm cân. Bot pitch zumba GV Ấn Độ.",
+    messages: [
+      "em muốn tập gì vui vui mà giảm cân",
+      "em hay buồn ngủ khi tập gym",
+      "zumba thế nào",
+      "có ca tối không",
+    ],
+  },
+  {
+    name: "real_giaico_ngoi_lau_dau_co",
+    description:
+      "Replicate Hoa Sen real case: nhân viên VP đau cổ vai gáy do ngồi máy tính.",
+    messages: [
+      "anh ngồi máy tính cả ngày, cổ vai gáy đau cứng",
+      "nhiều tháng rồi, đi massage không đỡ",
+      "có liệu trình gì không em",
+      "ok cho anh thử 1 buổi sáng mai 10h",
+    ],
+  },
+  {
+    name: "real_giaico_lien_he_full",
+    description:
+      "Khách hỏi giải cơ + spa cùng lúc — bot pitch combo, không tách rời.",
+    messages: [
+      "bên em có giải cơ với spa massage không",
+      "chị muốn vừa giải cơ vai gáy vừa thư giãn",
+      "1 buổi tổng bao nhiêu thời gian, giá bao nhiêu",
+    ],
+  },
+  {
+    name: "real_xin_xem_truoc_roi_chot",
+    description:
+      "Khách kỹ tính: xin xem ảnh phòng tập trước → hài lòng mới chốt. Test gửi media + chuyển commitment.",
+    messages: [
+      "cho chị xem ảnh phòng tập gym với",
+      "ok nhìn ổn, gói full 12 tháng nhiêu chị",
+      "chị tên Hà, sđt 0911222333, chị qua chiều mai 5h",
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────
@@ -407,13 +544,23 @@ async function runScenario(scenario: Scenario, runId: string): Promise<ScenarioR
 
 async function main() {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
+
+  // Filter scenarios qua env SCENARIOS=name1,name2,... (substring match)
+  // → Dùng khi iter fix nhanh, không muốn chạy full 33 scenarios.
+  const filter = process.env.SCENARIOS?.trim();
+  const selected = filter
+    ? SCENARIOS.filter((s) =>
+        filter.split(",").some((f) => s.name.includes(f.trim())),
+      )
+    : SCENARIOS;
+
   console.log(`\n🏃 Run ID: ${runId}`);
-  console.log(`📦 Scenarios: ${SCENARIOS.length}`);
+  console.log(`📦 Scenarios: ${selected.length}${filter ? ` (filter="${filter}")` : ""}`);
 
   const overallStart = Date.now();
   const scenarios: ScenarioResult[] = [];
 
-  for (const s of SCENARIOS) {
+  for (const s of selected) {
     try {
       const result = await runScenario(s, runId);
       scenarios.push(result);

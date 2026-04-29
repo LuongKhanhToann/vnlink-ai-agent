@@ -15,6 +15,8 @@
 |---|---|---|---|---|---|
 | gpt-4o-mini (current) | 32 | **8.44** | **11/21** | 20đ/turn | ✅ best ratio |
 | gpt-4.1-mini | 33 | 8.06 | 5/21 | ~50đ/turn | ❌ tệ hơn + 2.5x đắt |
+| gpt-4o-mini | 39 | 7.84 (8.29 cũ / 7.05 mới) | 8/33 | 20đ/turn | ⚠️ scenarios mới rớt nặng — bugs real |
+| gpt-4o-mini | 40 | 7.93 (8.30 cũ / 7.27 mới) | 9/33 | 20đ/turn | ✅ min +1.53 (4.33→5.86), key bug fix stateMachine + tactic |
 
 ### Models có thể thử trong tương lai (chưa test)
 
@@ -64,12 +66,14 @@
 | 19 | 8.08 | 6.25 | 7/21 | F10 (forbid words quá strict) |
 | 6 | 8.24 | 5.00 | 7/21 | acute injury fix |
 | 1 | 6.35 | 4.00 | 0/21 | baseline |
+| 39 | 7.84 | **4.33** | 8/33 | +12 real-case scenarios (Messenger screenshot) + pricing sync PDF. 12 scenarios mới avg 7.05 — confirm bugs lặp service Q, không xin tên/SĐT khi chốt time |
+| **40** | **7.93** | **5.86** | **9/33** | F12: stateMachine bypass serviceType khi preferredTime filled (key fix chot_time). F13: tactic discovery (c1/c2) recommend dứt khoát khi compare/indecisive/price-question. F14: detectPriceQuestion regex thêm "chi phí/báo giá". Min +1.53 |
 
 ## Stop condition (theo user)
 
 - `min ≥ 8.0/10` trên cả 21 scenarios → DỪNG, deploy.
 
-## Active fixes hiện tại (iter 17 baseline)
+## Active fixes hiện tại (iter 17 baseline + iter 40 real-case)
 
 - F1: Override TACTIC discovery khi `chỉ tập X`
 - F2: Yoga tactic cấm InBody hoàn toàn
@@ -78,6 +82,9 @@
 - F5: Override TACTIC discovery cho PT need
 - F6: GATE inbody-skip cấm InBody hoàn toàn cho yoga/bơi/zumba/pilates
 - F11: GATE đổi giờ — buộc bot dùng giờ mới (giữ từ iter 19)
+- F12: `fitnessReadyForEvaluation` bypass `serviceType` khi `preferredTime !== null` → discovery thẳng commitment (fix stuck loop hỏi service)
+- F13: TACTIC discovery (c1) show pricing dứt khoát khi `detectPriceQuestion`; (c2) recommend dứt khoát khi `detectComparison || detectIndecisive`
+- F14: `detectPriceQuestion` regex thêm "chi phí|báo giá|học phí|phí tập"
 
 ## Architecture summary
 

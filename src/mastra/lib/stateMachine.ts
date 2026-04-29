@@ -257,6 +257,10 @@ export function resolveHonorific(h: "anh" | "chị" | "anh/chị"): string {
  * NOTE: "compare" KHÔNG còn bypass — khai báo mục tiêu tập không đủ để show gói ngay.
  */
 function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
+  // Khách đã commit time (preferredTime) → ready bất kể serviceType.
+  // Bot có thể recommend service sau khi xin tên/SĐT — không cần stuck hỏi service.
+  if (info.preferredTime !== null) return true;
+
   if (info.serviceType === null) return false;
 
   // Chỉ khách chủ động chọn gói / sẵn sàng đăng ký → bypass context collection
@@ -363,6 +367,12 @@ export function computeNextStage(
       }
       // Fitness: khách chủ động chọn gói / đăng ký → thẳng commitment
       if (flow === "fitness" && (intent === "selecting" || intent === "ready")) {
+        return "commitment";
+      }
+      // Fitness: khách báo giờ cụ thể (preferredTime) → skip InBody pitch, vào commitment
+      // để xin tên/SĐT giữ slot. InBody là build-value tactic — không cần khi khách đã commit time.
+      if (flow === "fitness" && info.preferredTime !== null) {
+        console.log(`[stateMachine] fitness discovery → commitment (preferredTime=${info.preferredTime})`);
         return "commitment";
       }
       // Fitness: mandatory Inbody funnel trước khi show gói
@@ -500,6 +510,9 @@ export function buildNextState(
   const qrShown    = llm.qrShown    ?? previous.qrShown;
   const mediaShown = llm.mediaShown ?? previous.mediaShown;
 
+  // Reset turnCount khi flow thay đổi — tránh GATE "lần 2" trigger ngay turn đầu của flow mới.
+  const turnCount = flow !== previous.flow ? 1 : previous.turnCount + 1;
+
   return {
     flow,
     stage,
@@ -508,7 +521,7 @@ export function buildNextState(
     intent,
     honorific,
     knownInfo,
-    turnCount: previous.turnCount + 1,
+    turnCount,
     qrShown,
     mediaShown,
     sheetsWritten: previous.sheetsWritten,

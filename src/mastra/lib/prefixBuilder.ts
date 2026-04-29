@@ -107,7 +107,7 @@ export function detectMediaRequest(message: string): boolean {
 export function detectPriceQuestion(message: string): boolean {
   if (!message) return false;
   const m = message.toLowerCase();
-  return /(giá|bao\s+nhiêu|mấy\s+(tiền|đồng)|giá\s+thẻ|tiền\s+gói)/.test(m);
+  return /(giá|bao\s+nhiêu|mấy\s+(tiền|đồng)|giá\s+thẻ|tiền\s+gói|chi\s+phí|báo\s+giá|học\s+phí|phí\s+(tập|gói|đăng\s+ký))/.test(m);
 }
 
 /**
@@ -152,6 +152,34 @@ export function detectPTNeed(message: string): boolean {
     /(mới\s*tập|sợ\s*sai\s*tư\s*thế|chưa\s*biết\s*tập|sợ\s*chấn\s*thương|sợ\s*tập\s*sai)/.test(
       m,
     )
+  );
+}
+
+/**
+ * Khách so sánh 2 dịch vụ ("gym với yoga", "gym hay yoga", "cái nào tốt hơn")
+ * → bot phải recommend dứt khoát 1 môn, không neutral.
+ */
+export function detectComparison(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  const services = "(gym|yoga|zumba|bơi|pilates|cardio|aerobic)";
+  return (
+    new RegExp(`${services}\\s+(với|hay|và|hoặc|so\\s+với)\\s+${services}`, "i").test(m) ||
+    /(cái\s+nào|nên\s+chọn|chọn\s+gì\s+(thì\s+)?tốt|môn\s+nào|tập\s+gì\s+(thì\s+)?tốt)/.test(m)
+  );
+}
+
+/**
+ * Khách indecisive — không tự quyết, nhờ bot chọn ("chọn giúp", "tư vấn cho",
+ * "chưa biết tập gì"). Bot phải recommend dứt khoát theo goal/context.
+ */
+export function detectIndecisive(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    /(chọn\s+giúp|tư\s+vấn\s+(cho\s+|giúp\s+))/.test(m) ||
+    /(chưa\s+biết|không\s+biết)\s*(tập\s+(gì|môn\s+nào)|môn\s+nào|nên)/.test(m) ||
+    /(em|mình|chị|anh)?\s*chọn\s+(hộ|giúp|cho)/.test(m)
   );
 }
 
@@ -1346,6 +1374,56 @@ export function buildPrefix(
       const honor = state.honorific === "anh/chị" ? "anh/chị" : state.honorific;
       tactic =
         `Khách cần PT 1-1. Pitch THẲNG: "PT 20 buổi 2 tháng 6tr, HLV 1-1 xây kỹ thuật nền tránh chấn thương ${honor}". Câu kết: "tiện ghé đo InBody hôm nào ạ". ❌ KHÔNG hỏi "muốn gym hay yoga".`;
+    }
+    // (c1) Khách hỏi giá explicit ("báo giá", "chi phí", "bao nhiêu") → show pricing NGAY,
+    // không loop hỏi serviceType/goal nữa. Map theo goal đã có (hoặc Full default).
+    else if (message && detectPriceQuestion(message)) {
+      const goal = state.knownInfo.fitnessGoal;
+      let pricing: string;
+      if (goal === "giam-mo") {
+        pricing =
+          "Pitch THẲNG: 'Để giảm mỡ thì Gym + Cardio nhanh nhất. Bên em có Gym fulltime 12 tháng 5tr | hoặc thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng (~19k/ngày)'";
+      } else if (goal === "tang-co") {
+        pricing =
+          "Pitch THẲNG: 'PT 20 buổi 2 tháng 6tr (HLV 1-1) hoặc Gym fulltime 12 tháng 5tr'";
+      } else if (goal === "thu-gian") {
+        pricing =
+          "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
+      } else {
+        pricing =
+          "Pitch THẲNG thẻ Full 4 dịch vụ: '1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng (~19k/ngày)'";
+      }
+      tactic =
+        `Khách hỏi giá explicit. ❌ KHÔNG hỏi lại 'muốn tập gì'. ${pricing}. ` +
+        `Câu kết 1 câu mời ghé thử HOẶC xin schedule (sáng/chiều/tối). KHÔNG pitch InBody làm chủ đề.`;
+    }
+    // (c2) Khách so sánh 2 môn HOẶC indecisive ("chọn giúp em") → recommend DỨT KHOÁT theo goal,
+    // KHÔNG neutral kiểu "cả 2 đều tốt". Map theo fitnessGoal đã có (hoặc Full nếu chưa rõ).
+    else if (
+      message &&
+      (detectComparison(message) || detectIndecisive(message))
+    ) {
+      const goal = state.knownInfo.fitnessGoal;
+      let pitch: string;
+      if (goal === "giam-mo") {
+        pitch =
+          "RECOMMEND: 'Gym + Cardio đốt mỡ nhanh nhất, kết hợp Yoga để hồi phục — thẻ Full 4 dịch vụ 7tr/12 tháng (~19k/ngày) là phù hợp nhất ạ'";
+      } else if (goal === "tang-co") {
+        pitch =
+          "RECOMMEND: 'Gym + PT 1-1 (20 buổi 6tr) sẽ hiệu quả nhất, HLV xây kỹ thuật nền tránh sai tư thế'";
+      } else if (goal === "thu-gian") {
+        pitch =
+          "RECOMMEND: 'Yoga GV người Ấn Độ là tối ưu cho thư giãn, giảm stress, ngủ ngon — 5.8tr/12 tháng fulltime'";
+      } else if (goal === "hoc-boi") {
+        pitch =
+          "RECOMMEND: 'Học bơi 1-1 12 buổi 3tr+3 tháng bể, cam kết biết bơi — bể 4 mùa duy nhất Vĩnh Yên'";
+      } else {
+        pitch =
+          "RECOMMEND: 'Thẻ Full 4 dịch vụ là phù hợp nhất — vừa Gym, Bơi, Yoga, Zumba luân phiên tránh chán, 7tr/12 tháng (~19k/ngày)'";
+      }
+      tactic =
+        `Khách compare/indecisive. ❌ TUYỆT ĐỐI KHÔNG trả lời neutral kiểu 'cả 2 đều tốt'. ${pitch}. ` +
+        `Lý do 1 câu ngắn + 1 câu hỏi schedule (sáng/chiều/tối) HOẶC xin tên/SĐT để giữ slot. KHÔNG hỏi lại 'muốn tập gym/yoga/zumba'.`;
     }
   }
 
