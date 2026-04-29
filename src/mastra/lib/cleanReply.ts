@@ -21,6 +21,17 @@ const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
 // "em (sẽ/có thể) gửi hình/ảnh/video..." — cắt cả câu chứa cụm này
 const FAKE_MEDIA_OFFER = /[^.?!]*\b(em|để\s+em|chị|anh)\s+(sẽ\s+)?(có\s+thể\s+)?gửi.{0,30}(hình|ảnh|video|clip)[^.?!]*[.?!]/gi;
 
+// Câu hỏi nhồi "nha" / "nhé" cuối — không tự nhiên với người Việt.
+// Pattern: "... nha ?" / "... nha ạ ?" / "... ạ nha ?" / "... nhé ?" / "... nhé ạ ?"
+// Fix: bỏ token "nha"/"nhé" thừa, giữ "ạ?" hoặc "?" .
+const QUESTION_NHA_PATTERNS: Array<[RegExp, string]> = [
+  [/\s+nha\s+ạ\s*\?/gi, " ạ?"],
+  [/\s+ạ\s+nha\s*\?/gi, " ạ?"],
+  [/\s+nhé\s+ạ\s*\?/gi, " ạ?"],
+  [/\s+nha\s*\?/gi, "?"],
+  [/\s+nhé\s*\?/gi, "?"],
+];
+
 // Filler sáo rỗng — cắt cụm
 const FILLER_PATTERNS: RegExp[] = [
   /[^.?!]*\b(em\s+(có\s+thể\s+)?(sẽ\s+)?tư\s+vấn\s+thêm|nếu\s+cần\s+em\s+sẽ\s+tư\s+vấn|em\s+rất\s+mong\s+được\s+hỗ\s+trợ)[^.?!]*[.?!]/gi,
@@ -33,6 +44,42 @@ const MARKDOWN_ITALIC = /(?<!\*)\*([^*]+)\*(?!\*)/g;
 // URL leak (khác qrUrl/mediaUrls đã ở field riêng)
 const URL_PATTERN = /https?:\/\/\S+/gi;
 const MARKDOWN_LINK = /\[([^\]]+)\]\([^)]+\)/g;
+
+// Stopwords + filler — không tính vào Jaccard similarity (chúng ở mọi câu reply)
+const VI_STOPWORDS = new Set([
+  "dạ","ạ","vâng","nha","nhé","ơi","à","ừ",
+  "anh","chị","em","mình","tôi","bạn","cô","chú","bác",
+  "là","có","và","với","để","cho","của","đến","đi","ở","ra","vào",
+  "thì","mà","nhưng","còn","hay","hoặc","cũng","đã","đang","sẽ",
+  "này","đó","đây","kia","ấy","nào","gì","sao","bao","nhiêu",
+  "không","chưa","rồi","được","bị","cứ","luôn","ngay",
+  "rất","quá","lắm","hơn","nhất",
+  "một","hai","ba","bốn","năm","sáu","bảy","tám","chín","mười",
+  "nếu","khi","lúc","giờ","ngày","buổi","tháng","năm","tuần","phút","tiếng",
+]);
+
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !VI_STOPWORDS.has(w));
+}
+
+function jaccardSim(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let inter = 0;
+  for (const t of setA) if (setB.has(t)) inter++;
+  const union = setA.size + setB.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+function splitSentences(s: string): string[] {
+  return (s.match(/[^.!?]+[.!?]?/g) || []).map((x) => x.trim()).filter(Boolean);
+}
 
 /**
  * Clean reply text. `hasMedia` = bot có thực sự gửi media qua tool — nếu false,
@@ -90,6 +137,25 @@ export function cleanReply(
       }
       // Nếu strip hết hoặc còn quá ngắn → giữ text gốc (chấp nhận lặp 1 chút còn hơn cụt)
     }
+
+    // Jaccard dedup: bắt cả trường hợp reply lặp ngữ NGHĨA (không cần cùng số tiền)
+    // — vd lặp "qua thử 1 buổi", "bên em có nhiều dịch vụ"...
+    const prevSentences = splitSentences(prevReply).map(tokenize);
+    const curSentences = splitSentences(r);
+    if (prevSentences.length > 0 && curSentences.length >= 2) {
+      const keptCur = curSentences.filter((sent) => {
+        const tokens = tokenize(sent);
+        if (tokens.length < 3) return true; // câu quá ngắn (thường là chào/ack) → giữ
+        const maxSim = Math.max(
+          ...prevSentences.map((p) => jaccardSim(tokens, p)),
+        );
+        return maxSim < 0.55;
+      });
+      const dedup = keptCur.join(" ").trim();
+      if (keptCur.length >= 1 && dedup.length >= 40) {
+        r = dedup;
+      }
+    }
   }
 
   // 1. Khen giả
@@ -117,14 +183,19 @@ export function cleanReply(
     /facebook\.com/i.test(m) ? m.replace(/^https?:\/\//, "") : "",
   );
 
-  // 6. Whitespace cleanup
+  // 6. Sửa "nha?" → "?" và "nha ạ?" → "ạ?" (chống văn phong gượng ép)
+  for (const [pattern, replacement] of QUESTION_NHA_PATTERNS) {
+    r = r.replace(pattern, replacement);
+  }
+
+  // 7. Whitespace cleanup
   r = r
     .replace(/\s+([,.!?])/g, "$1")  // remove space before punctuation
     .replace(/\s{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // 7. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
+  // 8. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
   if (r && /^[a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(r)) {
     r = r[0].toUpperCase() + r.slice(1);
   }

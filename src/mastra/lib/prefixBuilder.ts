@@ -868,32 +868,80 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
 function buildFitnessPricing(info: KnownInfo): string {
   const svc = info.serviceType;
   const mt = info.memberType;
+  const goal = info.fitnessGoal;
   const lines: string[] = [];
 
-  if (!svc || svc === "boi") {
-    lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr|+lớp=3.5tr|24m=6.5tr|36m=8.6tr");
-    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|+lớp=5.5tr|24m=8.6tr");
-    lines.push("  Học bơi: lớp(12b)=1.2tr+1m | TE-3m/NL-học+bơi=1.5tr | 1-1(12b)=3tr+3m | 1-1(20b,2kiểu)=5tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
+  // Bậc thang ưu tiên: HS/SV / gia đình → áp riêng (override mọi goal-filter).
+  if (mt === "hoc-sinh") {
+    lines.push("  FULL HS/SV(14-22t, 4 dịch vụ): 1m=700k|3m=2tr|6m=3tr|12m=4tr ← anchor chính");
+    if (!svc || svc === "gym") {
+      lines.push("  PT: 10b=3tr|20b=5tr|20b(2m)=6tr (HLV 1-1)");
+    }
+    return `[PRICING:\n${lines.join("\n")}\n]`;
   }
-  if (!svc || svc === "gym" || svc === "full") {
+  if (mt === "gia-dinh") {
+    lines.push("  FULL gia đình (4 dịch vụ): 2ng=12tr|3ng=17tr|4ng=20tr ← anchor chính");
+    lines.push("  FULL cá nhân: 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày)");
+    return `[PRICING:\n${lines.join("\n")}\n]`;
+  }
+
+  // ── Goal-based filter ──
+  // Mục tiêu mạnh hơn serviceType khi pick anchor:
+  //   giam-mo  → Full (cardio+gym) + Gym + PT (đốt mỡ nhanh). Bỏ Pilates/Yoga lẻ trừ khi svc=yoga.
+  //   tang-co  → Gym + PT (xây cơ). Bỏ Yoga/Zumba/Bơi.
+  //   thu-gian → Yoga/Zumba + Pilates. Bỏ Gym/PT trừ khi svc=gym.
+  //   hoc-boi  → Học bơi + Bơi NL. Bỏ Gym/Yoga/Pilates.
+  //   suc-khoe / null → Full + service đã chọn (nếu có).
+
+  const showGym = goal === "giam-mo" || goal === "tang-co" || goal === "suc-khoe" || goal === null
+    ? !svc || svc === "gym" || svc === "full"
+    : svc === "gym";
+  const showPT = goal === "giam-mo" || goal === "tang-co"
+    ? !svc || svc === "gym" || svc === "full"
+    : false;
+  const showYogaZumba = goal === "thu-gian" || goal === "suc-khoe" || goal === null
+    ? !svc || svc === "yoga" || svc === "zumba" || svc === "full"
+    : svc === "yoga" || svc === "zumba";
+  const showBoi = goal === "hoc-boi" || goal === "suc-khoe" || goal === null
+    ? !svc || svc === "boi" || svc === "full"
+    : svc === "boi";
+  const showPilates = goal === "thu-gian" || goal === "tang-co" || goal === null
+    ? svc === "pilates"
+    : svc === "pilates";
+
+  // Anchor "FULL 4 dịch vụ" — chỉ ưu tiên khi không phải single-service hard-lock.
+  const fullIsAnchor =
+    goal === "giam-mo" || goal === "suc-khoe" || goal === null;
+  if (fullIsAnchor && (!svc || svc === "full" || svc === "gym")) {
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày) ← anchor chính");
+  }
+  if (showGym) {
     lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr");
+  }
+  if (showPT) {
     lines.push("  PT: 10b=3tr|15b=4tr|20b=5tr | 20b(2m)=6tr|30b(2m)=8tr|40b(2m)=10tr | 50b(3m)=12tr");
   }
-  if (!svc || svc === "yoga" || svc === "zumba" || svc === "full") {
+  if (showYogaZumba) {
     lines.push("  Yoga/Zumba: fulltime-12m=5.8tr | 3b/t-12m=4.5tr (GV Ấn Độ, 4 ca/ngày)");
   }
-  if (!svc || svc === "pilates") {
+  if (showBoi) {
+    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|24m=8.6tr");
+    if (goal === "hoc-boi" || svc === "boi") {
+      lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr");
+      lines.push("  Học bơi: lớp(12b)=1.2tr+1m | TE-3m/NL-học+bơi=1.5tr | 1-1(12b)=3tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
+    }
+  }
+  if (showPilates) {
     lines.push("  Pilates thảm(1:7): 10b=1.5tr|20b=2.4tr|30b=3tr");
     lines.push("  Pilates máy(1:6): 10b=1.9tr|20b=3.6tr|30b=5.1tr");
     lines.push("  Pilates nhóm(1:3): 10b=3tr|20b=5.8tr|30b=8.1tr | Cá nhân(1:1): 10b=4.5tr|20b=8.6tr");
   }
-  if (mt === "hoc-sinh") {
-    lines.push("  FULL HS/SV(14-22t): 1m=700k|3m=2tr|6m=3tr|12m=4tr ← anchor chính");
-  } else if (mt === "gia-dinh") {
-    lines.push("  FULL cá nhân: 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày)");
-    // Giá Full gia đình áng chừng — PDF chính thức đang che số. Khi có giá chốt → update.
-    lines.push("  FULL gia đình: 2ng=12tr|3ng=17tr|4ng=20tr ← anchor chính");
-  } else {
+  // Anchor "FULL" cho thư giãn / non-anchor case khi user vẫn cần thấy combo.
+  if (!fullIsAnchor && (!svc || svc === "full") && lines.length === 0) {
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày)");
+  }
+  if (lines.length === 0) {
+    // Safety fallback — nếu filter quá khắt → show Full default
     lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr(~19k/ngày) ← anchor chính");
   }
   return `[PRICING:\n${lines.join("\n")}\n]`;
@@ -1010,6 +1058,7 @@ function buildFewShot(
   state: ConversationState,
   h: string,
   prevBotReply?: string,
+  message?: string,
 ): string | null {
   // Skip EXAMPLE khi prev reply đã pitch giá — tránh bot lặp 3 gói (chỉ ở evaluation)
   const prevHadPricing = prevBotReply
@@ -1018,6 +1067,44 @@ function buildFewShot(
   if (prevHadPricing && state.stage === "evaluation") {
     return `[EXAMPLE — đã pitch giá tin trước → tin này KHÔNG list lại 3 gói. Tối đa nhắc 1 gói + chuyển sang câu hỏi chốt giờ. Reply ≤ 150 ký tự.]`;
   }
+
+  // ── DISCOVERY + khách hỏi giá LẦN 2 sau khi bot đã pitch giá ──
+  // Trường hợp này hay xảy ra: khách "chi phí cao quá" / "nói rõ ra" / "có gói nào khác".
+  // Bot phải pivot — ack → đào sâu 1 gói cụ thể HOẶC mời InBody, KHÔNG list lại 3 gói.
+  if (
+    state.flow === "fitness" &&
+    state.stage === "discovery" &&
+    prevHadPricing &&
+    message &&
+    detectPriceQuestion(message)
+  ) {
+    return `[EXAMPLE — KHÁCH HỎI GIÁ LẦN 2 / "NÓI RÕ RA" — KHÔNG repeat 3 gói cũ]
+Khách: "chi phí như nào nói rõ ra" / "gói nào rẻ nhất" / "còn gói khác không"
+ĐÚNG (chọn 1 hướng, ngắn ≤ 150 ký tự):
+  (a) Đào sâu 1 gói: "Dạ rẻ nhất là Gym 3 buổi/tuần 12 tháng 4.5tr ${h}, chia ra ~375k/tháng — phù hợp nếu ${h} chỉ tập gym tự."
+  (b) Mời thử miễn phí: "Dạ ${h} qua đo InBody miễn phí trước, HLV xem mỡ/cơ rồi mới chọn gói chuẩn — ${h} tiện sáng hay chiều ạ?"
+  (c) Hỏi schedule: "Dạ ${h} tập mấy buổi 1 tuần để em chọn đúng gói tiết kiệm nhất ạ?"
+SAI: list lại "Gym 5tr | Full 7tr"; lặp y câu cũ; nói chung chung "tùy gói".`;
+  }
+
+  // ── DISCOVERY + khách hỏi nhóm vs cá nhân / nhóm có rẻ hơn ──
+  if (
+    state.flow === "fitness" &&
+    state.stage === "discovery" &&
+    message &&
+    /(nhóm|cá\s*nhân|tập\s*riêng|tập\s*chung)/i.test(message) &&
+    /(rẻ|giá|chi\s*phí|bao\s*nhiêu|khác|hơn)/i.test(message)
+  ) {
+    return `[EXAMPLE — KHÁCH HỎI NHÓM VS CÁ NHÂN — phải có CON SỐ CỤ THỂ]
+Khách: "nhóm có rẻ hơn không" / "tập nhóm với cá nhân khác gì"
+ĐÚNG (kèm con số, không generic):
+  "Dạ có ${h} — gym tập chung ai cũng tự tập như nhau, gói 3 buổi/tuần 12 tháng 4.5tr.
+   PT 1-1 thì kèm sát hơn, 20 buổi 5tr (~250k/buổi), HLV chỉnh kỹ thuật từng động tác.
+   ${h} đang muốn nhanh thấy kết quả hay tiết kiệm hơn ạ?"
+SAI: "nhóm thường rẻ hơn cá nhân ạ" (mơ hồ, không số);
+     hỏi tiếp "muốn tham gia nhóm hay tập riêng" mà chưa cho khách thấy chênh lệch.`;
+  }
+
   const { stage, intent, flow, knownInfo } = state;
 
   // ── FITNESS: hỏi dịch vụ/giá chung khi chưa biết loại ──
@@ -1378,24 +1465,39 @@ export function buildPrefix(
     // (c1) Khách hỏi giá explicit ("báo giá", "chi phí", "bao nhiêu") → show pricing NGAY,
     // không loop hỏi serviceType/goal nữa. Map theo goal đã có (hoặc Full default).
     else if (message && detectPriceQuestion(message)) {
-      const goal = state.knownInfo.fitnessGoal;
-      let pricing: string;
-      if (goal === "giam-mo") {
-        pricing =
-          "Pitch THẲNG: 'Để giảm mỡ thì Gym + Cardio nhanh nhất. Bên em có Gym fulltime 12 tháng 5tr | hoặc thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng (~19k/ngày)'";
-      } else if (goal === "tang-co") {
-        pricing =
-          "Pitch THẲNG: 'PT 20 buổi 2 tháng 6tr (HLV 1-1) hoặc Gym fulltime 12 tháng 5tr'";
-      } else if (goal === "thu-gian") {
-        pricing =
-          "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
+      // Detect prev đã pitch giá (≥2 con số tiền) → khách hỏi LẦN 2 → KHÔNG repeat pitch,
+      // pivot sang đào sâu / mời ghé thử / hỏi schedule cụ thể.
+      const prevHadPricing = prevBotReply
+        ? /\d+\s*(tr|triệu|k)\b.*?\d+\s*(tr|triệu|k)\b/i.test(prevBotReply)
+        : false;
+      if (prevHadPricing) {
+        tactic =
+          "Khách hỏi giá NHƯNG bot đã pitch 2+ mức giá ở tin trước rồi. ❌ TUYỆT ĐỐI KHÔNG list lại 3 gói/giá cũ. " +
+          "Pivot sang 1 trong 3 hướng (chọn 1, KHÔNG làm cả 3): " +
+          "(a) ĐÀO SÂU 1 gói cụ thể theo budget khách ngầm thể hiện (vd 'gói nhẹ nhất là Gym 3 buổi/tuần 12 tháng 4.5tr — chia ra ~375k/tháng' nếu khách kêu cao); " +
+          "(b) MỜI ghé thử 1 buổi InBody MIỄN PHÍ + dùng thử phòng tập, không cam kết — câu kết 'tiện sáng hay chiều ạ?'; " +
+          "(c) HỎI schedule cụ thể (số buổi/tuần, sáng/chiều/tối) để gợi gói chuẩn hơn. " +
+          "Reply ≤ 150 ký tự, 1-2 câu, có acknowledge câu khách hỏi.";
       } else {
-        pricing =
-          "Pitch THẲNG thẻ Full 4 dịch vụ: '1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng (~19k/ngày)'";
+        const goal = state.knownInfo.fitnessGoal;
+        let pricing: string;
+        if (goal === "giam-mo") {
+          pricing =
+            "Pitch THẲNG: 'Để giảm mỡ thì Gym + Cardio nhanh nhất. Bên em có Gym fulltime 12 tháng 5tr | hoặc thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng (~19k/ngày)'";
+        } else if (goal === "tang-co") {
+          pricing =
+            "Pitch THẲNG: 'PT 20 buổi 2 tháng 6tr (HLV 1-1) hoặc Gym fulltime 12 tháng 5tr'";
+        } else if (goal === "thu-gian") {
+          pricing =
+            "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
+        } else {
+          pricing =
+            "Pitch THẲNG thẻ Full 4 dịch vụ: '1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng (~19k/ngày)'";
+        }
+        tactic =
+          `Khách hỏi giá explicit. ❌ KHÔNG hỏi lại 'muốn tập gì'. ${pricing}. ` +
+          `Câu kết 1 câu mời ghé thử HOẶC xin schedule (sáng/chiều/tối). KHÔNG pitch InBody làm chủ đề.`;
       }
-      tactic =
-        `Khách hỏi giá explicit. ❌ KHÔNG hỏi lại 'muốn tập gì'. ${pricing}. ` +
-        `Câu kết 1 câu mời ghé thử HOẶC xin schedule (sáng/chiều/tối). KHÔNG pitch InBody làm chủ đề.`;
     }
     // (c2) Khách so sánh 2 môn HOẶC indecisive ("chọn giúp em") → recommend DỨT KHOÁT theo goal,
     // KHÔNG neutral kiểu "cả 2 đều tốt". Map theo fitnessGoal đã có (hoặc Full nếu chưa rõ).
@@ -1492,20 +1594,28 @@ export function buildPrefix(
     }
   }
 
-  // Anti-loop hint (iter 17 baseline): snippet ngắn + warn pitch lặp giá. KHÔNG forbid keyword.
+  // Anti-loop hint: snippet ngắn + warn pitch lặp giá + pivot suggestion.
   let antiLoopHint = "";
   if (prevBotReply) {
-    const trim = prevBotReply.slice(0, 80).replace(/\n/g, " ");
+    const trim = prevBotReply.slice(0, 100).replace(/\n/g, " ");
     const prevHadPricing = /\d+\s*(tr|triệu|k)\b.*?\d+\s*(tr|triệu|k)\b/i.test(
       prevBotReply,
     );
-    antiLoopHint = `[PREV: "${trim}..."${prevHadPricing ? " — đã list giá, tin này KHÔNG list lại." : ""} KHÔNG lặp câu hỏi cũ; nếu khách đã trả lời thì ACK rồi đi tiếp.]`;
+    const prevAskedSchedule = /(sáng|chiều|tối|mấy\s*buổi|tuần)/i.test(
+      prevBotReply,
+    );
+    const pivotHint = prevHadPricing
+      ? " — TIN NÀY pivot: chọn 1 trong (a) đào sâu 1 gói cụ thể theo budget; (b) mời ghé InBody MIỄN PHÍ thử 1 buổi; (c) hỏi schedule cụ thể. KHÔNG list lại 3 gói/giá cũ."
+      : prevAskedSchedule
+        ? " — đã hỏi schedule, KHÔNG hỏi lại; tiến tới mục tiêu hoặc số buổi/tuần."
+        : "";
+    antiLoopHint = `[PREV: "${trim}..."${pivotHint} Nếu khách đã trả lời câu cũ → ACK 1 câu rồi đi tiếp; tuyệt đối không lặp lại nội dung tin trước.]`;
   }
 
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: ≤200 chars, 2-3 câu, KHÔNG bullet "-". CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — chỉ đọc rồi tự viết.]`,
+    `[RULES: ≤200 chars, 2-3 câu, KHÔNG bullet "-". CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi tự nhiên kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — chỉ đọc rồi tự viết.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     buildMissingSlotHint(
@@ -1517,7 +1627,7 @@ export function buildPrefix(
     buildKnowledgeBlock(state, h, message, prevBotReply),
     buildMediaHint(state),
     buildLogicGate(state, message),
-    buildFewShot(state, h, prevBotReply) ?? "",
+    buildFewShot(state, h, prevBotReply, message) ?? "",
   ];
 
   return lines.filter(Boolean).join("\n");
