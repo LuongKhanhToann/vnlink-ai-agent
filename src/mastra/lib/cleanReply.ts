@@ -188,14 +188,19 @@ export function cleanReply(
     r = r.replace(pattern, replacement);
   }
 
-  // 7. Whitespace cleanup
+  // 7. Strip TOÀN BỘ dấu "?" — văn phong sale Việt thường mềm bằng "ạ"/"nha" thay vì "?".
+  //    Bảo toàn "?" nằm trong URL (vd facebook.com/profile?id=...) bằng cách chỉ strip
+  //    "?" khi KHÔNG đứng trước ký tự word (URL query thường có "?id=" → "?" theo "i" word char).
+  r = r.replace(/\?(?!\w)/g, "");
+
+  // 8. Whitespace cleanup
   r = r
-    .replace(/\s+([,.!?])/g, "$1")  // remove space before punctuation
+    .replace(/\s+([,.!])/g, "$1")  // remove space before punctuation (đã strip "?" rồi)
     .replace(/\s{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // 8. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
+  // 9. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
   if (r && /^[a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(r)) {
     r = r[0].toUpperCase() + r.slice(1);
   }
