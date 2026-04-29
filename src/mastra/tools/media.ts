@@ -92,8 +92,10 @@ export const getMediaTool = createTool({
       listResources(`${folder}/video`, "video"),
     ]);
 
+    // Trả TỐI ĐA 2 items: 1 ảnh + 1 video. Trước là 3 (2 ảnh + 1 vid) → đôi khi
+    // model gọi tool 2 lần → 6 items, dedup lỏng → khách thấy 3+ video trùng.
     const data: MediaItem[] = [
-      ...pickRandom(images, 2),
+      ...pickRandom(images, 1),
       ...pickRandom(videos, 1),
     ];
 

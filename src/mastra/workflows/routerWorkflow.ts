@@ -229,9 +229,30 @@ function buildAgentStep(
       };
 
       // Dedupe mediaUrls (defensive — bot có thể gọi tool 2 lần trả URLs duplicate)
-      const dedupedMediaUrls = obj.mediaUrls
-        ? [...new Set(obj.mediaUrls)]
-        : null;
+      // Quy trình: trim → Set → giữ MAX 1 video + 1 image (tổng max 2 items).
+      // Trước chỉ Set không trim → URL chênh whitespace lọt qua → khách thấy 3 video trùng.
+      let dedupedMediaUrls: string[] | null = null;
+      if (obj.mediaUrls && Array.isArray(obj.mediaUrls)) {
+        const rawCount = obj.mediaUrls.length;
+        const trimmed: string[] = (obj.mediaUrls as unknown[])
+          .map((u) => (typeof u === "string" ? u.trim() : ""))
+          .filter((u): u is string => u.length > 0);
+        const cleaned: string[] = Array.from(new Set(trimmed));
+        const isVideo = (u: string): boolean =>
+          /\.(mp4|mov|webm|avi)(\?.*)?$/i.test(u) ||
+          u.toLowerCase().includes("/video/");
+        const videos: string[] = cleaned.filter(isVideo).slice(0, 1);
+        const images: string[] = cleaned
+          .filter((u) => !isVideo(u))
+          .slice(0, 1);
+        const capped: string[] = [...images, ...videos];
+        dedupedMediaUrls = capped.length > 0 ? capped : null;
+        if (rawCount !== capped.length) {
+          console.log(
+            `[mediaCap] raw=${rawCount} unique=${cleaned.length} sent=${capped.length} (capped at 1img+1vid)`,
+          );
+        }
+      }
 
       // Load prev reply để cleanReply strip pitch lặp
       const stateBeforeReply = await loadState(mastra, threadId, resourceId);

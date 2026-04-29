@@ -222,9 +222,22 @@ async function handleMessage(senderId: string, text: string) {
     console.log(`[fb] sending reply: "${reply}"`);
     console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
 
+    // Last line of defense: trim + dedup. Workflow đã cap nhưng giữ guard này
+    // phòng follow-up / fallback path gửi list chưa làm sạch.
+    const sentUrls = new Set<string>();
     if (reply)             await sendText(senderId, reply);
-    if (mediaUrls?.length) for (const url of mediaUrls) await sendMedia(senderId, url);
-    if (qrUrl)             await sendMedia(senderId, qrUrl);
+    if (mediaUrls?.length) {
+      for (const rawUrl of mediaUrls) {
+        const url = (rawUrl ?? "").trim();
+        if (!url || sentUrls.has(url)) continue;
+        sentUrls.add(url);
+        await sendMedia(senderId, url);
+      }
+    }
+    if (qrUrl) {
+      const q = qrUrl.trim();
+      if (q && !sentUrls.has(q)) await sendMedia(senderId, q);
+    }
 
     // Schedule follow-up sau 10p nếu khách ghost.
     // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)
