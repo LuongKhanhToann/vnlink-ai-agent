@@ -240,7 +240,6 @@ function computeSuggestedMediaKey(state: ConversationState): string | null {
 
   if (flow === "fitness") {
     const svc = knownInfo.serviceType;
-    if (!svc) return null;
     const mapFitness: Record<string, string> = {
       gym: "fitness-gym",
       full: "fitness-gym",
@@ -249,7 +248,18 @@ function computeSuggestedMediaKey(state: ConversationState): string | null {
       zumba: "fitness-zumba",
       boi: "fitness-pool",
     };
-    return mapFitness[svc] ?? null;
+    if (svc && mapFitness[svc]) return mapFitness[svc];
+    // Fallback: map theo goal khi chưa có serviceType
+    const goal = knownInfo.fitnessGoal;
+    const mapGoal: Record<string, string> = {
+      "giam-mo": "fitness-gym",
+      "tang-co": "fitness-gym",
+      "suc-khoe": "fitness-gym",
+      "thu-gian": "fitness-yoga",
+      "hoc-boi": "fitness-pool",
+    };
+    if (goal && mapGoal[goal]) return mapGoal[goal];
+    return null;
   }
 
   // giai-co
@@ -414,19 +424,25 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
-  // ── PROACTIVE: lần đầu vào inbody/evaluation, chưa gửi media → CHỦ ĐỘNG gửi ảnh build trust ──
-  // (User feedback: bot chưa kích thích nhu cầu khách bằng visual)
+  // ── PROACTIVE: lần đầu vào discovery/inbody/evaluation, chưa gửi media → CHỦ ĐỘNG gửi ảnh build trust ──
+  // (User feedback: bot chờ khách hỏi xin ảnh, chưa chủ động — phải proactive ngay khi biết goal/service)
+  const hasContextForMedia =
+    knownInfo.fitnessGoal !== null ||
+    knownInfo.serviceType !== null ||
+    (flow === "giai-co" && knownInfo.painArea !== null);
   if (
     !mediaShown &&
     !customerAskingMedia &&
-    (stage === "inbody" || stage === "evaluation")
+    hasContextForMedia &&
+    (stage === "discovery" || stage === "inbody" || stage === "evaluation")
   ) {
     const key = computeSuggestedMediaKey(state);
     if (key) {
       hints.push(
-        `[GATE PROACTIVE MEDIA: lần đầu vào ${stage}, chưa gửi ảnh. ` +
-          `CHỦ ĐỘNG gọi tool get-media key="${key}" trong turn này để build trust visual. ` +
-          `Reply text vẫn theo TACTIC chính (pitch/InBody) + 1 câu ngắn dẫn dắt: ` +
+        `[GATE PROACTIVE MEDIA: ${stage}, biết goal/service mà chưa gửi ảnh. ` +
+          `CHỦ ĐỘNG gọi tool get-media key="${key}" NGAY trong turn này để build trust visual. ` +
+          `Đừng đợi khách xin — sale tốt là sale chủ động show ảnh. ` +
+          `Reply text vẫn theo TACTIC chính + 1 câu ngắn dẫn dắt: ` +
           `"Em gửi ${flow === "fitness" ? "vài hình phòng tập" : "vài hình thực tế"} cho ${state.honorific} hình dung nha". ` +
           `Copy URLs vào mediaUrls, set nextStep="show_media". Gọi 1 LẦN duy nhất.]`,
       );
@@ -1364,10 +1380,16 @@ function buildMissingSlotHint(
   const missing: string[] = [];
 
   if (flow === "fitness") {
-    if (info.serviceType === null) missing.push("serviceType");
+    // serviceType chỉ bắt buộc khi CHƯA có goal — khi đã có goal, bot tự RECOMMEND
+    // dựa trên goal (giảm-mỡ → Gym/Cardio, tăng-cơ → Gym+PT, thư-giãn → Yoga, ...).
+    // Re-ask "muốn gym hay yoga" sau khi đã pitch là sai (mất commitment).
+    if (info.serviceType === null && info.fitnessGoal === null) {
+      missing.push("serviceType");
+    }
     // fitnessGoal chỉ bắt buộc ở discovery khi intent=explore
     if (
       info.fitnessGoal === null &&
+      info.serviceType === null &&
       stage === "discovery" &&
       intent === "explore"
     ) {
@@ -1485,16 +1507,26 @@ export function buildPrefix(
         let pricing: string;
         if (goal === "giam-mo") {
           pricing =
-            "Pitch THẲNG: 'Để giảm mỡ thì Gym + Cardio nhanh nhất. Bên em có Gym fulltime 12 tháng 5tr | hoặc thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng'";
+            "Pitch 3 HÌNH THỨC theo budget: " +
+            "(1) Tự tập tại phòng — Gym fulltime 12 tháng 5tr; " +
+            "(2) Có HLV cá nhân (1-1) — PT 20 buổi 6tr (2 tháng), HLV thiết kế bài tập riêng để đốt mỡ nhanh; " +
+            "(3) Lớp nhóm — kèm Yoga/Zumba (cardio đốt mỡ) trong thẻ Full 4 dịch vụ 7tr/12 tháng. " +
+            "Trình bày đủ 3 lựa chọn rồi hỏi khách thích hình thức nào";
         } else if (goal === "tang-co") {
           pricing =
-            "Pitch THẲNG: 'PT 20 buổi 2 tháng 6tr (HLV 1-1) hoặc Gym fulltime 12 tháng 5tr'";
+            "Pitch 3 HÌNH THỨC: " +
+            "(1) Tự tập — Gym fulltime 12 tháng 5tr; " +
+            "(2) Có HLV cá nhân (1-1) — PT 20 buổi 6tr (2 tháng), xây kỹ thuật nền tránh sai tư thế; " +
+            "(3) Combo nhóm — thẻ Full 7tr/12 tháng kèm Yoga hồi phục";
         } else if (goal === "thu-gian") {
           pricing =
             "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
         } else {
           pricing =
-            "Pitch THẲNG thẻ Full 4 dịch vụ: '1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng'";
+            "Pitch 3 HÌNH THỨC: " +
+            "(1) Tự tập tại phòng — Gym fulltime 12 tháng 5tr; " +
+            "(2) Có HLV cá nhân — PT 20 buổi 6tr (2 tháng); " +
+            "(3) Lớp nhóm + đa dịch vụ — thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng";
         }
         tactic =
           `Khách hỏi giá explicit. ❌ KHÔNG hỏi lại 'muốn tập gì'. ${pricing}. ` +
