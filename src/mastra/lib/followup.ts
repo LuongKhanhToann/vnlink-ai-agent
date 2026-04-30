@@ -100,7 +100,7 @@ const FITNESS_PRICING: Record<string, string> = {
   zumba: "Zumba 12 tháng 5.8tr fulltime | 4.5tr (3 buổi/tuần)",
   boi: "Bơi NL fulltime: 12m=5tr | 24m=8.6tr | Học bơi 1-1 (12 buổi) 3tr+3 tháng bể, cam kết biết bơi",
   pilates: "Pilates thảm 10b=1.5tr | máy(1:6) 10b=1.9tr/20b=3.6tr | nhóm(1:3) 10b=3tr/20b=5.8tr | 1-1 10b=4.5tr/20b=8.6tr",
-  full: "Thẻ Full 4 dịch vụ: 1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng (~19k/ngày)",
+  full: "Thẻ Full 4 dịch vụ: 1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng",
 };
 
 const GIAICO_PRICING =
@@ -140,7 +140,7 @@ export function buildFollowupText(state: ConversationState): string {
   if (state.flow === "fitness") {
     return (
       `Dạ ${honor}, bên em là Fami Fitness & Yoga Center có 4 dịch vụ chính: Gym (700m2), Bơi (bể 4 mùa duy nhất Vĩnh Yên), Yoga & Zumba (GV Ấn Độ), Pilates. ` +
-      `Thẻ Full dùng cả 4: 7tr/12 tháng (~19k/ngày). ` +
+      `Thẻ Full dùng cả 4: 7tr/12 tháng. ` +
       `Em gửi vài hình bên em, ${honor} xem xong có gì cần em sẵn sàng tư vấn nha.`
     );
   }

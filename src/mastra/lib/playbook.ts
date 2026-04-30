@@ -109,13 +109,13 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Social proof: 'Hội viên hay chọn nhất'. Chuyển sang chốt nhanh.",
   evaluation_frustrated:
     "Nhấn giá trị trước: 4 dịch vụ trong 1 thẻ, bể bơi 4 mùa duy nhất. " +
-    "Sau đó mới báo giá với chia nhỏ/ngày.",
+    "Sau đó báo giá tổng kèm bảo lưu/chuyển nhượng. KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê.",
 
   // ── NEGOTIATION ──────────────────────────────────────
   negotiation_neutral:
-    "Chia nhỏ giá/ngày: 'Full 12 tháng chỉ ~19k/ngày — rẻ hơn ly cà phê mà sức khỏe cả năm'. " +
-    "Nhấn giá trị: 4 dịch vụ, GV Ấn Độ, bể bơi 4 mùa. KHÔNG giảm giá. " +
-    "Nếu khách muốn tháng lẻ: 'Tháng lẻ 1.2tr nhưng gói năm chỉ 583k/tháng — còn bảo lưu được'.",
+    "Reframe theo giá trị tổng: 'Full 12 tháng 7tr là 4 dịch vụ trong 1 thẻ — gym, bơi, yoga, zumba dùng cả năm, bảo lưu được khi bận'. " +
+    "Nhấn giá trị: 4 dịch vụ, GV Ấn Độ, bể bơi 4 mùa. KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. " +
+    "Nếu khách muốn tháng lẻ: 'Tháng lẻ 1.2tr nhưng gói năm 7tr còn bảo lưu được khi bận'.",
   negotiation_excited:
     "Báo giá nhanh. Nhấn ưu đãi hiện tại. Chuyển sang chốt.",
   negotiation_anxious:

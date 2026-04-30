@@ -18,6 +18,36 @@ const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
   [/\s+(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt)\s*[!,.]?/gi, ""],
 ];
 
+// Anti-sycophancy: bot khen đáp án của khách (vd "4 buổi/tuần là tần suất rất tốt", "chọn buổi sáng thì tốt quá").
+// Strip cum đánh giá khỏi ACK clause; giữ phần nhắc lại + dấu câu kết thúc.
+const PRAISE_CUM =
+  "(?:rất\\s+tốt|tốt\\s+quá|tốt\\s+rồi|tốt\\s+lắm|ổn\\s+lắm|ổn\\s+rồi|hợp\\s+lý|lý\\s+tưởng|phù\\s+hợp(?:\\s+lắm)?|chuẩn\\s+rồi|vậy\\s+là\\s+chuẩn|lựa\\s+chọn\\s+đúng)";
+const SYCOPHANTIC_ACK_PATTERNS: Array<[RegExp, string]> = [
+  // "... là/thì [tần suất|mục tiêu|lựa chọn|cách]? <praise>" → strip từ "là/thì" tới hết praise
+  [
+    new RegExp(
+      `\\s+(?:là|thì)(?:\\s+(?:tần\\s+suất|mục\\s+tiêu|lựa\\s+chọn|cách|cũng))?\\s+${PRAISE_CUM}`,
+      "gi",
+    ),
+    "",
+  ],
+  // "... tần suất <praise>" (không có "là") → strip cụm "tần suất <praise>"
+  [
+    new RegExp(`\\s+tần\\s+suất\\s+${PRAISE_CUM}`, "gi"),
+    "",
+  ],
+  // Bare "tần suất ổn" (không có "lắm/rồi") — vẫn là khen mềm, strip
+  [
+    /\s+(?:là\s+)?tần\s+suất\s+ổn(?!\s+(?:lắm|rồi))(?:\s+(?:anh|chị|anh\/chị|em))?/gi,
+    "",
+  ],
+  // Câu chỉ chứa praise độc lập đầu tin: "Dạ rất tốt ạ. ..." / "Dạ tốt quá ạ. ..."
+  [
+    new RegExp(`^Dạ\\s+${PRAISE_CUM}\\s*(?:ạ|nha)?\\s*[.,!]?\\s*`, "i"),
+    "Dạ ",
+  ],
+];
+
 // "em (sẽ/có thể) gửi hình/ảnh/video..." — cắt cả câu chứa cụm này
 const FAKE_MEDIA_OFFER = /[^.?!]*\b(em|để\s+em|chị|anh)\s+(sẽ\s+)?(có\s+thể\s+)?gửi.{0,30}(hình|ảnh|video|clip)[^.?!]*[.?!]/gi;
 
@@ -160,6 +190,11 @@ export function cleanReply(
 
   // 1. Khen giả
   for (const [pattern, replacement] of FAKE_PRAISE_PATTERNS) {
+    r = r.replace(pattern, replacement);
+  }
+
+  // 1b. Sycophantic ACK — bot khen đáp án của khách
+  for (const [pattern, replacement] of SYCOPHANTIC_ACK_PATTERNS) {
     r = r.replace(pattern, replacement);
   }
 
