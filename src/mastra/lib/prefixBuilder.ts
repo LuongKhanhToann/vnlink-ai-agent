@@ -129,6 +129,22 @@ export function detectFamily(message: string): boolean {
 }
 
 /**
+ * Khách hỏi về GIỜ MỞ CỬA / lúc nào trung tâm hoạt động.
+ * Khác với "tiện sáng hay chiều" (đó là khách CHỌN slot, không hỏi).
+ */
+export function detectHoursQuestion(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase().trim();
+  return (
+    /(qua|đến|tới|ghé|sang|đi)\s+(được\s+)?(lúc\s+nào|khi\s+nào|giờ\s+nào|mấy\s+giờ)/.test(m) ||
+    /(mở\s*cửa|đóng\s*cửa|giờ\s+(mở|đóng|hoạt\s*động|làm\s*việc))/.test(m) ||
+    /(từ\s+mấy\s+giờ|đến\s+mấy\s+giờ|tới\s+mấy\s+giờ)/.test(m) ||
+    /^(lúc\s+nào|khi\s+nào|mấy\s+giờ)\s*(được|cũng|là\s+được)?[?\s]*$/.test(m) ||
+    /\b(giờ\s+giấc|giờ\s+làm)\b/.test(m)
+  );
+}
+
+/**
  * Khách hỏi về chính sách bảo lưu / hủy / hoãn / vắng.
  */
 export function detectHoldPolicy(message: string): boolean {
@@ -352,6 +368,17 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         "  ✅ Có thể đính kèm 1 thông tin nhỏ giúp khách quyết sau (vd " +
         "'Em note mức ưu đãi tháng này lại cho anh/chị nha').\n" +
         "Đây là moment KHÁCH muốn dừng — lùi đúng cách = giữ được lead, push thêm = mất.]"
+    );
+  }
+
+  // ── ƯU TIÊN: khách hỏi GIỜ MỞ CỬA → trả giờ ngay, KHÔNG hỏi sáng/chiều/tối ──
+  if (message && detectHoursQuestion(message)) {
+    const hours = flow === "fitness" ? "05:00–20:00" : "09:00–23:00";
+    hints.push(
+      `[GATE ƯU TIÊN: khách hỏi giờ mở cửa / qua được lúc nào. ` +
+        `Trả GIỜ MỞ CỬA cụ thể: bên em mở ${hours} ${state.honorific} ạ. ` +
+        `Sau đó MỚI hỏi schedule: "${state.honorific} tiện sáng hay chiều tối ạ". ` +
+        `❌ TUYỆT ĐỐI KHÔNG hỏi ngược "sáng/chiều/tối" mà chưa trả giờ mở cửa — khách hỏi giờ chứ không phải chọn slot.]`,
     );
   }
 
