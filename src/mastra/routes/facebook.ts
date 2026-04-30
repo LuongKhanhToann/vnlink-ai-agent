@@ -80,15 +80,18 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
 
     const state = await loadState(mastra, senderId, "facebook-customer");
 
-    // Compute media key dựa trên state
+    // Compute media key dựa trên state. Nếu đã gửi media trong cuộc thoại
+    // (mediaShown=true) → KHÔNG re-fetch để tránh spam ảnh trùng.
     let mediaKey: string | null = null;
-    if (state.flow === "fitness" && state.knownInfo.serviceType) {
-      mediaKey = SERVICE_TO_MEDIA_KEY[state.knownInfo.serviceType] ?? null;
-    } else if (state.flow === "giai-co" && state.knownInfo.painArea) {
-      const pain = state.knownInfo.painArea.toLowerCase();
-      if (/vai|gáy|gay|cổ|co\b/.test(pain)) mediaKey = "mr-neck-shoulder";
-      else if (/chân|chan|gối|goi/.test(pain)) mediaKey = "mr-sport";
-      else mediaKey = "mr-general";
+    if (!state.mediaShown) {
+      if (state.flow === "fitness" && state.knownInfo.serviceType) {
+        mediaKey = SERVICE_TO_MEDIA_KEY[state.knownInfo.serviceType] ?? null;
+      } else if (state.flow === "giai-co" && state.knownInfo.painArea) {
+        const pain = state.knownInfo.painArea.toLowerCase();
+        if (/vai|gáy|gay|cổ|co\b/.test(pain)) mediaKey = "mr-neck-shoulder";
+        else if (/chân|chan|gối|goi/.test(pain)) mediaKey = "mr-sport";
+        else mediaKey = "mr-general";
+      }
     }
 
     // Fetch media URLs (nếu có key)

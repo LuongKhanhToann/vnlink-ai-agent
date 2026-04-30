@@ -93,75 +93,81 @@ const GOAL_LABEL: Record<string, string> = {
   "suc-khoe": "sức khỏe tổng thể",
 };
 
-// Pricing snippets ngắn theo serviceType
-const FITNESS_PRICING: Record<string, string> = {
-  gym: "Gym fulltime 12 tháng 5tr | 3 buổi/tuần 12 tháng 4.5tr | PT 20 buổi 5tr (1-1) hoặc 20b 2 mom 6tr",
-  yoga: "Yoga 12 tháng 5.8tr fulltime | 4.5tr (3 buổi/tuần), GV người Ấn Độ 4 ca/ngày",
-  zumba: "Zumba 12 tháng 5.8tr fulltime | 4.5tr (3 buổi/tuần)",
-  boi: "Bơi NL fulltime: 12m=5tr | 24m=8.6tr | Học bơi 1-1 (12 buổi) 3tr+3 tháng bể, cam kết biết bơi",
-  pilates: "Pilates thảm 10b=1.5tr | máy(1:6) 10b=1.9tr/20b=3.6tr | nhóm(1:3) 10b=3tr/20b=5.8tr | 1-1 10b=4.5tr/20b=8.6tr",
-  full: "Thẻ Full 4 dịch vụ: 1.2tr/tháng | 3tr/3 tháng | 7tr/12 tháng",
-};
+// Phát hiện những gì bot đã pitch ở tin trước → tránh lặp.
+function alreadyMentions(prev: string, patterns: RegExp[]): boolean {
+  if (!prev) return false;
+  return patterns.some((p) => p.test(prev));
+}
 
-const GIAICO_PRICING =
-  "Lẻ: 45p (1-2 vùng) 200k | 75p 330k | CS-VIP1 480k | CS-VIP2 590k. Liệu trình VIP1×10 buổi 4.2tr (tặng 1 buổi)";
+const HAS_SERVICES_LIST = [
+  /\b(gym|bơi|yoga|zumba)\b.*\b(gym|bơi|yoga|zumba)\b/i, // ≥2 dịch vụ trong 1 tin
+  /4\s*dịch\s*vụ/i,
+];
+const HAS_PRICING = [/\d+\s*(tr|triệu|k)\b.*\d+\s*(tr|triệu|k)\b/i]; // ≥2 mức giá
+const HAS_INBODY = [/inbody/i];
+const HAS_MEDIA_OFFER = [/em\s+gửi\s+(thêm\s+)?(vài\s+)?(hình|ảnh|video)/i];
 
+/**
+ * Build followup TEXT — soft re-engagement.
+ *
+ * NGUYÊN TẮC:
+ *   - Đọc lastBotReply để né lặp nội dung (services list / pricing / InBody / media offer).
+ *   - Càng có nhiều info đã pitch → followup càng SHORT (chỉ check-in).
+ *   - Càng ít info → có thể đính kèm câu khơi gợi nhẹ.
+ *   - KHÔNG bao giờ list lại 4 dịch vụ / liệt kê giá ở followup — đó là job của reply chính.
+ */
 export function buildFollowupText(state: ConversationState): string {
   const honor =
     state.honorific === "anh/chị" ? "anh/chị" : state.honorific;
   const ki = state.knownInfo;
+  const prev = state.lastBotReply ?? "";
 
-  // ── FITNESS — đã có serviceType + goal ──
-  if (state.flow === "fitness" && ki.serviceType && ki.fitnessGoal) {
-    const svcKey = ki.serviceType.toLowerCase();
-    const svcLabel = SERVICE_LABEL[svcKey] ?? ki.serviceType;
-    const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
-    const pricing = FITNESS_PRICING[svcKey] ?? FITNESS_PRICING.full;
-    return (
-      `Dạ ${honor}, em gửi thêm hình ảnh thực tế bên em + thông tin chi tiết về ${svcLabel} cho ${goalLabel} để ${honor} tham khảo nha. ` +
-      `${pricing}. ` +
-      `Bên em đo InBody miễn phí lần đầu, HLV tư vấn lộ trình chuẩn theo cơ thể ${honor}. ${honor} ghé bất kỳ buổi sáng (5h-11h) hoặc chiều tối nha.`
-    );
-  }
+  const prevHasServices = alreadyMentions(prev, HAS_SERVICES_LIST);
+  const prevHasPricing = alreadyMentions(prev, HAS_PRICING);
+  const prevHasInBody = alreadyMentions(prev, HAS_INBODY);
 
-  // ── FITNESS — có serviceType, chưa có goal ──
-  if (state.flow === "fitness" && ki.serviceType) {
-    const svcKey = ki.serviceType.toLowerCase();
-    const svcLabel = SERVICE_LABEL[svcKey] ?? ki.serviceType;
-    const pricing = FITNESS_PRICING[svcKey] ?? FITNESS_PRICING.full;
-    return (
-      `Dạ ${honor}, em gửi thêm hình ảnh ${svcLabel} bên em để ${honor} hình dung nha. ` +
-      `${pricing}. ` +
-      `${honor} ghé bất kỳ lúc nào để cảm nhận thực tế, HLV tư vấn miễn phí.`
-    );
-  }
-
-  // ── FITNESS — chưa có gì ──
+  // ── FITNESS ──
   if (state.flow === "fitness") {
-    return (
-      `Dạ ${honor}, bên em là Fami Fitness & Yoga Center có 4 dịch vụ chính: Gym (700m2), Bơi (bể 4 mùa duy nhất Vĩnh Yên), Yoga & Zumba (GV Ấn Độ), Pilates. ` +
-      `Thẻ Full dùng cả 4: 7tr/12 tháng. ` +
-      `Em gửi vài hình bên em, ${honor} xem xong có gì cần em sẵn sàng tư vấn nha.`
-    );
+    // Đã đủ goal + service → check-in về quyết định
+    if (ki.serviceType && ki.fitnessGoal) {
+      const svcLabel = SERVICE_LABEL[ki.serviceType.toLowerCase()] ?? ki.serviceType;
+      const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
+      const inbodyLine =
+        !prevHasInBody && !ki.preferredTime
+          ? ` Bên em đo InBody miễn phí lần đầu, ${honor} ghé thử buổi nào tiện nha.`
+          : ` ${honor} thấy hợp em note giữ slot luôn nha.`;
+      return `Dạ ${honor}, ${honor} thấy hướng ${svcLabel} cho ${goalLabel} có ổn không ạ.${inbodyLine}`;
+    }
+
+    // Có service, chưa goal → hỏi mục tiêu nhẹ
+    if (ki.serviceType) {
+      const svcLabel = SERVICE_LABEL[ki.serviceType.toLowerCase()] ?? ki.serviceType;
+      return `Dạ ${honor}, ${honor} muốn tập ${svcLabel} cho mục tiêu cụ thể nào để em tư vấn lộ trình sát hơn ạ (giảm cân, tăng cơ hay thư giãn).`;
+    }
+
+    // Có goal, chưa service → gợi 1 hướng theo goal
+    if (ki.fitnessGoal) {
+      const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
+      return `Dạ ${honor}, ${honor} thấy hướng ${goalLabel} sao rồi ạ, có gì cần em tư vấn thêm em sẵn nha.`;
+    }
+
+    // Chưa có gì — soft check-in. Nếu prev đã list 4 dịch vụ → KHÔNG nhắc lại.
+    if (prevHasServices) {
+      return `Dạ ${honor}, ${honor} đang phân vân ở dịch vụ nào không, em sẵn sàng tư vấn thêm ạ.`;
+    }
+    return `Dạ ${honor}, ${honor} có nhu cầu cụ thể nào (giảm cân, tăng cơ, thư giãn) để em gợi gói chuẩn nha.`;
   }
 
-  // ── GIẢI CƠ — có painArea ──
-  if (state.flow === "giai-co" && ki.painArea) {
-    const past = ki.pastMethod
-      ? `Em hiểu ${honor} đã thử ${ki.pastMethod} chưa đỡ — `
-      : "";
-    return (
-      `Dạ ${honor}, em gửi thêm hình ảnh thực tế giải cơ vùng ${ki.painArea} bên em để ${honor} hình dung quy trình nha. ` +
-      `${past}giải cơ chuyên sâu xử lý nút thắt sâu trong cơ (Trigger Points), không vuốt bề mặt như massage. ` +
-      `${GIAICO_PRICING}. ` +
-      `${honor} thử 1 buổi để cảm nhận thực tế, KTV đánh giá rồi mới tư vấn lộ trình phù hợp nha.`
-    );
+  // ── GIẢI CƠ ──
+  // Có painArea → check-in về vùng đau, đề xuất thử 1 buổi
+  if (ki.painArea) {
+    const tryLine =
+      !prevHasPricing
+        ? ` ${honor} thử 1 buổi để KTV đánh giá rồi mới tư vấn lộ trình nha.`
+        : ` ${honor} sắp xếp được buổi nào em note slot giúp.`;
+    return `Dạ ${honor}, vùng ${ki.painArea} ${honor} thấy sao rồi, có cần em hỗ trợ đặt lịch không ạ.${tryLine}`;
   }
 
-  // ── GIẢI CƠ — chưa có painArea ──
-  return (
-    `Dạ ${honor}, bên em là Trung tâm Hoa Sen — chuyên giải cơ chuyên sâu xử lý nút thắt cơ (Trigger Points), khác massage thông thường. ` +
-    `${GIAICO_PRICING}. ` +
-    `Em gửi vài hình thực tế, ${honor} xem có gì cần em sẵn lòng tư vấn thêm nha.`
-  );
+  // Chưa có painArea — hỏi vùng đau
+  return `Dạ ${honor}, ${honor} có vùng nào đang đau hay mỏi cần em tư vấn không ạ, em sẵn sàng hỗ trợ.`;
 }
