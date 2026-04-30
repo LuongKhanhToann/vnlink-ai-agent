@@ -370,14 +370,12 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   if (message && detectShortAnswer(message)) {
     hints.push(
       "[GATE ƯU TIÊN: khách vừa answer câu hỏi tin trước (số/thời gian/lựa chọn cụ thể). " +
-        "BẮT BUỘC mở đầu reply bằng ACK NEUTRAL — chỉ note lại / nhắc lại nội dung khách vừa nói, KHÔNG đánh giá / khen / nhận xét lựa chọn của khách. " +
-        `Vd: khách nói "1-2 tuần" → "Dạ ${state.honorific} hay vắng 1-2 tuần thì..."; ` +
-        `khách nói "4 buổi/tuần" → "Dạ 4 buổi/tuần em note rồi ạ"; ` +
-        `khách nói "sáng" → "Dạ sáng nha ${state.honorific}". ` +
-        '❌ TUYỆT ĐỐI KHÔNG dùng các cụm đánh giá đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn". ' +
-        "ACK = nhắc lại + note, KHÔNG khen. " +
-        "❌ TUYỆT ĐỐI KHÔNG bỏ qua câu trả lời của khách rồi nhảy sang chủ đề khác. " +
-        "Sau ack mới chuyển ý mới (1 câu).]",
+        "BẮT BUỘC mở đầu reply bằng ACK NEUTRAL — chỉ note lại / nhắc lại nội dung khách vừa nói. " +
+        `Vd: "1-2 tuần" → "Dạ ${state.honorific} hay vắng 1-2 tuần thì..."; ` +
+        `"4 buổi/tuần" → "Dạ 4 buổi/tuần em note rồi ạ"; ` +
+        `"sáng" → "Dạ sáng nha ${state.honorific}". ` +
+        'CẤM cụm khen đáp án: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn". ' +
+        "Sau ACK mới chuyển ý mới (1 câu).]",
     );
   }
 
@@ -1125,6 +1123,22 @@ SAI: "nhóm thường rẻ hơn cá nhân ạ" (mơ hồ, không số);
 
   const { stage, intent, flow, knownInfo } = state;
 
+  // ── FITNESS: OPENING — chào + giới thiệu 4 dịch vụ, KHÔNG dùng "3 hình thức" ──
+  if (
+    flow === "fitness" &&
+    stage === "opening" &&
+    knownInfo.serviceType === null &&
+    knownInfo.fitnessGoal === null
+  ) {
+    return `[EXAMPLE — OPENING: chào + liệt kê 4 DỊCH VỤ với xuống dòng]
+"Dạ chào ${h}, bên em có 4 dịch vụ chính ạ:
+- Gym
+- Bơi lội (bể 4 mùa, nước nóng quanh năm)
+- Yoga (GV Ấn Độ)
+- Zumba (GV Ấn Độ)
+${h} đang quan tâm môn nào, hay muốn em gợi theo mục tiêu giảm cân / tăng cơ / thư giãn ạ"`;
+  }
+
   // ── FITNESS: hỏi dịch vụ/giá chung khi chưa biết loại ──
   if (
     flow === "fitness" &&
@@ -1652,7 +1666,7 @@ export function buildPrefix(
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng), KHÔNG dồn 1 dòng dài. CẤM markdown **bold**/*italic*, IN HOA cả từ. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note, không đánh giá. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi tự nhiên kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — chỉ đọc rồi tự viết.]`,
+    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng). CẤM markdown **bold**/*italic*. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — đọc rồi tự viết.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     buildMissingSlotHint(
