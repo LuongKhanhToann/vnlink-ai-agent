@@ -1507,26 +1507,28 @@ export function buildPrefix(
         let pricing: string;
         if (goal === "giam-mo") {
           pricing =
-            "Pitch 3 HÌNH THỨC theo budget: " +
-            "(1) Tự tập tại phòng — Gym fulltime 12 tháng 5tr; " +
-            "(2) Có HLV cá nhân (1-1) — PT 20 buổi 6tr (2 tháng), HLV thiết kế bài tập riêng để đốt mỡ nhanh; " +
-            "(3) Lớp nhóm — kèm Yoga/Zumba (cardio đốt mỡ) trong thẻ Full 4 dịch vụ 7tr/12 tháng. " +
-            "Trình bày đủ 3 lựa chọn rồi hỏi khách thích hình thức nào";
+            "Pitch 3 HÌNH THỨC theo budget — XUỐNG DÒNG mỗi mục, dạng:\n" +
+            "  Dạ để giảm mỡ thì bên em có 3 hình thức ạ:\n" +
+            "  - Tự tập tại phòng: Gym fulltime 12 tháng 5tr\n" +
+            "  - HLV cá nhân 1-1: PT 20 buổi 6tr (2 tháng), HLV thiết kế bài đốt mỡ riêng\n" +
+            "  - Lớp nhóm + đa dịch vụ: thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng\n" +
+            "  Anh/chị thiên về hướng nào ạ\n" +
+            "Trình bày đủ 3 lựa chọn rồi mới hỏi";
         } else if (goal === "tang-co") {
           pricing =
-            "Pitch 3 HÌNH THỨC: " +
-            "(1) Tự tập — Gym fulltime 12 tháng 5tr; " +
-            "(2) Có HLV cá nhân (1-1) — PT 20 buổi 6tr (2 tháng), xây kỹ thuật nền tránh sai tư thế; " +
-            "(3) Combo nhóm — thẻ Full 7tr/12 tháng kèm Yoga hồi phục";
+            "Pitch 3 HÌNH THỨC — XUỐNG DÒNG mỗi mục:\n" +
+            "  - Tự tập: Gym fulltime 12 tháng 5tr\n" +
+            "  - HLV cá nhân 1-1: PT 20 buổi 6tr (2 tháng), xây kỹ thuật nền\n" +
+            "  - Combo nhóm: thẻ Full 7tr/12 tháng kèm Yoga hồi phục";
         } else if (goal === "thu-gian") {
           pricing =
             "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
         } else {
           pricing =
-            "Pitch 3 HÌNH THỨC: " +
-            "(1) Tự tập tại phòng — Gym fulltime 12 tháng 5tr; " +
-            "(2) Có HLV cá nhân — PT 20 buổi 6tr (2 tháng); " +
-            "(3) Lớp nhóm + đa dịch vụ — thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng";
+            "Pitch 3 HÌNH THỨC — XUỐNG DÒNG mỗi mục:\n" +
+            "  - Tự tập tại phòng: Gym fulltime 12 tháng 5tr\n" +
+            "  - HLV cá nhân 1-1: PT 20 buổi 6tr (2 tháng)\n" +
+            "  - Lớp nhóm + đa dịch vụ: thẻ Full (Gym+Bơi+Yoga+Zumba) 7tr/12 tháng";
         }
         tactic =
           `Khách hỏi giá explicit. ❌ KHÔNG hỏi lại 'muốn tập gì'. ${pricing}. ` +
@@ -1650,7 +1652,7 @@ export function buildPrefix(
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: ≤200 chars, 2-3 câu, KHÔNG bullet "-". CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note, không đánh giá. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi tự nhiên kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — chỉ đọc rồi tự viết.]`,
+    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng), KHÔNG dồn 1 dòng dài. CẤM markdown **bold**/*italic*, IN HOA cả từ. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note, không đánh giá. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi tự nhiên kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — chỉ đọc rồi tự viết.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     buildMissingSlotHint(

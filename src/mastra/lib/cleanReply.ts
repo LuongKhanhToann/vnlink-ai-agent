@@ -228,11 +228,12 @@ export function cleanReply(
   //    "?" khi KHÔNG đứng trước ký tự word (URL query thường có "?id=" → "?" theo "i" word char).
   r = r.replace(/\?(?!\w)/g, "");
 
-  // 8. Whitespace cleanup
+  // 8. Whitespace cleanup — bảo toàn \n để render list xuống dòng
   r = r
-    .replace(/\s+([,.!])/g, "$1")  // remove space before punctuation (đã strip "?" rồi)
-    .replace(/\s{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+([,.!])/g, "$1")   // strip space trước dấu câu (không đụng \n)
+    .replace(/[ \t]+/g, " ")           // gộp space ngang
+    .replace(/[ \t]*\n[ \t]*/g, "\n")  // strip space quanh \n
+    .replace(/\n{3,}/g, "\n\n")        // max 2 \n liên tiếp
     .trim();
 
   // 9. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
