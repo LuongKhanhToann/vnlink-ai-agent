@@ -183,17 +183,42 @@ export function nullSlots(info: KnownInfo): (keyof KnownInfo)[] {
 
 // ─────────────────────────────────────────────
 // FLOW DETECTION — Keyword pre-check
+//
+// QUYẾT ĐỊNH FLOW theo thứ tự ưu tiên:
+//   1. PAIN_PRIORITY (đang đau/nhức/mỏi/cứng + body part) → giai-co
+//      kể cả khi tin có "gym/yoga" (vd "tập gym xong đau lưng" → giai-co
+//      để xử đau trước, sau đó mới quay lại fitness).
+//   2. GIAI_CO_KEYWORDS (massage/giải cơ/spa/...) → giai-co
+//   3. FITNESS_KEYWORDS (gym/yoga/swim/tăng cơ/giảm mỡ/...) → fitness
+//   4. Cả 2 cùng có / không có gì → null → để LLM classifier quyết
+//
+// ⚠️ Vietnamese không dùng được `\b` (ả/ơ/đ không phải word char trong regex
+// mặc định). Dùng `u` flag + lookaround `(?<!\p{L})` / `(?!\p{L})` cho boundary.
 // ─────────────────────────────────────────────
 
-const FITNESS_KEYWORDS =
-  /\b(gym|yoga|zumba|bơi|pilates|thể dục|tập luyện|thể hình|thẻ tập|hội viên|fitness|aerobic|inbody|hlv|huấn luyện viên|pool|bể bơi|thể thao)\b/i;
+const VI_BOUND_L = "(?<!\\p{L})";
+const VI_BOUND_R = "(?!\\p{L})";
 
-const GIAI_CO_KEYWORDS =
-  /\b(giải cơ|massage|xoa bóp|đau lưng|đau vai|đau cổ|đau gáy|vật lý trị liệu|trigger|fascia|cứng cơ|đau mỏi|nhức mỏi|spa|xông hơi|ngâm bồn|regenix|hoa sen)\b/i;
+const FITNESS_KEYWORDS = new RegExp(
+  `${VI_BOUND_L}(?:gym|yoga|zumba|bơi|pilates|thể dục|tập luyện|thể hình|thẻ tập|hội viên|fitness|aerobic|inbody|hlv|huấn luyện viên|pool|bể bơi|thể thao|tăng cơ|giảm mỡ|giảm cân|đốt mỡ|săn chắc|vóc dáng|thân hình)${VI_BOUND_R}`,
+  "iu",
+);
 
-// Cue đau cụ thể có ưu tiên ABSOLUTE — kể cả khi cũng có "gym/yoga"
-// (vd "tập gym sai tư thế đau lưng" → khách cần giải cơ, không phải fitness).
-const PAIN_PRIORITY = /(đau\s+(lưng|vai|cổ|gáy|chân|gối|hông|mông)|nhức\s+(mỏi|cơ)|cứng\s+cơ)/i;
+const GIAI_CO_KEYWORDS = new RegExp(
+  `${VI_BOUND_L}(?:giải cơ|massage|xoa bóp|đau lưng|đau vai|đau cổ|đau gáy|vật lý trị liệu|trigger|fascia|cứng cơ|đau mỏi|nhức mỏi|spa|xông hơi|ngâm bồn|regenix|hoa sen)${VI_BOUND_R}`,
+  "iu",
+);
+
+// PAIN_PRIORITY: đang đau/nhức/mỏi/cứng + body part. Cho phép filler ngắn
+// (tôi/anh/chị/ở/vùng/phần/đang/hơi…) giữa body part và pain word ở cả 2 chiều.
+const BODY_PART = "(?:lưng|vai|cổ|gáy|chân|gối|hông|mông|tay|đầu\\s*gối)";
+const PAIN_WORD = "(?:đau|nhức|mỏi|cứng)";
+const PAIN_PRIORITY = new RegExp(
+  `${PAIN_WORD}\\s+(?:[\\p{L}\\s]{0,15}?)?${BODY_PART}` +              // "đau (ở/phần) cổ"
+    `|${BODY_PART}\\s+(?:[\\p{L}\\s]{0,15}?)?${PAIN_WORD}` +           // "lưng (tôi đang) đau"
+    `|nhức\\s+(?:mỏi|cơ)|cứng\\s+cơ|mỏi\\s+(?:lưng|vai|cổ|gáy|chân|gối|hông|cơ)`,
+  "iu",
+);
 
 export function detectFlowByKeyword(
   message: string,
