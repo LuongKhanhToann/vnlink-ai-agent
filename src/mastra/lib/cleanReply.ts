@@ -51,6 +51,29 @@ const SYCOPHANTIC_ACK_PATTERNS: Array<[RegExp, string]> = [
 // "em (sẽ/có thể) gửi hình/ảnh/video..." — cắt cả câu chứa cụm này
 const FAKE_MEDIA_OFFER = /[^.?!]*\b(em|để\s+em|chị|anh)\s+(sẽ\s+)?(có\s+thể\s+)?gửi.{0,30}(hình|ảnh|video|clip)[^.?!]*[.?!]/gi;
 
+// Internal pricing shorthand leak — model copy nguyên cú pháp [PRICING] ra khách.
+// Vd: "12m=5tr | 24m=8.6tr | 12m(3b/t)=3tr" → expand sang tiếng Việt.
+const PRICING_SHORTHAND_PATTERNS: Array<[RegExp, string]> = [
+  // "Xb(Ym)=Ztr" — vd "20b(2m)=6tr" → "20 buổi (2 tháng) 6 triệu"
+  [/(\d+)\s*b\s*\(\s*(\d+)\s*m\s*\)\s*=\s*(\d+(?:\.\d+)?)\s*tr\b/gi, "$1 buổi ($2 tháng) $3 triệu"],
+  // "Xm(Yb/t)=Ztr" — vd "12m(3b/t)=3tr" → "12 tháng (3 buổi/tuần) 3 triệu"
+  [/(\d+)\s*m\s*\(\s*(\d+)\s*b\/t\s*\)\s*=\s*(\d+(?:\.\d+)?)\s*tr\b/gi, "$1 tháng ($2 buổi/tuần) $3 triệu"],
+  // "Xm=Ytr" → "X tháng Y triệu"
+  [/(\d+)\s*m\s*=\s*(\d+(?:\.\d+)?)\s*tr\b/gi, "$1 tháng $2 triệu"],
+  // "Xm=Yk" → "X tháng Y nghìn" (giữ "k" cho gọn)
+  [/(\d+)\s*m\s*=\s*(\d+(?:\.\d+)?)\s*k\b/gi, "$1 tháng $2k"],
+  // "Xb=Ytr" — PT pitch: "20b=5tr" → "20 buổi 5 triệu"
+  [/(\d+)\s*b\s*=\s*(\d+(?:\.\d+)?)\s*tr\b/gi, "$1 buổi $2 triệu"],
+  // "Xb/t" còn sót → "X buổi/tuần"
+  [/(\d+)\s*b\/t\b/gi, "$1 buổi/tuần"],
+  // "fulltime-12m" → "12 tháng fulltime"
+  [/fulltime-(\d+)\s*m\b/gi, "$1 tháng fulltime"],
+  // "Xm-full=Ytr" → "X tháng fulltime Y triệu"
+  [/(\d+)\s*m-full\s*=\s*(\d+(?:\.\d+)?)\s*tr\b/gi, "$1 tháng fulltime $2 triệu"],
+  // Pipe "|" — không phải ký tự Việt tự nhiên trong chat sale. Đổi sang phẩy (kể cả khi không có space xung quanh).
+  [/\s*\|\s*/g, ", "],
+];
+
 // Câu hỏi nhồi "nha" / "nhé" cuối — không tự nhiên với người Việt.
 // Pattern: "... nha ?" / "... nha ạ ?" / "... ạ nha ?" / "... nhé ?" / "... nhé ạ ?"
 // Fix: bỏ token "nha"/"nhé" thừa, giữ "ạ?" hoặc "?" .
@@ -201,6 +224,11 @@ export function cleanReply(
   // 2. Fake media offer (chỉ cắt khi không có media)
   if (!hasMedia) {
     r = r.replace(FAKE_MEDIA_OFFER, "");
+  }
+
+  // 2b. Pricing shorthand leak — expand "12m=5tr" → "12 tháng 5 triệu"
+  for (const [pattern, replacement] of PRICING_SHORTHAND_PATTERNS) {
+    r = r.replace(pattern, replacement);
   }
 
   // 3. Filler
