@@ -80,6 +80,9 @@ export interface ConversationState {
   turnCount: number;
   qrShown: boolean;
   mediaShown: boolean;
+  // Track riêng từng key media đã gửi — cho phép gửi media khi khách hỏi DỊCH VỤ MỚI.
+  // Vd: đã gửi fitness-pool, khách hỏi zumba → gửi fitness-zumba (key chưa có trong list).
+  mediaShownKeys: string[];
   sheetsWritten: boolean;
   lastBotReply?: string;
 }
@@ -549,6 +552,7 @@ export function buildNextState(
     turnCount,
     qrShown,
     mediaShown,
+    mediaShownKeys: previous.mediaShownKeys ?? [],
     sheetsWritten: previous.sheetsWritten,
     lastBotReply: previous.lastBotReply,
   };
@@ -583,5 +587,6 @@ export const DEFAULT_STATE: ConversationState = {
   turnCount: 0,
   qrShown: false,
   mediaShown: false,
+  mediaShownKeys: [],
   sheetsWritten: false,
 };

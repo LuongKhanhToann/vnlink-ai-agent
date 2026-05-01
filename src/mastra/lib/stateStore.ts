@@ -87,6 +87,7 @@ export async function loadState(
       turnCount: m.turnCount ?? 0,
       qrShown: m.qrShown ?? false,
       mediaShown: m.mediaShown ?? false,
+      mediaShownKeys: (m as any).mediaShownKeys ?? [],
       sheetsWritten: (m as any).sheetsWritten ?? false,
       lastBotReply: (m as any).lastBotReply,
     };

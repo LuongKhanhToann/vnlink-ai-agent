@@ -251,7 +251,23 @@ export function detectAcuteInjury(message: string): boolean {
  *   chân/gối   → mr-sport
  *   khác       → mr-general
  */
-function computeSuggestedMediaKey(state: ConversationState): string | null {
+/**
+ * Detect dịch vụ khách MỚI mention trong tin nhắn hiện tại → trả key media tương ứng.
+ * Dùng để override state.serviceType (đã lock từ turn cũ) khi khách hỏi về dịch vụ KHÁC.
+ * Vd: serviceType="boi", message="cũng muốn tham khảo zumba" → "fitness-zumba".
+ */
+export function detectMentionedServiceKey(message: string): string | null {
+  if (!message) return null;
+  const m = message.toLowerCase();
+  if (/\bzumba\b/.test(m)) return "fitness-zumba";
+  if (/\byoga\b/.test(m)) return "fitness-yoga";
+  if (/\bbơi|bể\s*bơi|bơi\s*lội\b/.test(m)) return "fitness-pool";
+  if (/\bpilates\b/.test(m)) return "fitness-gym";
+  if (/\bgym\b/.test(m)) return "fitness-gym";
+  return null;
+}
+
+export function computeSuggestedMediaKey(state: ConversationState): string | null {
   const { flow, knownInfo } = state;
 
   if (flow === "fitness") {
@@ -316,12 +332,15 @@ function buildMediaHint(state: ConversationState): string {
 
 export function buildLogicGate(state: ConversationState, message?: string): string {
   const { stage, intent, flow, knownInfo, mediaShown } = state;
+  const mediaShownKeys = state.mediaShownKeys ?? [];
   const hints: string[] = [];
 
   // ── CROSS-CUTTING: media đã gửi rồi → cấm gọi lại
-  // EXCEPT khi khách EXPLICIT xin xem (bypass 1 lần — handled bởi GATE media-request bên dưới)
+  // EXCEPT (a) khách EXPLICIT xin xem hoặc (b) khách mention DỊCH VỤ MỚI chưa gửi media.
   const customerAskingMedia = message ? detectMediaRequest(message) : false;
-  if (mediaShown && !customerAskingMedia) {
+  const mentionedKey = message ? detectMentionedServiceKey(message) : null;
+  const isNewServiceKey = mentionedKey !== null && !mediaShownKeys.includes(mentionedKey);
+  if (mediaShown && !customerAskingMedia && !isNewServiceKey) {
     hints.push(
       "[GATE: mediaShown=true — ĐÃ gửi ảnh/video cho khách. " +
         "TUYỆT ĐỐI KHÔNG gọi lại tool get-media trong turn này. " +
@@ -449,26 +468,35 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
-  // ── PROACTIVE: lần đầu vào discovery/inbody/evaluation, chưa gửi media → CHỦ ĐỘNG gửi ảnh build trust ──
+  // ── PROACTIVE: gửi ảnh build trust khi đã biết goal/service VÀ chưa gửi media cho service đó ──
   // (User feedback: bot chờ khách hỏi xin ảnh, chưa chủ động — phải proactive ngay khi biết goal/service)
+  // Bypass mediaShown khi khách mention DỊCH VỤ MỚI (vd: đã gửi bơi, giờ hỏi zumba → gửi zumba).
   const hasContextForMedia =
     knownInfo.fitnessGoal !== null ||
     knownInfo.serviceType !== null ||
+    mentionedKey !== null ||
     (flow === "giai-co" && knownInfo.painArea !== null);
+  // Ưu tiên key khách vừa mention (override state.serviceType cũ).
+  const proactiveKey = mentionedKey ?? computeSuggestedMediaKey(state);
+  const keyAlreadySent = proactiveKey !== null && mediaShownKeys.includes(proactiveKey);
   if (
-    !mediaShown &&
+    !keyAlreadySent &&
     !customerAskingMedia &&
     hasContextForMedia &&
     (stage === "discovery" || stage === "inbody" || stage === "evaluation")
   ) {
-    const key = computeSuggestedMediaKey(state);
+    const key = proactiveKey;
     if (key) {
+      const isNewSvc = mentionedKey !== null && mediaShownKeys.length > 0;
+      const reasonHint = isNewSvc
+        ? `Khách vừa hỏi dịch vụ MỚI (chưa gửi media của dịch vụ này) → CHỦ ĐỘNG gửi ảnh ${key}.`
+        : `${stage}, biết goal/service mà chưa gửi ảnh. CHỦ ĐỘNG gửi ảnh build trust visual.`;
       hints.push(
-        `[GATE PROACTIVE MEDIA: ${stage}, biết goal/service mà chưa gửi ảnh. ` +
-          `CHỦ ĐỘNG gọi tool get-media key="${key}" NGAY trong turn này để build trust visual. ` +
+        `[GATE PROACTIVE MEDIA: ${reasonHint} ` +
+          `Gọi tool get-media key="${key}" NGAY trong turn này. ` +
           `Đừng đợi khách xin — sale tốt là sale chủ động show ảnh. ` +
           `Reply text vẫn theo TACTIC chính + 1 câu ngắn dẫn dắt: ` +
-          `"Em gửi ${flow === "fitness" ? "vài hình phòng tập" : "vài hình thực tế"} cho ${state.honorific} hình dung nha". ` +
+          `"Em gửi ${flow === "fitness" ? "vài hình" : "vài hình thực tế"} cho ${state.honorific} hình dung nha". ` +
           `Copy URLs vào mediaUrls, set nextStep="show_media". Gọi 1 LẦN duy nhất.]`,
       );
     }

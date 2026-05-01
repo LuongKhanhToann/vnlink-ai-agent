@@ -13,7 +13,11 @@ import { giaiCoAgent } from "../agents/giaiCo";
 import { loadState, saveState } from "../lib/stateStore";
 import { classify } from "../lib/classifier";
 import { buildNextState, detectFlowByKeyword } from "../lib/stateMachine";
-import { buildPrefix } from "../lib/prefixBuilder";
+import {
+  buildPrefix,
+  computeSuggestedMediaKey,
+  detectMentionedServiceKey,
+} from "../lib/prefixBuilder";
 import { cleanReply } from "../lib/cleanReply";
 
 // ─────────────────────────────────────────────
@@ -148,20 +152,33 @@ async function updateStateAfterReply(
   nextStep: string | null,
   currentFlags: { qrShown: boolean; mediaShown: boolean },
   botReply: string,
+  customerMessage: string,
 ): Promise<void> {
   const needQR    = nextStep === "show_qr"    && !currentFlags.qrShown;
-  const needMedia = nextStep === "show_media" && !currentFlags.mediaShown;
+  // KHÔNG check !mediaShown ở đây — cho phép gửi media mới khi khách hỏi service khác.
+  const needMedia = nextStep === "show_media";
 
   try {
     const current = await loadState(mastra, threadId, resourceId);
+    // Ghi key vừa gửi vào mediaShownKeys (per-service tracking).
+    // Ưu tiên key khách vừa mention (vd: "zumba") rồi mới fallback theo state.
+    const currentKeys = current.mediaShownKeys ?? [];
+    const sentKey = needMedia
+      ? (detectMentionedServiceKey(customerMessage) ?? computeSuggestedMediaKey(current))
+      : null;
+    const updatedKeys =
+      sentKey && !currentKeys.includes(sentKey)
+        ? [...currentKeys, sentKey]
+        : currentKeys;
     const updated = {
       ...current,
       qrShown:    needQR    ? true : current.qrShown,
       mediaShown: needMedia ? true : current.mediaShown,
+      mediaShownKeys: updatedKeys,
       lastBotReply: botReply || current.lastBotReply,
     };
     await saveState(mastra, threadId, resourceId, updated);
-    console.log(`[flags] saved → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown} replyLen=${(botReply||'').length}`);
+    console.log(`[flags] saved → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown} keys=[${updatedKeys.join(",")}] replyLen=${(botReply||'').length}`);
   } catch (e) {
     console.error("[flags] updateStateAfterReply failed:", e);
   }
@@ -270,6 +287,7 @@ function buildAgentStep(
         obj.nextStep,
         { qrShown, mediaShown },
         cleanedText,
+        message,
       );
 
       return {
