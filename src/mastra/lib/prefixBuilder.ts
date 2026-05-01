@@ -433,14 +433,16 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách phản đối giá → reframe Feel-Felt-Found ──
+  // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE (máy móc/HLV/social proof) ──
   if (message && detectPriceObjection(message) && flow === "fitness") {
     return (
-      "[GATE ƯU TIÊN: khách phản đối giá. Reframe Feel-Felt-Found, KHÔNG hạ giá, KHÔNG nói 'không giảm', KHÔNG chia nhỏ giá theo ngày, KHÔNG so sánh với 'ly cà phê'. " +
-        "Reframe theo giá trị tổng: 'Dạ em hiểu, nhiều anh chị mới đầu cũng thấy vậy ạ. " +
-        "Mà thẻ Full 12 tháng 7tr là 4 dịch vụ trong 1 thẻ — gym, bơi, yoga, zumba dùng cả năm, bảo lưu được khi bận'. " +
-        "Sau reframe → mời nhẹ ghé trải nghiệm: 'Anh/chị qua thử 1 buổi cho biết, em giữ slot HLV miễn phí nha'. " +
-        "KHÔNG xin tên/SĐT trong tin này — phải reframe trước.]"
+      "[GATE ƯU TIÊN: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá theo ngày, KHÔNG so sánh ly cà phê. " +
+        "Phải REFRAME bằng VALUE thực, nhấn 3 mũi: " +
+        "(1) MÁY MÓC XỊN — phòng gym 700m2 trang bị máy chuẩn quốc tế, bể bơi 4 mùa duy nhất Vĩnh Yên (nước nóng quanh năm, lọc ozone). " +
+        "(2) HLV/GV CHẤT LƯỢNG — Yoga & Zumba có GV người Ấn Độ chuyên nghiệp, HLV gym nhiều năm kinh nghiệm, đo InBody miễn phí lần đầu để xây lộ trình đúng. " +
+        "(3) SOCIAL PROOF — nhiều hội viên gắn bó nhiều năm, giới thiệu thêm bạn bè / vợ chồng / đồng nghiệp vào tập cùng. " +
+        "Cấu trúc reply: 1 câu mở khẳng định mức giá đi kèm chất lượng (KHÔNG xin lỗi, KHÔNG đồng cảm) → 2-3 ý value cụ thể (chọn 2 trong 3 mũi cho gọn) → mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'. " +
+        "Reply 3-4 câu, ≤ 280 chars. KHÔNG xin tên/SĐT trong tin này.]"
     );
   }
   if (message && detectPriceObjection(message) && flow === "giai-co") {
@@ -1020,7 +1022,7 @@ function buildFitnessPricing(info: KnownInfo): string {
 
 function buildFitnessObjections(h: string): string {
   return `[OBJECTIONS:
-  "Đắt quá" → "Full 12m 7tr ${h} — 4 dịch vụ trong 1 thẻ dùng cả năm, bảo lưu được khi bận, tính ra rẻ hơn nhiều so với tập riêng từng môn". KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
+  "Đắt quá" → Reframe bằng VALUE: "Full 7tr/12 tháng đi kèm phòng gym 700m2 máy chuẩn QT, bể bơi 4 mùa duy nhất Vĩnh Yên, Yoga & Zumba GV người Ấn Độ ${h}. Hội viên bên em hay gắn bó dài và rủ thêm bạn bè vào tập cùng — anh/chị qua thử 1 buổi cảm nhận thực tế nha". KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
   "Tập 1 môn" → "Thẻ Full chỉ hơn chút mà dùng cả 4 ${h} — tập 1 môn lâu chán, thêm Yoga/Bơi duy trì động lực"
   "Tháng lẻ thôi" → "Tháng lẻ 1.2tr ${h}, mà gói năm 7tr lại bảo lưu được khi bận và chuyển nhượng được trong gia đình — đa số chọn năm để chủ động hơn"
   "Chờ KM" → "Giá bên em xu hướng chỉ tăng ${h} — đợt này đang mức tốt nhất. Em giữ chỗ trước nha"
@@ -1679,8 +1681,8 @@ export function buildPrefix(
           "KHÔNG pitch InBody/dẫn dắt mục tiêu trước.";
       } else if (message && detectPriceObjection(message)) {
         tactic =
-          "Khách phản đối giá. Reframe Feel-Felt-Found theo giá trị tổng: " +
-          "'Dạ em hiểu, mà thẻ Full 7tr/12 tháng = 4 dịch vụ trong 1 thẻ, dùng cả năm và bảo lưu được'. " +
+          "Khách phản đối giá. Reframe bằng VALUE: máy móc xịn (phòng gym 700m2, bể bơi 4 mùa duy nhất Vĩnh Yên), GV/HLV chất lượng (Yoga & Zumba GV người Ấn Độ), social proof (nhiều hội viên gắn bó nhiều năm và giới thiệu thêm bạn bè vào tập). " +
+          "Mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'. " +
           "KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG pitch InBody, KHÔNG hạ giá.";
       } else if (message && detectMediaRequest(message)) {
         tactic =

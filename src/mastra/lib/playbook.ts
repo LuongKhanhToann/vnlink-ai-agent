@@ -113,8 +113,11 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
 
   // ── NEGOTIATION ──────────────────────────────────────
   negotiation_neutral:
-    "Reframe theo giá trị tổng: 'Full 12 tháng 7tr là 4 dịch vụ trong 1 thẻ — gym, bơi, yoga, zumba dùng cả năm, bảo lưu được khi bận'. " +
-    "Nhấn giá trị: 4 dịch vụ, GV Ấn Độ, bể bơi 4 mùa. KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. " +
+    "Reframe bằng VALUE 3 mũi: " +
+    "máy móc xịn (phòng gym 700m2 chuẩn QT, bể bơi 4 mùa duy nhất Vĩnh Yên), " +
+    "GV/HLV chất lượng (Yoga & Zumba GV người Ấn Độ chuyên nghiệp), " +
+    "social proof (hội viên gắn bó nhiều năm, hay rủ thêm bạn bè vào tập cùng). " +
+    "Mời ghé thử 1 buổi để cảm nhận thực tế. KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. " +
     "Nếu khách muốn tháng lẻ: 'Tháng lẻ 1.2tr nhưng gói năm 7tr còn bảo lưu được khi bận'.",
   negotiation_excited:
     "Báo giá nhanh. Nhấn ưu đãi hiện tại. Chuyển sang chốt.",
