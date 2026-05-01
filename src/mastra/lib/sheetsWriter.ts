@@ -109,12 +109,80 @@ export async function writeLeadToSheets(state: ConversationState): Promise<void>
 
   await ensureHeaders(sheets, spreadsheetId);
 
-  await sheets.spreadsheets.values.append({
+  await appendIntoTable(sheets, spreadsheetId, row);
+
+  console.log(`[sheetsWriter] ✓ ${knownInfo.name} — ${knownInfo.phone} — ${knownInfo.preferredTime} — ${flow}`);
+}
+
+/**
+ * Append row vào trong formal Table (vd "Bảng_1") — không bị rơi ra ngoài range.
+ *
+ * `values.append` mặc định ghi vào row trống đầu tiên SAU table data. Nếu sheet
+ * có Google Sheets Table object (feature mới: tạo từ menu Chèn > Bảng), boundary
+ * của table không tự extend → row mới nằm ngoài, mất formatting/dropdown.
+ *
+ * Cách xử lý: detect table trên sheet, extend range +1 row, rồi ghi vào row mới
+ * (giờ nằm trong table extended). Fallback về standard append nếu sheet không
+ * có Table.
+ */
+async function appendIntoTable(
+  sheets: any,
+  spreadsheetId: string,
+  row: any[],
+): Promise<void> {
+  const meta = await sheets.spreadsheets.get({
     spreadsheetId,
-    range: `${SHEET_NAME}!A:G`,
+    fields: "sheets(properties(sheetId,title),tables)",
+  });
+  const sheet = meta.data.sheets?.find(
+    (s: any) => s.properties?.title === SHEET_NAME,
+  );
+  const tables: any[] = sheet?.tables ?? [];
+
+  // Pick table mà cột A nằm trong range (assume single table cho leads sheet).
+  const leadTable = tables.find((t: any) => {
+    const r = t.range ?? {};
+    return (r.startColumnIndex ?? 0) === 0;
+  }) ?? tables[0];
+
+  if (!leadTable?.tableId || !leadTable?.range) {
+    // Không có Table → standard append
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SHEET_NAME}!A:G`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [row] },
+    });
+    return;
+  }
+
+  // Extend table boundary +1 row trước khi ghi.
+  // GridRange.endRowIndex là exclusive 0-indexed → cũng chính là số dòng 1-indexed của row mới.
+  const oldEnd: number = leadTable.range.endRowIndex ?? 0;
+  const newEnd = oldEnd + 1;
+  const writeRow = newEnd; // 1-indexed row number
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateTable: {
+            table: {
+              tableId: leadTable.tableId,
+              range: { ...leadTable.range, endRowIndex: newEnd },
+            },
+            fields: "range",
+          },
+        },
+      ],
+    },
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A${writeRow}:G${writeRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [row] },
   });
-
-  console.log(`[sheetsWriter] ✓ ${knownInfo.name} — ${knownInfo.phone} — ${knownInfo.preferredTime} — ${flow}`);
 }
