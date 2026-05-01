@@ -869,7 +869,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     } else {
       const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
       const closingInstruction = hasContact
-        ? `đã có tên=${knownInfo.name} và SĐT — KHÔNG hỏi lại tên/SĐT. Sau pitch xác nhận ngắn 1 câu ('Em giữ slot ${knownInfo.preferredTime ?? "..."} cho ${knownInfo.name} rồi ạ') rồi dừng`
+        ? `đã có tên=${knownInfo.name} và SĐT — KHÔNG hỏi lại tên/SĐT. Sau pitch xác nhận ngắn 1 câu ('Dạ em giữ slot ${knownInfo.preferredTime ?? "..."} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ') rồi dừng`
         : knownInfo.preferredTime
           ? `đã biết giờ=${knownInfo.preferredTime} — sau khi pitch xong KẾT THÚC bằng xin tên/SĐT ('Để em giữ slot ${knownInfo.preferredTime} cho anh, cho em xin tên với SĐT nha'). TUYỆT ĐỐI không hỏi lại giờ`
           : "sau khi pitch xong hỏi giờ muốn đến (sáng/chiều/tối) và xin tên/SĐT trong 1 câu gộp";
@@ -917,7 +917,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         `[GATE: ĐỦ INFO — tên=${name}, sđt=${phone}, giờ=${knownInfo.preferredTime}. ` +
         `NGÀY HÔM NAY:\n${dateCtx}\n` +
         "XÁC NHẬN lịch 1 câu ngắn gọn, ghi ngày cụ thể nếu preferredTime đã có ngày " +
-        "('Em giữ slot [thời gian] cho [tên] rồi nha') rồi DỪNG HẲN. " +
+        `('Dạ em giữ slot [thời gian] cho mình rồi nha ${state.honorific} [tên], hẹn gặp ${state.honorific} ạ') rồi DỪNG HẲN. ` +
         "Nếu preferredTime chỉ có buổi (sáng/chiều/tối) thì hỏi thêm ngày: " +
         "'Anh/chị muốn đến [buổi] ngày nào để em giữ slot ạ' " +
         "TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ điều gì khác.]"
@@ -1360,7 +1360,7 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
     const preferredTime = knownInfo.preferredTime;
     const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
     const closingLine = hasContact
-      ? `Em giữ slot ${preferredTime ?? "..."} cho ${knownInfo.name} rồi ạ`
+      ? `Dạ em giữ slot ${preferredTime ?? "..."} cho mình rồi nha ${h} ${knownInfo.name}, hẹn gặp ${h} ạ`
       : preferredTime
         ? `Để em giữ slot ${preferredTime} cho ${h}, cho em xin tên với SĐT nha`
         : `${h} tiện khung sáng hay chiều để em giữ slot — cho em xin tên với SĐT luôn nha`;
@@ -1397,7 +1397,7 @@ CHƯA đủ 3 (tên+SĐT+giờ):
 SAI:  thiếu giờ; xác nhận khi chưa có tên/SĐT.
 
 ĐÃ đủ 3:
-ĐÚNG: "Em giữ slot [giờ] cho ${h} [tên] rồi ạ." → DỪNG HẲN.
+ĐÚNG: "Dạ em giữ slot [giờ] cho mình rồi nha ${h} [tên], hẹn gặp ${h} ạ" → DỪNG HẲN.
 SAI:  hỏi thêm "cọc trước không".`;
   }
 
@@ -1524,7 +1524,7 @@ export function buildPrefix(
   ) {
     tactic =
       `Khách đã đủ tên=${state.knownInfo.name}, SĐT=${state.knownInfo.phone}, giờ=${state.knownInfo.preferredTime}. ` +
-      "Reply NGẮN 1 câu xác nhận: 'Em giữ slot [giờ] cho [tên] rồi nha' rồi DỪNG HẲN. " +
+      `Reply NGẮN 1 câu xác nhận: 'Dạ em giữ slot [giờ] cho mình rồi nha ${h} ${state.knownInfo.name}, hẹn gặp ${h} ạ' rồi DỪNG HẲN. ` +
       "TUYỆT ĐỐI KHÔNG hỏi gộp lại tên/SĐT/giờ. KHÔNG gợi cọc/QR.";
   }
 
