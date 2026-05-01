@@ -148,7 +148,7 @@ export function buildFollowupText(state: ConversationState): string {
     // Có goal, chưa service → gợi 1 hướng theo goal
     if (ki.fitnessGoal) {
       const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
-      return `Dạ ${honor}, ${honor} thấy hướng ${goalLabel} sao rồi ạ, có gì cần em tư vấn thêm em sẵn nha.`;
+      return `Dạ ${honor}, ${honor} thấy hướng ${goalLabel} sao rồi ạ, có gì cần em sẵn sàng tư vấn thêm ạ.`;
     }
 
     // Chưa có gì — soft check-in. Nếu prev đã list 4 dịch vụ → KHÔNG nhắc lại.

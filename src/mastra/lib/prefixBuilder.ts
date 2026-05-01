@@ -1534,7 +1534,7 @@ export function buildPrefix(
   if (message && detectColdLead(message)) {
     tactic =
       "Khách đang lạnh / muốn tham khảo thêm. Reply CHỈ 1 câu LÙI nhẹ: " +
-      "'Dạ vâng nha anh/chị, anh/chị cứ tham khảo thoải mái, có gì cần em sẵn ạ' rồi DỪNG. " +
+      "'Dạ vâng nha anh/chị, anh/chị cứ tham khảo thoải mái, có gì cần em sẵn sàng tư vấn thêm ạ.' rồi DỪNG. " +
       "❌ TUYỆT ĐỐI KHÔNG xin tên/SĐT/giờ trong tin này. KHÔNG pitch gói. KHÔNG nhắc giá.";
   }
 
