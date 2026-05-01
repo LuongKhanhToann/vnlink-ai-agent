@@ -40,19 +40,19 @@ export function scheduleFollowup(
       await handlers.sendText(text);
 
       // Gửi kèm ảnh/video (đã pre-fetch khi schedule).
-      // Cap MAX 1 image + 1 video — trước là slice(0,3) gây spam attachment.
+      // Cap MAX 3 image + 2 video — đủ visual cho khách hình dung.
       const isVideo = (u: string) =>
         /\.(mp4|mov|webm|avi)(\?.*)?$/i.test(u) ||
         u.toLowerCase().includes("/video/");
       const uniq = [...new Set(mediaUrls.map((u) => u.trim()).filter(Boolean))];
-      const fImages = uniq.filter((u) => !isVideo(u)).slice(0, 1);
-      const fVideos = uniq.filter(isVideo).slice(0, 1);
+      const fImages = uniq.filter((u) => !isVideo(u)).slice(0, 3);
+      const fVideos = uniq.filter(isVideo).slice(0, 2);
       const toSend = [...fImages, ...fVideos];
       for (const url of toSend) {
         await handlers.sendMedia(url);
       }
       console.log(
-        `[followup] sent to ${senderId} after 10p ghost — text + ${toSend.length}/${mediaUrls.length} media (capped 1img+1vid)`,
+        `[followup] sent to ${senderId} after 10p ghost — text + ${toSend.length}/${mediaUrls.length} media (capped 3img+2vid)`,
       );
     } catch (e) {
       console.error("[followup] send failed:", e);
