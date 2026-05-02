@@ -544,7 +544,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
           `Gọi tool get-media với key="${key}" ĐÚNG 1 LẦN DUY NHẤT trong turn này. ` +
           `❌ TUYỆT ĐỐI KHÔNG gọi tool 2-3 lần liên tiếp (gây duplicate). ` +
           `Reply text NGẮN ≤ 80 ký tự, CHỈ 1 câu: ` +
-          `"Dạ em gửi ${state.flow === "fitness" ? "vài hình phòng tập" : "vài hình"} cho ${state.honorific} xem nha". ` +
+          `"Dạ em gửi ${state.flow === "fitness" ? "vài hình phòng tập" : "vài hình thực tế KTV bên em trị liệu"} cho ${state.honorific} xem nha". ` +
           `Copy URLs từ tool result vào mediaUrls output, set nextStep="show_media". KHÔNG pitch giá/gói.]`,
       );
     }
@@ -586,7 +586,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
           `Gọi tool get-media key="${key}" NGAY trong turn này. ` +
           `Đừng đợi khách xin — sale tốt là sale chủ động show ảnh. ` +
           `Reply text vẫn theo TACTIC chính + 1 câu ngắn dẫn dắt: ` +
-          `"Em gửi ${flow === "fitness" ? "vài hình" : "vài hình thực tế"} cho ${state.honorific} hình dung nha". ` +
+          `"Em gửi ${flow === "fitness" ? "vài hình" : "vài hình ảnh thực tế KTV bên em trị liệu"} cho ${state.honorific} hình dung nha". ` +
           `Copy URLs vào mediaUrls, set nextStep="show_media". Gọi 1 LẦN duy nhất.]`,
       );
     }
