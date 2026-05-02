@@ -972,8 +972,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       const closingInstruction = hasContact
         ? `đã có tên=${knownInfo.name} và SĐT — KHÔNG hỏi lại tên/SĐT. Sau pitch xác nhận ngắn 1 câu ('Dạ em giữ slot ${knownInfo.preferredTime ?? "..."} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ') rồi dừng`
         : knownInfo.preferredTime
-          ? `đã biết giờ=${knownInfo.preferredTime} — sau khi pitch xong KẾT THÚC bằng xin tên/SĐT ('Để em giữ slot ${knownInfo.preferredTime} cho anh, cho em xin tên với SĐT nha'). TUYỆT ĐỐI không hỏi lại giờ`
-          : "sau khi pitch xong hỏi giờ muốn đến (sáng/chiều/tối) và xin tên/SĐT trong 1 câu gộp";
+          ? `đã biết giờ=${knownInfo.preferredTime} — sau khi pitch xong KẾT THÚC bằng xin tên/SĐT ('Để em giữ slot ${knownInfo.preferredTime} cho ${state.honorific}, ${state.honorific} cho em xin tên với SĐT nha'). TUYỆT ĐỐI không hỏi lại giờ`
+          : `chưa có giờ — sau pitch CHỈ hỏi giờ (sáng/chiều/tối), KHÔNG xin tên/SĐT cùng lúc. Đợi khách chốt giờ rồi turn sau mới xin liên hệ`;
       hints.push(
         `[GATE: evaluation — vùng_đau=${knownInfo.painArea}, ${durationCtx}, ${methodCtx}. ` +
           "Cấu trúc response: (1) hình ảnh hóa vùng đó → (2) contrast với pastMethod đã biết → (3) vẽ viễn cảnh sau khi gỡ → " +
@@ -1460,15 +1460,17 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
 
     const preferredTime = knownInfo.preferredTime;
     const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
+    // Tách thành 2 bước để không gộp giờ + tên + SĐT trong cùng 1 câu (dồn dập, dễ scare khách).
+    // Bước 1: chỉ hỏi giờ. Bước 2: khi khách chốt giờ rồi, mới xin tên + SĐT.
     const closingLine = hasContact
       ? `Dạ em giữ slot ${preferredTime ?? "..."} cho mình rồi nha ${h} ${knownInfo.name}, hẹn gặp ${h} ạ`
       : preferredTime
-        ? `Để em giữ slot ${preferredTime} cho ${h}, cho em xin tên với SĐT nha`
-        : `${h} tiện khung sáng hay chiều để em giữ slot — cho em xin tên với SĐT luôn nha`;
+        ? `Để em giữ slot ${preferredTime} cho ${h}, ${h} cho em xin tên với SĐT để em note nha`
+        : `${h} tiện khung sáng hay chiều ạ`;
 
     const timeNote = preferredTime
       ? `ĐÃ BIẾT giờ=${preferredTime} → KHÔNG hỏi giờ lại, kết bằng xin tên/SĐT.`
-      : "Chưa có giờ → hỏi giờ ở cuối.";
+      : "Chưa có giờ → CHỈ hỏi giờ (sáng/chiều), KHÔNG xin tên/SĐT cùng lúc — đợi khách chốt giờ rồi turn sau mới xin liên hệ.";
     const visualHint =
       pain.includes("vai") || pain.includes("co")
         ? "vùng cổ vai sẽ nhẹ hơn, đỡ cứng khựng"
