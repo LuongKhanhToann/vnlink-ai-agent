@@ -145,6 +145,67 @@ export function detectHoursQuestion(message: string): boolean {
 }
 
 /**
+ * Khách hỏi câu hỏi FACTUAL về cơ sở vật chất / dịch vụ — bot phải answer cụ thể TRƯỚC.
+ * Vd: "bể bơi rộng không", "phòng gym có máy gì", "có chỗ gửi xe không", "GV nước nào".
+ * Trả về { topic, fact } — topic dùng để lookup answer; fact = câu trả lời ready-to-use.
+ */
+export function detectFacilityQuestion(
+  message: string,
+  flow: Flow,
+): { topic: string; fact: string } | null {
+  if (!message || flow !== "fitness") return null;
+  const m = message.toLowerCase();
+
+  // Bể bơi
+  if (/(bể\s*bơi|bể|hồ\s*bơi|pool|nước|lọc)/.test(m)) {
+    if (/(rộng|to|lớn|diện\s*tích|m2|mét\s*vuông|bao\s*nhiêu\s*m|kích\s*thước)/.test(m))
+      return { topic: "pool-size", fact: "Bể bơi bên em rộng 350m2, là bể 4 mùa DUY NHẤT ở Vĩnh Yên" };
+    if (/(nóng|lạnh|nhiệt\s*độ|bốn\s*mùa|4\s*mùa|sạch|lọc|ozone|vệ\s*sinh)/.test(m))
+      return { topic: "pool-quality", fact: "Bể bơi 4 mùa nước nóng quanh năm, lọc ozone, có đội cứu hộ riêng" };
+    if (/(sâu|độ\s*sâu)/.test(m))
+      return { topic: "pool-depth", fact: "Bể có khu nông cho người mới và khu sâu hơn cho bơi tự do" };
+  }
+
+  // Phòng gym
+  if (/(phòng\s*gym|phòng\s*tập|máy\s*tập|máy\s*chạy|tạ|cardio|trang\s*thiết\s*bị|thiết\s*bị)/.test(m)) {
+    if (/(rộng|to|lớn|diện\s*tích|bao\s*nhiêu\s*m|kích\s*thước|chứa)/.test(m))
+      return { topic: "gym-size", fact: "Phòng gym 700m2 trong nhà + 300m2 sân ngoài có mái che, sức chứa 100 người cùng lúc" };
+    if (/(máy|thiết\s*bị|loại|gì|chuẩn|quốc\s*tế)/.test(m))
+      return { topic: "gym-equipment", fact: "Phòng gym đầy đủ máy chuẩn quốc tế: máy chạy, xe đạp tập, máy tạ, cardio đa dạng" };
+  }
+
+  // GV / HLV — bao quát "ai dạy", "ai hướng dẫn"
+  if (/(gv|giáo\s*viên|huấn\s*luyện|hlv|trainer|người\s*dạy|ai\s+(dạy|hướng\s*dẫn|đứng\s*lớp))/.test(m)) {
+    if (/(yoga|zumba)/.test(m) || /(ấn\s*độ|nước\s*ngoài|quốc\s*tế)/.test(m))
+      return { topic: "yoga-zumba-gv", fact: "Yoga và Zumba bên em do GV người Ấn Độ chuyên nghiệp dạy, 4 ca/ngày linh hoạt lịch tập" };
+    if (/(gym|pt|cá\s*nhân|1[-\s]?1)/.test(m))
+      return { topic: "gym-pt", fact: "HLV phòng gym kinh nghiệm nhiều năm, đo InBody miễn phí lần đầu rồi thiết kế lộ trình theo cơ thể" };
+  }
+
+  // Pilates
+  if (/pilates/.test(m)) {
+    if (/(máy|thiết\s*bị|chuẩn|quốc\s*tế|loại)/.test(m))
+      return { topic: "pilates-equipment", fact: "Phòng Pilates có 13 máy chuẩn quốc tế, mới nhập từ 12/2024, GV chứng chỉ quốc tế" };
+  }
+
+  // Tiện ích chung: gửi xe, lock, wifi, vệ sinh
+  if (/(gửi\s*xe|chỗ\s*xe|bãi\s*xe|đỗ\s*xe|parking)/.test(m))
+    return { topic: "parking", fact: "Bên em có chỗ gửi xe rộng, ghé tập không lo" };
+  if (/(tủ\s*đồ|locker|lock|tủ\s*khóa|cất\s*đồ)/.test(m))
+    return { topic: "locker", fact: "Có tủ đồ riêng cho hội viên cất đồ an toàn" };
+  if (/(wifi|wi-?fi|internet)/.test(m))
+    return { topic: "wifi", fact: "Có wifi miễn phí trong toàn trung tâm" };
+  if (/(tắm|nước\s*tắm|phòng\s*tắm|vệ\s*sinh\s*tắm|bath|shower)/.test(m))
+    return { topic: "shower", fact: "Có phòng tắm nước nóng riêng nam/nữ sạch sẽ" };
+
+  // Số năm hoạt động / quy mô
+  if (/(thành\s*lập|bao\s*nhiêu\s*năm|hoạt\s*động|mở\s*từ|từ\s*năm|uy\s*tín|lâu\s*chưa)/.test(m))
+    return { topic: "history", fact: "Fami hoạt động từ 2014, hơn 10 năm tại Vĩnh Yên" };
+
+  return null;
+}
+
+/**
  * Khách hỏi về chính sách bảo lưu / hủy / hoãn / vắng.
  */
 export function detectHoldPolicy(message: string): boolean {
@@ -388,6 +449,20 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         "'Em note mức ưu đãi tháng này lại cho anh/chị nha').\n" +
         "Đây là moment KHÁCH muốn dừng — lùi đúng cách = giữ được lead, push thêm = mất.]"
     );
+  }
+
+  // ── ƯU TIÊN: khách hỏi câu hỏi FACTUAL về cơ sở / dịch vụ → answer cụ thể TRƯỚC ──
+  if (message) {
+    const fq = detectFacilityQuestion(message, flow);
+    if (fq) {
+      hints.push(
+        `[GATE ƯU TIÊN: khách hỏi factual về ${fq.topic}. ` +
+          `BẮT BUỘC mở reply bằng câu trả lời CỤ THỂ với CON SỐ / FACT THẬT: "${fq.fact}". ` +
+          `Sau đó MỚI thêm 1 câu dẫn dắt nhẹ (vd "${state.honorific} ghé tham quan thử buổi nào ạ"). ` +
+          `❌ TUYỆT ĐỐI KHÔNG bỏ qua câu hỏi rồi pivot sang pitch goal/giảm cân/cardio. ` +
+          `Reply 2-3 câu, ≤ 200 chars.]`,
+      );
+    }
   }
 
   // ── ƯU TIÊN: khách hỏi GIỜ MỞ CỬA → trả giờ ngay, KHÔNG hỏi sáng/chiều/tối ──
