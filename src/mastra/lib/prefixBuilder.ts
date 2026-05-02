@@ -409,6 +409,21 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
+  // ── ƯU TIÊN TUYỆT ĐỐI: ĐỦ tên + SĐT + giờ → CHỈ confirm slot, return ngay (không pitch lại) ──
+  // Khách commit cùng turn cả 3 thứ → tránh bot pitch giá / pitch gói thêm.
+  if (
+    knownInfo.name !== null &&
+    knownInfo.phone !== null &&
+    knownInfo.preferredTime !== null
+  ) {
+    return (
+      `[GATE ƯU TIÊN TUYỆT ĐỐI — ĐỦ COMMIT SLOTS: tên=${knownInfo.name}, SĐT=${knownInfo.phone}, giờ=${knownInfo.preferredTime}.\n` +
+      `Reply NGẮN 1 CÂU DUY NHẤT xác nhận: "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG HẲN.\n` +
+      `❌ TUYỆT ĐỐI KHÔNG pitch giá / gói / liệu trình / 380k/buổi / KTV / value — đã chốt rồi, mọi pitch lúc này là sai và làm khách bối rối.\n` +
+      `❌ KHÔNG gợi cọc/QR. KHÔNG hỏi thêm bất cứ điều gì.]`
+    );
+  }
+
   // ── ƯU TIÊN: khách đổi giờ → bot phải dùng giờ MỚI, không dùng giờ trong memory ──
   if (
     message &&
@@ -469,10 +484,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   if (message && detectHoursQuestion(message)) {
     const hours = flow === "fitness" ? "05:00–20:00" : "09:00–23:00";
     hints.push(
-      `[GATE ƯU TIÊN: khách hỏi giờ mở cửa / qua được lúc nào. ` +
+      `[GATE ƯU TIÊN: khách hỏi giờ mở cửa / qua được lúc nào — đây là hỏi info, CHƯA phải khách commit. ` +
         `Trả GIỜ MỞ CỬA cụ thể: bên em mở ${hours} ${state.honorific} ạ. ` +
-        `Sau đó MỚI hỏi schedule: "${state.honorific} tiện sáng hay chiều tối ạ". ` +
-        `❌ TUYỆT ĐỐI KHÔNG hỏi ngược "sáng/chiều/tối" mà chưa trả giờ mở cửa — khách hỏi giờ chứ không phải chọn slot.]`,
+        `Sau đó CHỈ hỏi 1 câu schedule: "${state.honorific} tiện sáng hay chiều tối ạ". ` +
+        `❌ TUYỆT ĐỐI KHÔNG xin tên/SĐT trong turn này (override mọi GATE/TACTIC commitment khác) — đợi khách chốt giờ rồi turn sau mới xin liên hệ. ` +
+        `❌ TUYỆT ĐỐI KHÔNG hỏi ngược "sáng/chiều/tối" mà chưa trả giờ mở cửa.]`,
     );
   }
 
