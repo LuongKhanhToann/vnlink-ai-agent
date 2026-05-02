@@ -561,11 +561,19 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // Ưu tiên key khách vừa mention (override state.serviceType cũ).
   const proactiveKey = mentionedKey ?? computeSuggestedMediaKey(state);
   const keyAlreadySent = proactiveKey !== null && mediaShownKeys.includes(proactiveKey);
+  // Stage được phép proactive media:
+  //   - fitness: discovery/inbody/evaluation — sale chủ động build trust sớm bằng visual.
+  //   - giai-co: chỉ evaluation (khi pitch giá trị/quy trình/KTV) — discovery vẫn hỏi
+  //     thông tin đau, gửi ảnh sớm là chen ngang, kém tự nhiên.
+  const stageAllowsProactiveMedia =
+    flow === "fitness"
+      ? stage === "discovery" || stage === "inbody" || stage === "evaluation"
+      : stage === "evaluation";
   if (
     !keyAlreadySent &&
     !customerAskingMedia &&
     hasContextForMedia &&
-    (stage === "discovery" || stage === "inbody" || stage === "evaluation")
+    stageAllowsProactiveMedia
   ) {
     const key = proactiveKey;
     if (key) {
