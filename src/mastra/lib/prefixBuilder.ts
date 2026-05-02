@@ -904,7 +904,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     } else {
       hints.push(
         `[GATE: biết vùng_đau=${knownInfo.painArea} nhưng chưa biết tính chất lan tỏa. ` +
-          "Hỏi 1 LẦN duy nhất: 'Cơn đau lan ra xung quanh hay chỉ đau một điểm cố định thôi ạ'. " +
+          `Cấu trúc reply 2 câu: (1) ack triệu chứng + nhắc KTV bên em xử lý — vd "Dạ ${knownInfo.painArea} đau kiểu này thường là cơ co rút ở 1 điểm, KTV bên em xử lý nhiều rồi ạ". ` +
+          "(2) Hỏi 1 LẦN duy nhất: 'Cơn đau lan ra xung quanh hay chỉ đau một điểm cố định thôi ạ'. " +
           "Sau đó dù khách answer hay không, KHÔNG lặp lại câu hỏi này ở turn sau.]",
       );
     }
@@ -929,7 +930,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       );
     } else {
       hints.push(
-        `[GATE: biết vùng_đau=${knownInfo.painArea}. Hỏi 1 LẦN: 'Trước giờ anh/chị có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau.]`,
+        `[GATE: biết vùng_đau=${knownInfo.painArea}. ` +
+          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ anh/chị có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau.]`,
       );
     }
   }
