@@ -13,14 +13,24 @@ const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
 // Debounce: gom các tin liên tiếp của cùng 1 khách trong DEBOUNCE_MS thành 1 turn.
 // Khách hay chia 1 ý thành nhiều tin nhỏ — bot trả lời 1 lần thay vì lủng củng nhiều lần.
-const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "2000");
+const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "3000");
 
-type PendingEntry = { texts: string[]; timer: NodeJS.Timeout };
+type PendingEntry = { texts: string[]; timer: NodeJS.Timeout | null };
 const pending = new Map<string, PendingEntry>();
 
 // Serialize: đảm bảo 1 senderId tại 1 thời điểm chỉ có 1 handleMessage chạy →
 // tránh race khi load/save state trong workflow.
 const queues = new Map<string, Promise<unknown>>();
+
+// Processing flag: khi bot đang xử lý turn của senderId, tin mới đến KHÔNG flush ngay
+// (tránh tạo turn parallel với state đã commit) — chỉ append vào pending, đợi xong rồi
+// re-debounce. Triệt để chống duplicate reply khi khách gõ tiếp giữa lúc bot đang nghĩ.
+const processing = new Set<string>();
+
+// Anti-duplicate guard: cache reply gần nhất gửi cho senderId. Nếu turn sau sinh ra reply
+// giống y → skip gửi (defensive, fallback cuối khi processing flag không kịp).
+const lastReply = new Map<string, { text: string; ts: number }>();
+const DUPLICATE_WINDOW_MS = 30_000;
 
 export const facebookWebhook = new Hono();
 
@@ -130,16 +140,24 @@ function enqueueMessage(senderId: string, text: string) {
   // khi debounce wait. Typing tự tắt sau 20s hoặc khi gửi message.
   void sendTyping(senderId);
 
+  const isProcessing = processing.has(senderId);
   const existing = pending.get(senderId);
+
   if (existing) {
     existing.texts.push(text);
-    clearTimeout(existing.timer);
-    existing.timer = setTimeout(() => flush(senderId), DEBOUNCE_MS);
+    if (existing.timer) clearTimeout(existing.timer);
+    // Đang xử lý turn cũ → KHÔNG schedule timer, đợi finalize xong sẽ tự re-debounce.
+    existing.timer = isProcessing
+      ? null
+      : setTimeout(() => flush(senderId), DEBOUNCE_MS);
     return;
   }
+
   pending.set(senderId, {
     texts: [text],
-    timer: setTimeout(() => flush(senderId), DEBOUNCE_MS),
+    timer: isProcessing
+      ? null
+      : setTimeout(() => flush(senderId), DEBOUNCE_MS),
   });
 }
 
@@ -169,10 +187,21 @@ function flush(senderId: string) {
     `[fb] flush sender=${senderId} count=${entry.texts.length} text="${combined}"`,
   );
 
+  processing.add(senderId);
+
   const prev = queues.get(senderId) ?? Promise.resolve();
   const next = prev
     .then(() => handleMessage(senderId, combined))
-    .catch((e) => console.error("[fb] handleMessage error:", e));
+    .catch((e) => console.error("[fb] handleMessage error:", e))
+    .finally(() => {
+      processing.delete(senderId);
+      // Trong lúc xử lý, có tin nhắn mới đến → đã append vào pending nhưng chưa
+      // có timer (đang processing). Giờ kích hoạt debounce timer để flush turn tiếp.
+      const next = pending.get(senderId);
+      if (next && !next.timer) {
+        next.timer = setTimeout(() => flush(senderId), DEBOUNCE_MS);
+      }
+    });
 
   queues.set(senderId, next);
   void next.finally(() => {
@@ -228,7 +257,21 @@ async function handleMessage(senderId: string, text: string) {
     // Last line of defense: trim + dedup. Workflow đã cap nhưng giữ guard này
     // phòng follow-up / fallback path gửi list chưa làm sạch.
     const sentUrls = new Set<string>();
-    if (reply)             await sendText(senderId, reply);
+    if (reply) {
+      // Anti-duplicate: skip nếu reply giống y reply gần nhất (<30s) — chống case
+      // 2 turn liên tiếp cùng sinh ra confirmation y nhau (vd khách gửi 2 tin chốt liên tiếp).
+      const last = lastReply.get(senderId);
+      const isDup =
+        last &&
+        last.text === reply &&
+        Date.now() - last.ts < DUPLICATE_WINDOW_MS;
+      if (isDup) {
+        console.log(`[fb] skip duplicate reply (matches last sent ${Date.now() - last.ts}ms ago)`);
+      } else {
+        await sendText(senderId, reply);
+        lastReply.set(senderId, { text: reply, ts: Date.now() });
+      }
+    }
     if (mediaUrls?.length) {
       for (const rawUrl of mediaUrls) {
         const url = (rawUrl ?? "").trim();
