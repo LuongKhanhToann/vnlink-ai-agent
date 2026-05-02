@@ -563,12 +563,14 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const keyAlreadySent = proactiveKey !== null && mediaShownKeys.includes(proactiveKey);
   // Stage được phép proactive media:
   //   - fitness: discovery/inbody/evaluation — sale chủ động build trust sớm bằng visual.
-  //   - giai-co: chỉ evaluation (khi pitch giá trị/quy trình/KTV) — discovery vẫn hỏi
-  //     thông tin đau, gửi ảnh sớm là chen ngang, kém tự nhiên.
+  //   - giai-co: evaluation HOẶC discovery khi đã có painSpread (đủ context để pitch giá trị,
+  //     không còn thuần khai thác triệu chứng). Tránh case bot pitch value ở discovery
+  //     nhưng vì pastMethod chưa extract được → kẹt ở discovery → media không fire kịp.
   const stageAllowsProactiveMedia =
     flow === "fitness"
       ? stage === "discovery" || stage === "inbody" || stage === "evaluation"
-      : stage === "evaluation";
+      : stage === "evaluation" ||
+        (stage === "discovery" && knownInfo.painSpread !== null);
   if (
     !keyAlreadySent &&
     !customerAskingMedia &&
