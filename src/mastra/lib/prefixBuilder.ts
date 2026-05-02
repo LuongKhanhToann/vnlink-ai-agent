@@ -436,13 +436,18 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE (máy móc/HLV/social proof) ──
   if (message && detectPriceObjection(message) && flow === "fitness") {
     return (
-      "[GATE ƯU TIÊN: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá theo ngày, KHÔNG so sánh ly cà phê. " +
-        "Phải REFRAME bằng VALUE thực, nhấn 3 mũi: " +
-        "(1) MÁY MÓC XỊN — phòng gym 700m2 trang bị máy chuẩn quốc tế, bể bơi 4 mùa duy nhất Vĩnh Yên (nước nóng quanh năm, lọc ozone). " +
-        "(2) HLV/GV CHẤT LƯỢNG — Yoga & Zumba có GV người Ấn Độ chuyên nghiệp, HLV gym nhiều năm kinh nghiệm, đo InBody miễn phí lần đầu để xây lộ trình đúng. " +
-        "(3) SOCIAL PROOF — nhiều hội viên gắn bó nhiều năm, giới thiệu thêm bạn bè / vợ chồng / đồng nghiệp vào tập cùng. " +
-        "Cấu trúc reply: 1 câu mở khẳng định mức giá đi kèm chất lượng (KHÔNG xin lỗi, KHÔNG đồng cảm) → 2-3 ý value cụ thể (chọn 2 trong 3 mũi cho gọn) → mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'. " +
-        "Reply 3-4 câu, ≤ 280 chars. KHÔNG xin tên/SĐT trong tin này.]"
+      "[GATE ƯU TIÊN: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá theo ngày, KHÔNG so sánh ly cà phê.\n" +
+        "REPLY DÀI 5-7 CÂU, 350-450 ký tự (override [RULES] char limit). BẮT BUỘC đủ CẢ 3 MŨI value, không bỏ mũi nào, mỗi mũi ≥1 chi tiết cụ thể (tên/số/đặc điểm).\n" +
+        "MŨI 1 — CƠ SỞ VẬT CHẤT: phòng gym 700m2 trong nhà + 300m2 sân ngoài có mái che, máy tập chuẩn quốc tế, sức chứa 100 người. Bể bơi 4 mùa 350m2 DUY NHẤT Vĩnh Yên — nước nóng quanh năm, lọc ozone, đội cứu hộ riêng. Pilates 13 máy chuẩn QT mới nhập 12/2024.\n" +
+        "MŨI 2 — HLV / GV CHẤT LƯỢNG: Yoga & Zumba có GV người Ấn Độ chuyên nghiệp dạy 4 ca/ngày. HLV gym kinh nghiệm nhiều năm, đo InBody miễn phí lần đầu rồi xây lộ trình đúng theo mỡ/cơ thực tế.\n" +
+        "MŨI 3 — SOCIAL PROOF: hội viên gắn bó 2-3 năm là chuyện bình thường, hay rủ thêm vợ/chồng/bạn bè/đồng nghiệp vào tập cùng — tỉ lệ duy trì cao vì 1 thẻ dùng được nhiều môn không chán.\n" +
+        "CẤU TRÚC reply BẮT BUỘC THEO THỨ TỰ:\n" +
+        "  Câu 1 — khẳng định giá đi kèm chất lượng (vd: 'Dạ giá bên em đi cùng chất lượng đầu tư thực sự ạ').\n" +
+        "  Câu 2-3 — mũi 1 (cơ sở vật chất, ≥1 con số: 700m2 / bể 4 mùa).\n" +
+        "  Câu 4 — mũi 2 (HLV/GV: nhấn GV Ấn Độ + InBody miễn phí).\n" +
+        "  Câu 5 — mũi 3 (social proof: hội viên gắn bó nhiều năm + giới thiệu thêm bạn bè).\n" +
+        "  Câu 6 — mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'.\n" +
+        "Mỗi mũi ≥30 chars. Đủ 3 mũi mới được kết câu mời. KHÔNG xin tên/SĐT trong tin này.]"
     );
   }
   if (message && detectPriceObjection(message) && flow === "giai-co") {
