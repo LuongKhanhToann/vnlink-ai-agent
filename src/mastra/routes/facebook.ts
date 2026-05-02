@@ -91,6 +91,17 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
 
     const state = await loadState(mastra, senderId, "facebook-customer");
 
+    // Skip followup khi lead đã chốt — đủ tên + SĐT + giờ. Followup khi đã đặt lịch xong
+    // làm khách bối rối ("đã chốt rồi mà bot vẫn nhắn check lại").
+    const leadDone =
+      state.knownInfo.name !== null &&
+      state.knownInfo.phone !== null &&
+      state.knownInfo.preferredTime !== null;
+    if (leadDone) {
+      console.log(`[followup] skip ${senderId} — lead đã chốt (tên+SĐT+giờ đủ)`);
+      return;
+    }
+
     // Compute media key dựa trên state. Nếu đã gửi media trong cuộc thoại
     // (mediaShown=true) → KHÔNG re-fetch để tránh spam ảnh trùng.
     let mediaKey: string | null = null;

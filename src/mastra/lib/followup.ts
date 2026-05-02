@@ -14,6 +14,48 @@
 import type { ConversationState } from "./stateMachine";
 
 export const FOLLOWUP_MS = Number(process.env.FOLLOWUP_MS ?? 10 * 60 * 1000);
+// Cooldown: chỉ gửi tối đa 1 followup/khách trong khoảng thời gian này (default 24h).
+// Tránh case khách ghost → bot followup → khách reply ngắn → ghost tiếp → bot followup tiếp = phiền.
+export const FOLLOWUP_COOLDOWN_MS = Number(
+  process.env.FOLLOWUP_COOLDOWN_MS ?? 24 * 60 * 60 * 1000,
+);
+// Quiet hours (giờ VN): không gửi followup trong khoảng [QUIET_START, QUIET_END).
+// Default: 22h tối → 8h sáng. Nếu timer fire trong khung này → defer đến 8h sáng.
+const QUIET_START_HOUR = Number(process.env.FOLLOWUP_QUIET_START ?? "22");
+const QUIET_END_HOUR = Number(process.env.FOLLOWUP_QUIET_END ?? "8");
+
+/**
+ * Trả về số ms cần defer nếu giờ hiện tại nằm trong quiet hours, hoặc 0 nếu OK gửi ngay.
+ */
+function deferMsIfQuiet(now: Date = new Date()): number {
+  const vnHour = Number(
+    now.toLocaleString("en-US", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "numeric",
+      hour12: false,
+    }),
+  );
+  const vnMinute = Number(
+    now.toLocaleString("en-US", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      minute: "numeric",
+    }),
+  );
+
+  const inQuiet =
+    QUIET_START_HOUR < QUIET_END_HOUR
+      ? vnHour >= QUIET_START_HOUR && vnHour < QUIET_END_HOUR
+      : vnHour >= QUIET_START_HOUR || vnHour < QUIET_END_HOUR; // wrap qua nửa đêm
+
+  if (!inQuiet) return 0;
+
+  // Tính ms đến QUIET_END_HOUR:00 sáng mai (hoặc cùng ngày nếu chưa qua midnight).
+  const minutesUntilEnd =
+    QUIET_END_HOUR > vnHour
+      ? (QUIET_END_HOUR - vnHour) * 60 - vnMinute
+      : (24 - vnHour + QUIET_END_HOUR) * 60 - vnMinute;
+  return minutesUntilEnd * 60 * 1000;
+}
 
 export interface FollowupHandlers {
   sendText: (text: string) => Promise<void>;
@@ -21,10 +63,14 @@ export interface FollowupHandlers {
 }
 
 const followupTimers = new Map<string, NodeJS.Timeout>();
+// Track timestamp followup gửi gần nhất / khách → chặn gửi lặp trong cooldown window.
+const lastFollowupSent = new Map<string, number>();
 
 /**
  * Schedule follow-up. Khi timer expire (10p mặc định) → gửi tin warm
  * + media (nếu có) phục vụ nhu cầu khách dựa trên state.
+ *
+ * Cooldown: nếu đã gửi followup trong FOLLOWUP_COOLDOWN_MS (24h default) → SKIP schedule.
  */
 export function scheduleFollowup(
   senderId: string,
@@ -34,7 +80,29 @@ export function scheduleFollowup(
 ): void {
   cancelFollowup(senderId);
 
-  const timer = setTimeout(async () => {
+  const lastSent = lastFollowupSent.get(senderId);
+  if (lastSent && Date.now() - lastSent < FOLLOWUP_COOLDOWN_MS) {
+    const minsLeft = Math.round(
+      (FOLLOWUP_COOLDOWN_MS - (Date.now() - lastSent)) / 60000,
+    );
+    console.log(
+      `[followup] skip ${senderId} — cooldown còn ${minsLeft}p (đã gửi gần nhất ${Math.round((Date.now() - lastSent) / 60000)}p trước)`,
+    );
+    return;
+  }
+
+  const fire = async () => {
+    // Nếu fire trúng quiet hours [22h, 8h sáng) → defer đến 8h sáng.
+    const deferMs = deferMsIfQuiet();
+    if (deferMs > 0) {
+      console.log(
+        `[followup] ${senderId} quiet hours — defer ${Math.round(deferMs / 60000)}p tới 8h sáng`,
+      );
+      const t2 = setTimeout(fire, deferMs);
+      followupTimers.set(senderId, t2);
+      return;
+    }
+
     try {
       const text = buildFollowupText(state);
       await handlers.sendText(text);
@@ -51,17 +119,18 @@ export function scheduleFollowup(
       for (const url of toSend) {
         await handlers.sendMedia(url);
       }
+      lastFollowupSent.set(senderId, Date.now());
       console.log(
-        `[followup] sent to ${senderId} after 10p ghost — text + ${toSend.length}/${mediaUrls.length} media (capped 3img+2vid)`,
+        `[followup] sent to ${senderId} after ghost — text + ${toSend.length}/${mediaUrls.length} media (capped 3img+2vid)`,
       );
     } catch (e) {
       console.error("[followup] send failed:", e);
     } finally {
       followupTimers.delete(senderId);
     }
-  }, FOLLOWUP_MS);
+  };
 
-  followupTimers.set(senderId, timer);
+  followupTimers.set(senderId, setTimeout(fire, FOLLOWUP_MS));
 }
 
 export function cancelFollowup(senderId: string): void {
@@ -105,7 +174,6 @@ const HAS_SERVICES_LIST = [
 ];
 const HAS_PRICING = [/\d+\s*(tr|triệu|k)\b.*\d+\s*(tr|triệu|k)\b/i]; // ≥2 mức giá
 const HAS_INBODY = [/inbody/i];
-const HAS_MEDIA_OFFER = [/em\s+gửi\s+(thêm\s+)?(vài\s+)?(hình|ảnh|video)/i];
 
 /**
  * Build followup TEXT — soft re-engagement.
