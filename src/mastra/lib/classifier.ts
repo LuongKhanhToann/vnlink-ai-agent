@@ -96,7 +96,7 @@ export async function classify(
   // pastMethod: cho re-extract khi tin mới có cue về phương pháp đã thử
   // (vì lần đầu LLM hay suy diễn sai → "chua-thu" mặc dù khách chưa nói).
   const pastMethodCue =
-    /(thuốc|massage|xoa\s?bóp|vật\s?lý|châm\s?cứu|cao\s?dán|dán\s?cao|chưa\s?thử|đã\s?thử|đi\s?spa)/i;
+    /(thuốc|massage|xoa\s?bóp|vật\s?lý|châm\s?cứu|cao\s?dán|dán\s?cao|chưa\s?thử|chưa\s?từng|chưa\s?bao\s?giờ|không\s?(thử|từng)|đã\s?thử|đi\s?spa)/i;
   if (
     pastMethodCue.test(message) &&
     !slotsToExtract.includes("pastMethod")
@@ -260,7 +260,7 @@ SLOTS cho giai-co:
                   mô tả cụ thể khác → ghi nguyên văn ngắn gọn
   painDuration  = đau bao lâu (VD: "mấy hôm", "1 tuần", "vài tháng")
   pastMethod    = phương pháp đã thử — CHỈ extract khi khách EXPLICITLY nói về phương pháp đã/đang dùng:
-                  "chưa thử gì" / "chưa thử cách nào" → "chua-thu"
+                  "chưa thử gì" / "chưa thử cách nào" / "chưa từng" / "chưa bao giờ" / "không thử" → "chua-thu"
                   "có massage" / "đã đi massage" / "xoa bóp" → "massage"
                   "uống thuốc" / "có thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
                   "vật lý trị liệu" / "châm cứu" / "trị liệu" → "vat-ly-tri-lieu"
