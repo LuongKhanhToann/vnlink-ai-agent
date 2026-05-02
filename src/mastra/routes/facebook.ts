@@ -13,7 +13,8 @@ const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
 // Debounce: gom các tin liên tiếp của cùng 1 khách trong DEBOUNCE_MS thành 1 turn.
 // Khách hay chia 1 ý thành nhiều tin nhỏ — bot trả lời 1 lần thay vì lủng củng nhiều lần.
-const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "3000");
+// 5s default: đủ ôm 2-3 tin gõ rời. Override qua env FB_DEBOUNCE_MS.
+const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "5000");
 
 type PendingEntry = { texts: string[]; timer: NodeJS.Timeout | null };
 const pending = new Map<string, PendingEntry>();

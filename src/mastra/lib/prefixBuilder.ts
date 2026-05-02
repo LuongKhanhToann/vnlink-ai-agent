@@ -1012,8 +1012,23 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const hasTime = knownInfo.preferredTime !== null;
     const qrShown = (state as any).qrShown ?? false;
 
+    // Anti-repeat: nếu prev bot reply vừa xin tên/SĐT mà khách chưa kịp trả lời (gửi tin
+    // khác như hỏi giá) → KHÔNG xin lại lần nữa. Answer câu khách rồi DỪNG, đợi liên hệ.
+    const prevAskedContact = state.lastBotReply
+      ? /(cho\s+em\s+xin\s+tên|xin\s+tên\s+(với|và)\s+sđt|cho\s+em\s+xin\s+(tên|liên\s+hệ))/i.test(
+          state.lastBotReply,
+        )
+      : false;
+
     if (!name || !phone) {
-      if (!hasTime) {
+      if (prevAskedContact) {
+        hints.push(
+          "[GATE: prev đã xin tên+SĐT mà khách chưa cho — đang hỏi câu khác (vd hỏi giá). " +
+            "Answer câu khách HỎI ngắn gọn rồi DỪNG. " +
+            "❌ TUYỆT ĐỐI KHÔNG xin lại tên/SĐT lần nữa — khách sẽ tự cho khi sẵn sàng. " +
+            "Reply 1-2 câu, ≤ 150 chars, KHÔNG kèm câu hỏi.]",
+        );
+      } else if (!hasTime) {
         // Chưa có cả 3 → hỏi GỘP 1 lần
         hints.push(
           "[GATE: CHƯA CÓ tên, SĐT và giờ. " +
