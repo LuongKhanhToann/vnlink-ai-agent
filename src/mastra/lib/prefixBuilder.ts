@@ -923,15 +923,24 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const prevAskedMethod = state.lastBotReply
       ? /(massage|thuốc|dán cao|đã thử)/i.test(state.lastBotReply)
       : false;
+    // Anti-repeat: nếu prev đã nhắc "KTV bên em" → KHÔNG lặp ở turn này.
+    const prevMentionedKTV = state.lastBotReply
+      ? /\bKTV\s+bên\s+em\b/i.test(state.lastBotReply)
+      : false;
     if (prevAskedMethod || state.turnCount >= 3) {
       hints.push(
         "[GATE: đã hỏi pastMethod tin trước → SKIP, KHÔNG hỏi lại. " +
           "Tiến tới evaluation: hình ảnh hóa vùng đau + contrast bề mặt vs sâu + mời 1 buổi thử.]",
       );
+    } else if (prevMentionedKTV) {
+      hints.push(
+        `[GATE: biết vùng_đau=${knownInfo.painArea}, prev đã nhắc 'KTV bên em' → KHÔNG lặp lại cụm này. ` +
+          `Hỏi thẳng 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. Có thể prefix bằng ack ngắn về vùng đau lan (1 câu).]`,
+      );
     } else {
       hints.push(
         `[GATE: biết vùng_đau=${knownInfo.painArea}. ` +
-          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ anh/chị có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau.]`,
+          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau.]`,
       );
     }
   }
