@@ -1,10 +1,10 @@
 /**
  * scripts/testFeedbackScenario.ts
  *
- * Replicate đoạn chat từ screenshot KH feedback để verify fix:
- *   - Phân biệt dịch vụ vs giải pháp
- *   - Lock vào giải pháp khi đã biết goal
- *   - Không trả giá khi KH hỏi LỊCH lớp
+ * Replicate đoạn chat KH feedback để verify thay đổi A + D + G:
+ *   - A: temperature 0.85
+ *   - G: ACK variation pool
+ *   - D: compress bloated GATEs
  *
  * Run: npx tsx src/mastra/scripts/testFeedbackScenario.ts
  */
@@ -19,18 +19,34 @@ const { loadState } = await import("../lib/stateStore");
 
 const SCENARIOS = [
   {
-    name: "feedback_giam_can_boi",
-    description:
-      "KH feedback screenshot: hỏi học bơi + giảm cân, sau đó lặp lại 'mình hỏi giảm cân', rồi hỏi lịch lớp. Kiểm: (1) không list lại 4 dịch vụ khi đã có goal; (2) không lặp combo gym+bơi 3 lần; (3) không trả giá khi hỏi lịch lớp.",
+    name: "feedback_v2_boi_giam_can",
+    description: "KH feedback v2 screenshot: hỏi bơi + giảm cân ngắn. Kiểm naturalness.",
     messages: [
       "alo",
-      "Mình muốn hỏi dịch vụ học bơi",
-      "Và mình muốn giảm cân",
-      "Tư vấn cho mình chương trình tập giảm cân và chi phí phù hợp nhất",
-      "Mình đang hỏi về chương trình giảm cân",
-      "đo inbody là gì?",
-      "Cho mình xin lịch hoạt động của trung tâm",
-      "Lịch học lớp học bơi và lịch học các bộ môn khác",
+      "mình muốn hỏi dịch vụ bơi và muốn hỏi giảm cân",
+      "tư vấn mình chương trình giảm cân và chi phí phù hợp nhất",
+      "mình đang hỏi giảm cân thôi",
+    ],
+  },
+  {
+    name: "feedback_short_replies",
+    description: "KH reply ngắn liên tục — kiểm ACK luân phiên",
+    messages: [
+      "có gì mới không em",
+      "ờ",
+      "tư vấn gói giảm cân đi",
+      "3 buổi/tuần",
+      "sáng",
+      "ok thử 1 buổi",
+    ],
+  },
+  {
+    name: "feedback_pt_request",
+    description: "KH cần PT — kiểm pitch PT trực tiếp",
+    messages: [
+      "anh muốn có HLV riêng để tăng cơ",
+      "anh mới tập, sợ sai tư thế",
+      "3 buổi/tuần, sáng",
     ],
   },
 ];
@@ -45,7 +61,6 @@ async function run() {
     console.log(`\n${"═".repeat(70)}`);
     console.log(`▶  ${s.name}`);
     console.log(`   ${s.description}`);
-    console.log(`   threadId=${threadId}`);
     console.log(`${"═".repeat(70)}`);
 
     for (let i = 0; i < s.messages.length; i++) {

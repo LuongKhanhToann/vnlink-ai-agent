@@ -519,16 +519,10 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách answer ngắn câu cụ thể → bot phải ACK trước ──
+  // ── ƯU TIÊN: khách answer ngắn → ACK luân phiên (xem ACK MẪU trong instructions) ──
   if (message && detectShortAnswer(message)) {
     hints.push(
-      "[GATE ƯU TIÊN: khách vừa answer câu hỏi tin trước (số/thời gian/lựa chọn cụ thể). " +
-        "BẮT BUỘC mở đầu reply bằng ACK NEUTRAL — chỉ note lại / nhắc lại nội dung khách vừa nói. " +
-        `Vd: "1-2 tuần" → "Dạ ${state.honorific} hay vắng 1-2 tuần thì..."; ` +
-        `"4 buổi/tuần" → "Dạ 4 buổi/tuần em note rồi ạ"; ` +
-        `"sáng" → "Dạ sáng nha ${state.honorific}". ` +
-        'CẤM cụm khen đáp án: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn". ' +
-        "Sau ACK mới chuyển ý mới (1 câu).]",
+      `[GATE: khách answer ngắn → MỞ reply bằng ACK luân phiên (xem ACK MẪU trong system prompt — KHÔNG dùng mãi 'em note rồi ạ'). Sau ACK 1 câu mới chuyển ý.]`,
     );
   }
 
@@ -540,29 +534,19 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE (máy móc/HLV/social proof) ──
+  // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE ──
+  // (Detail value 3 mũi đã có ở playbook negotiation_neutral + [OBJECTIONS] block)
   if (message && detectPriceObjection(message) && flow === "fitness") {
     return (
-      "[GATE ƯU TIÊN: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá theo ngày, KHÔNG so sánh ly cà phê.\n" +
-        "REPLY DÀI 5-7 CÂU, 350-450 ký tự (override [RULES] char limit). BẮT BUỘC đủ CẢ 3 MŨI value, không bỏ mũi nào, mỗi mũi ≥1 chi tiết cụ thể (tên/số/đặc điểm).\n" +
-        "MŨI 1 — CƠ SỞ VẬT CHẤT: phòng gym 700m2 trong nhà + 300m2 sân ngoài có mái che, máy tập chuẩn quốc tế, sức chứa 100 người. Bể bơi 4 mùa 350m2 DUY NHẤT Vĩnh Yên — nước nóng quanh năm, lọc ozone, đội cứu hộ riêng. Pilates 13 máy chuẩn QT mới nhập 12/2024.\n" +
-        "MŨI 2 — HLV / GV CHẤT LƯỢNG: Yoga & Zumba có GV người Ấn Độ chuyên nghiệp dạy 4 ca/ngày. HLV gym kinh nghiệm nhiều năm, đo InBody miễn phí lần đầu rồi xây lộ trình đúng theo mỡ/cơ thực tế.\n" +
-        "MŨI 3 — SOCIAL PROOF: hội viên gắn bó 2-3 năm là chuyện bình thường, hay rủ thêm vợ/chồng/bạn bè/đồng nghiệp vào tập cùng — tỉ lệ duy trì cao vì 1 thẻ dùng được nhiều môn không chán.\n" +
-        "CẤU TRÚC reply BẮT BUỘC THEO THỨ TỰ:\n" +
-        "  Câu 1 — khẳng định giá đi kèm chất lượng (vd: 'Dạ giá bên em đi cùng chất lượng đầu tư thực sự ạ').\n" +
-        "  Câu 2-3 — mũi 1 (cơ sở vật chất, ≥1 con số: 700m2 / bể 4 mùa).\n" +
-        "  Câu 4 — mũi 2 (HLV/GV: nhấn GV Ấn Độ + InBody miễn phí).\n" +
-        "  Câu 5 — mũi 3 (social proof: hội viên gắn bó nhiều năm + giới thiệu thêm bạn bè).\n" +
-        "  Câu 6 — mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'.\n" +
-        "Mỗi mũi ≥30 chars. Đủ 3 mũi mới được kết câu mời. KHÔNG xin tên/SĐT trong tin này.]"
+      "[GATE: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê. " +
+      "Reframe value 3 mũi (cơ sở 700m2 + bể 4 mùa duy nhất / GV Ấn Độ + InBody miễn phí / social proof hội viên gắn bó 2-3 năm). " +
+      "Mời thử 1 buổi miễn phí. KHÔNG xin tên/SĐT tin này.]"
     );
   }
   if (message && detectPriceObjection(message) && flow === "giai-co") {
     return (
-      "[GATE ƯU TIÊN: khách phản đối giá. Reframe theo giá trị bền vững: " +
-        "'Dạ em hiểu ạ — giải cơ chuyên sâu cao hơn massage thường vì KTV được đào tạo giải phẫu cơ bài bản, " +
-        "tác động đúng nhóm cơ kẹt. Khách thường thấy đỡ rõ trong 1-2 buổi đầu, không phải đi đi lại lại như massage'. " +
-        "Mời thử 1 buổi: 'Anh/chị thử 1 buổi xem hợp không, em không ép gói lâu dài nha'.]"
+      "[GATE: khách phản đối giá. Reframe: KTV đào tạo giải phẫu cơ bài bản, tác động đúng nhóm cơ kẹt, đỡ rõ trong 1-2 buổi. " +
+      "Mời thử 1 buổi không cam kết.]"
     );
   }
 
@@ -819,9 +803,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       (message && /chỉ\s*(tập|cần|muốn)?\s*(yoga|zumba|bơi|gym|pilates)\s*(thôi|nhỉ)?/i.test(message)) ||
       (message && /(muốn|chỉ)\s+(học\s+)?(yoga|zumba|bơi|pilates)(?!\s*\+)/i.test(message));
 
+    let ib: string;
     if (skipInbody) {
-      // Yoga/swim/relax: KHÔNG nhắc InBody chút nào.
-      // Compare/price: vẫn có thể nhắc nhẹ.
       const banInBody =
         knownInfo.serviceType === "yoga" ||
         knownInfo.serviceType === "boi" ||
@@ -829,25 +812,16 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         knownInfo.serviceType === "pilates" ||
         knownInfo.fitnessGoal === "thu-gian" ||
         knownInfo.fitnessGoal === "hoc-boi";
-      if (banInBody) {
-        hints.push(
-          "[GATE inbody-skip: khách yoga/bơi/zumba/pilates/thư-giãn → ❌ TUYỆT ĐỐI KHÔNG nhắc InBody (không liên quan). Pitch service-specific theo TACTIC.]",
-        );
-      } else {
-        hints.push(
-          "[GATE inbody-skip: BỎ QUA pitch InBody, trả lời nhu cầu trước. Có thể nhắc InBody miễn phí ở cuối tin (1 dòng).]",
-        );
-      }
+      ib = banInBody
+        ? "khách yoga/bơi/zumba/pilates/thư-giãn → KHÔNG nhắc InBody. Pitch service-specific."
+        : "skip InBody pitch, answer nhu cầu trước. Có thể nhắc InBody 1 dòng cuối.";
     } else if (knownInfo.schedule === null) {
       const svc = knownInfo.serviceType ?? "dịch vụ";
-      hints.push(
-        `[GATE inbody (chưa schedule): KHÔNG pitch full. Chỉ 2 việc: (1) ack ngắn "${svc} cho ${knownInfo.fitnessGoal ?? "mục tiêu"} là hướng đi ổn ${state.honorific}". (2) hỏi schedule "tiện sáng/chiều, mấy buổi/tuần". CẤM "cần tập đúng hướng/lộ trình chuẩn".]`,
-      );
+      ib = `chưa schedule → ack "${svc} cho ${knownInfo.fitnessGoal ?? "mục tiêu"}" + hỏi "sáng/chiều, mấy buổi/tuần". KHÔNG pitch gói.`;
     } else {
-      hints.push(
-        `[GATE inbody (lịch=${knownInfo.schedule}): 3 câu ngắn — ack lịch + pitch InBody (vd "${state.honorific} ghé đo InBody, máy đọc mỡ/cơ thật") + mời "tiện ghé sáng hay chiều". KHÔNG show gói/giá.]`,
-      );
+      ib = `có schedule=${knownInfo.schedule} → ack lịch + pitch InBody ngắn ("máy đọc mỡ/cơ thật") + mời ghé sáng/chiều. KHÔNG show giá.`;
     }
+    hints.push(`[GATE inbody: ${ib}]`);
   }
 
   // ── FITNESS / GIẢI CƠ: negotiation + khách đã chấp nhận → bỏ pitch ──
@@ -1021,66 +995,34 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
-  // ── COMMITMENT: chốt lịch ──
+  // ── COMMITMENT: chốt lịch (compact, 4 nhánh nội bộ) ──
   if (stage === "commitment") {
-    const dateCtx = buildDateContext();
     const { name, phone } = knownInfo;
     const hasTime = knownInfo.preferredTime !== null;
     const qrShown = (state as any).qrShown ?? false;
-
-    // Anti-repeat: nếu prev bot reply vừa xin tên/SĐT mà khách chưa kịp trả lời (gửi tin
-    // khác như hỏi giá) → KHÔNG xin lại lần nữa. Answer câu khách rồi DỪNG, đợi liên hệ.
     const prevAskedContact = state.lastBotReply
       ? /(cho\s+em\s+xin\s+tên|xin\s+tên\s+(với|và)\s+sđt|cho\s+em\s+xin\s+(tên|liên\s+hệ))/i.test(
           state.lastBotReply,
         )
       : false;
 
+    let cmt: string;
     if (!name || !phone) {
       if (prevAskedContact) {
-        hints.push(
-          "[GATE: prev đã xin tên+SĐT mà khách chưa cho — đang hỏi câu khác (vd hỏi giá). " +
-            "Answer câu khách HỎI ngắn gọn rồi DỪNG. " +
-            "❌ TUYỆT ĐỐI KHÔNG xin lại tên/SĐT lần nữa — khách sẽ tự cho khi sẵn sàng. " +
-            "Reply 1-2 câu, ≤ 150 chars, KHÔNG kèm câu hỏi.]",
-        );
+        cmt = "prev đã xin tên/SĐT mà khách chưa cho → answer câu khách hỏi rồi DỪNG, KHÔNG xin lại. Reply ≤150 chars.";
       } else if (!hasTime) {
-        // Chưa có cả 3 → hỏi GỘP 1 lần
-        hints.push(
-          "[GATE: CHƯA CÓ tên, SĐT và giờ. " +
-            "Hỏi GỘP 1 câu duy nhất: 'Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng, chiều hay tối để em giữ slot ạ' " +
-            "TUYỆT ĐỐI KHÔNG hỏi từng thứ riêng lẻ. KHÔNG đề cập giá hay gói (10 buổi, liệu trình...) trong tin này. Chỉ 1 câu hỏi gộp.]",
-        );
+        cmt = "CHƯA tên+SĐT+giờ → hỏi GỘP 1 câu: 'Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng, chiều hay tối ạ'. KHÔNG nhắc giá/gói.";
       } else {
-        // Đã biết giờ, chỉ cần tên/SĐT — TUYỆT ĐỐI không hỏi lại buổi
-        hints.push(
-          `[GATE: đã biết giờ=${knownInfo.preferredTime} — chỉ cần tên và SĐT. ` +
-            "Hỏi: 'Cho em xin tên với SĐT để giữ slot ạ'. " +
-            "❌ TUYỆT ĐỐI KHÔNG hỏi 'buổi sáng/chiều/tối' nữa vì đã có giờ. " +
-            "❌ KHÔNG đề cập giá/gói. Chỉ 1 câu hỏi tên/SĐT.]",
-        );
+        cmt = `đã có giờ=${knownInfo.preferredTime} → chỉ xin tên+SĐT. KHÔNG hỏi lại buổi.`;
       }
     } else if (!hasTime) {
-      // Đã có tên/SĐT, cần giờ
-      hints.push(
-        "[GATE: đã có tên/SĐT — chỉ cần hỏi khung giờ: 'Anh/chị muốn đến buổi sáng, chiều hay tối ạ?' KHÔNG hỏi thêm gì khác.]",
-      );
+      cmt = "đã có tên/SĐT → hỏi giờ: 'Anh/chị đến buổi sáng, chiều hay tối ạ'.";
     } else if (!qrShown) {
-      // ĐỦ INFO (tên + SĐT + giờ) → XÁC NHẬN VÀ DỪNG
-      hints.push(
-        `[GATE: ĐỦ INFO — tên=${name}, sđt=${phone}, giờ=${knownInfo.preferredTime}. ` +
-        `NGÀY HÔM NAY:\n${dateCtx}\n` +
-        "XÁC NHẬN lịch 1 câu ngắn gọn, ghi ngày cụ thể nếu preferredTime đã có ngày " +
-        `('Dạ em giữ slot [thời gian] cho mình rồi nha ${state.honorific} [tên], hẹn gặp ${state.honorific} ạ') rồi DỪNG HẲN. ` +
-        "Nếu preferredTime chỉ có buổi (sáng/chiều/tối) thì hỏi thêm ngày: " +
-        "'Anh/chị muốn đến [buổi] ngày nào để em giữ slot ạ' " +
-        "TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ điều gì khác.]"
-      );
+      cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, giờ=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ slot [giờ] cho mình rồi nha ${state.honorific} [tên]' rồi DỪNG. ${knownInfo.preferredTime?.match(/\d{1,2}\/\d{1,2}/) ? "" : "Nếu chỉ có buổi → hỏi thêm ngày."}`;
     } else {
-      hints.push(
-        "[GATE: đã gửi QR. Xác nhận và hướng dẫn bước tiếp theo. DỪNG.]",
-      );
+      cmt = "đã gửi QR. Xác nhận bước tiếp theo. DỪNG.";
     }
+    hints.push(`[GATE commitment: ${cmt}]`);
   }
 
   return hints.join("\n");

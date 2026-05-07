@@ -21,7 +21,7 @@ const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
 // Anti-sycophancy: bot khen đáp án của khách (vd "4 buổi/tuần là tần suất rất tốt", "chọn buổi sáng thì tốt quá").
 // Strip cum đánh giá khỏi ACK clause; giữ phần nhắc lại + dấu câu kết thúc.
 const PRAISE_CUM =
-  "(?:rất\\s+tốt|tốt\\s+quá|tốt\\s+rồi|tốt\\s+lắm|ổn\\s+lắm|ổn\\s+rồi|hợp\\s+lý|lý\\s+tưởng|phù\\s+hợp(?:\\s+lắm)?|chuẩn\\s+rồi|vậy\\s+là\\s+chuẩn|lựa\\s+chọn\\s+đúng)";
+  "(?:rất\\s+tốt|tốt\\s+quá|tốt\\s+rồi|tốt\\s+lắm|ổn\\s+lắm|ổn\\s+rồi|hợp\\s+lý|lý\\s+tưởng|phù\\s+hợp(?:\\s+lắm)?|rất\\s+hợp|hợp\\s+(?:luôn|quá|lắm)|chuẩn\\s+rồi|vậy\\s+là\\s+chuẩn|lựa\\s+chọn\\s+(?:đúng|tốt|hợp\\s+lý))";
 const SYCOPHANTIC_ACK_PATTERNS: Array<[RegExp, string]> = [
   // "... là/thì [tần suất|mục tiêu|lựa chọn|cách]? <praise>" → strip từ "là/thì" tới hết praise
   [
@@ -263,6 +263,9 @@ export function cleanReply(
     .replace(/[ \t]*\n[ \t]*/g, "\n")  // strip space quanh \n
     .replace(/\n{3,}/g, "\n\n")        // max 2 \n liên tiếp
     .trim();
+
+  // 8b. Fix typographic "X. Y triệu" → "X.Y triệu" (LLM hay split decimal khi liền số thứ tự)
+  r = r.replace(/(\b\d)\.\s+(\d)\s+(triệu|tr|k)\b/gi, "$1.$2 $3");
 
   // 9. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
   if (r && /^[a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(r)) {

@@ -221,8 +221,10 @@ function buildAgentStep(
           // maxSteps 2: cho phép 1 LLM step + 1 tool call (get-media or get-qr).
           // Trước là 4 → bot đôi khi gọi tool 2-3 lần → duplicate media.
           maxSteps: 2,
-          // temperature 0.3: cân bằng giữa tự nhiên và ổn định.
-          modelSettings: { temperature: 0.3 },
+          // temperature 0.85 + top_p 0.95: tăng tự nhiên, đa dạng phrasing.
+          // Trước là 0.3 → bot output stiff như đọc script, comply nguyên văn rule.
+          // cleanReply + structured schema vẫn bắt được output off-brand.
+          modelSettings: { temperature: 0.85, topP: 0.95 },
           memory: {
             thread: { id: threadId },
             resource: resourceId,
@@ -316,6 +318,7 @@ const fallbackStep = createStep({
     const fullMessage = [prefix, message].filter(Boolean).join("\n");
     const result = await fitnessAgent.generate(fullMessage, {
       maxSteps: 4,
+      modelSettings: { temperature: 0.85, topP: 0.95 },
       memory: {
         thread: { id: threadId },
         resource: resourceId,

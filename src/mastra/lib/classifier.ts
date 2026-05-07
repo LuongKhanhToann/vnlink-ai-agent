@@ -151,6 +151,9 @@ export async function classify(
 
   try {
     const result = await classifierAgent.generate(prompt, {
+      // Classifier: temperature thấp để slot extraction deterministic.
+      // (Khác fitness agent — agent cần variation, classifier cần ổn định.)
+      modelSettings: { temperature: 0.1 },
       structuredOutput: {
         schema: classifierSchema,
         instructions:
