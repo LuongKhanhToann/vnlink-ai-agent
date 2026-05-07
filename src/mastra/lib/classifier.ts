@@ -128,6 +128,18 @@ export async function classify(
     slotsToExtract.push("memberType");
   }
 
+  // fitnessGoal: re-extract khi khách bổ sung HOẶC đổi mục tiêu giữa cuộc thoại.
+  // Vd: turn 1 "muốn học bơi" → goal=hoc-boi; turn 3 "và mình muốn giảm cân" → cập nhật giam-mo.
+  // Slot lock cứng làm bot stuck pitching service cũ → cần update khi có cue mục tiêu rõ.
+  const fitnessGoalCue =
+    /(giảm\s*(cân|mỡ|béo)|đốt\s*mỡ|tăng\s*(cơ|cân|chiều\s*cao)|to\s*hơn|thư\s*giãn|giảm\s*stress|mất\s*ngủ|chỉnh\s*dáng|cải\s*thiện\s*tư\s*thế|học\s*bơi|biết\s*bơi)/i;
+  if (
+    fitnessGoalCue.test(message) &&
+    !slotsToExtract.includes("fitnessGoal")
+  ) {
+    slotsToExtract.push("fitnessGoal");
+  }
+
   const prompt = buildPrompt(
     message,
     previousFlow,

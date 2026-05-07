@@ -141,7 +141,9 @@ export function mergeSlots(
     memberType:     pick(existing.memberType,     extracted.memberType),
     durationMonths: pick(existing.durationMonths, extracted.durationMonths),
     schedule:       pick(existing.schedule,       extracted.schedule),
-    fitnessGoal:    pick(existing.fitnessGoal,    extracted.fitnessGoal),
+    // fitnessGoal: KH có thể bổ sung / đổi mục tiêu giữa cuộc thoại (vd "muốn học bơi" rồi "và muốn giảm cân").
+    // Classifier chỉ extract khi có cue rõ ràng nên an toàn để override với value mới.
+    fitnessGoal:    pickWithReextract(existing.fitnessGoal, extracted.fitnessGoal),
     painArea:       pickWithReextract(existing.painArea,   extracted.painArea),
     painSpread:     pickWithReextract(existing.painSpread, extracted.painSpread),
     painDuration:   pick(existing.painDuration,   extracted.painDuration),

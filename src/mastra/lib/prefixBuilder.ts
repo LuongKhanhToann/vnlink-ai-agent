@@ -145,6 +145,22 @@ export function detectHoursQuestion(message: string): boolean {
 }
 
 /**
+ * Khách hỏi LỊCH LỚP cụ thể (lịch học bơi, lịch yoga, lịch các bộ môn) —
+ * KHÔNG được trả bằng bảng giá. Phải trả lịch sơ bộ + mời ghé xem trực tiếp.
+ */
+export function detectClassScheduleQuestion(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  // "lịch (học/lớp/tập) ..." hoặc "ca/buổi/khung giờ của lớp ..."
+  if (/lịch\s+(học|lớp|tập|của|các)/.test(m)) return true;
+  if (/(lớp|ca|buổi|khung\s*giờ)\s+(học|của|cho|nào)/.test(m) && /(yoga|zumba|bơi|pilates|gym|bộ\s*môn|dịch\s*vụ)/.test(m)) return true;
+  if (/(yoga|zumba|bơi|pilates)\s+.*?(lịch|ca\s*nào|giờ\s*nào|mấy\s*ca)/.test(m)) return true;
+  // "lịch các bộ môn", "lịch hoạt động lớp"
+  if (/lịch\s+(các\s+)?(bộ\s*môn|môn|lớp|hoạt\s+động)/.test(m)) return true;
+  return false;
+}
+
+/**
  * Khách hỏi câu hỏi FACTUAL về cơ sở vật chất / dịch vụ — bot phải answer cụ thể TRƯỚC.
  * Vd: "bể bơi rộng không", "phòng gym có máy gì", "có chỗ gửi xe không", "GV nước nào".
  * Trả về { topic, fact } — topic dùng để lookup answer; fact = câu trả lời ready-to-use.
@@ -1676,8 +1692,22 @@ export function buildPrefix(
       "❌ TUYỆT ĐỐI KHÔNG xin tên/SĐT/giờ trong tin này. KHÔNG pitch gói. KHÔNG nhắc giá.";
   }
 
+  // Override TACTIC: khách hỏi LỊCH LỚP (lịch học bơi, lịch yoga, lịch các bộ môn)
+  // → KHÔNG trả bằng bảng giá. Áp dụng cho mọi stage fitness.
+  if (
+    state.flow === "fitness" &&
+    message &&
+    detectClassScheduleQuestion(message) &&
+    !detectPriceQuestion(message)
+  ) {
+    tactic =
+      "Khách hỏi LỊCH LỚP (không phải hỏi giá). ❌ TUYỆT ĐỐI KHÔNG trả bằng bảng giá / không list 3 gói. " +
+      "Trả lịch sơ bộ: 'Yoga & Zumba có 4 ca/ngày (sáng-trưa-chiều-tối), Bơi mở 5h–20h, Gym mở 5h–20h ạ. " +
+      "Lịch chi tiết từng lớp em check lại gửi anh/chị, hoặc anh/chị ghé trực tiếp xem lịch dán tại quầy lễ tân nha'. " +
+      "Câu kết 1 câu hỏi nhẹ về buổi tiện đi (sáng/chiều/tối) để gợi ca phù hợp. KHÔNG đẩy InBody, KHÔNG báo giá.";
+  }
   // Override TACTIC discovery cho 3 trường hợp đặc biệt
-  if (state.stage === "discovery" && state.flow === "fitness") {
+  else if (state.stage === "discovery" && state.flow === "fitness") {
     // (a) Khách bảo "chỉ tập X" → ack + hỏi schedule, không hỏi mục tiêu, không ép Full
     if (
       message &&
