@@ -131,7 +131,11 @@ function jaccardSim(a: string[], b: string[]): number {
 }
 
 function splitSentences(s: string): string[] {
-  return (s.match(/[^.!?]+[.!?]?/g) || []).map((x) => x.trim()).filter(Boolean);
+  // Split on .!? — nhưng KHÔNG split khi "." nằm GIỮA hai chữ số (vd "1.2 triệu", "2.5kg").
+  // Trick: `.` chỉ là sentence-end khi sau nó là khoảng trắng/newline/chữ cái HOA hoặc end-of-string.
+  // Dùng split với lookbehind/lookahead để giữ nguyên "1.2".
+  const parts = s.split(/(?<=[.!?])(?!\d)\s+/);
+  return parts.map((x) => x.trim()).filter(Boolean);
 }
 
 /**
@@ -159,9 +163,12 @@ export function cleanReply(
     const forbidPhrases: string[] = [];
 
     // 1. Số tiền (chỉ khi prev có ≥2 → list package)
+    // Pre-normalize "1. 2 triệu" → "1.2 triệu" trước khi match
+    // (cleanReply lượt trước có thể tạo ra format này)
+    const prevNorm = prevReply.replace(/(\d+)\.\s+(\d+)/g, "$1.$2");
     const prevPrices = Array.from(
       new Set(
-        (prevReply.match(/\d+(?:\.\d+)?\s*(?:tr|triệu|k)\b/gi) || []).map((s) =>
+        (prevNorm.match(/\d+(?:\.\d+)?\s*(?:tr|triệu|k)\b/gi) || []).map((s) =>
           s.toLowerCase().replace(/\s+/g, ""),
         ),
       ),
@@ -177,18 +184,44 @@ export function cleanReply(
     }
 
     if (forbidPhrases.length > 0) {
-      const sentences = r.match(/[^.!?]+[.!?]?/g) || [];
-      const kept = sentences.filter((sent) => {
-        const norm = sent.toLowerCase().replace(/\s+/g, "");
-        return !forbidPhrases.some((p) => norm.includes(p));
-      });
-      const stripped = kept.join(" ").trim();
-      // Chỉ apply strip nếu reply sau strip còn ĐỦ context (≥ 60 chars).
-      // Nếu strip quá nhiều → giữ text gốc (tránh reply cụt như "Tiện ghé đo InBody hôm nào ạ").
-      if (kept.length >= 1 && stripped.length >= 60) {
-        r = stripped;
+      const sentences = splitSentences(r);
+      // Detect list-numbered structure: "(1)", "(2)", "(3)" hoặc "1.", "2.", "3."
+      // Nếu có ≥ 2 list items, KHÔNG strip giữa list (gây nhảy số / cụt câu).
+      const hasNumberedList =
+        sentences.filter((s) => /^\s*[\(\[]?\s*\d+\s*[\)\].]\s+/.test(s)).length >= 2;
+
+      if (hasNumberedList) {
+        // List mode: strip TẤT CẢ list items nếu CÓ item nào dính forbidden price,
+        // hoặc giữ NGUYÊN list — không strip lẻ tẻ.
+        const listItems = sentences.filter((s) =>
+          /^\s*[\(\[]?\s*\d+\s*[\)\].]\s+/.test(s),
+        );
+        const anyHit = listItems.some((s) => {
+          const norm = s.toLowerCase().replace(/\s+/g, "");
+          return forbidPhrases.some((p) => norm.includes(p));
+        });
+        if (anyHit) {
+          // Toàn bộ list dính → strip cả block list (giữ context phi-list)
+          const kept = sentences.filter(
+            (s) => !/^\s*[\(\[]?\s*\d+\s*[\)\].]\s+/.test(s),
+          );
+          const stripped = kept.join(" ").trim();
+          if (stripped.length >= 60) {
+            r = stripped;
+          }
+        }
+        // Nếu list ko dính price cũ → giữ NGUYÊN, ko strip lẻ tẻ
+      } else {
+        const kept = sentences.filter((sent) => {
+          const norm = sent.toLowerCase().replace(/\s+/g, "");
+          return !forbidPhrases.some((p) => norm.includes(p));
+        });
+        const stripped = kept.join(" ").trim();
+        // Chỉ apply strip nếu reply sau strip còn ĐỦ context (≥ 60 chars).
+        if (kept.length >= 1 && stripped.length >= 60) {
+          r = stripped;
+        }
       }
-      // Nếu strip hết hoặc còn quá ngắn → giữ text gốc (chấp nhận lặp 1 chút còn hơn cụt)
     }
 
     // Jaccard dedup: bắt cả trường hợp reply lặp ngữ NGHĨA (không cần cùng số tiền)
@@ -263,6 +296,11 @@ export function cleanReply(
     .replace(/[ \t]*\n[ \t]*/g, "\n")  // strip space quanh \n
     .replace(/\n{3,}/g, "\n\n")        // max 2 \n liên tiếp
     .trim();
+
+  // 8b. Sửa lỗi typographic "X. Y triệu/k" → "X.Y triệu/k"
+  //     LLM hay split số thập phân khi liền với "(1)/(2)" markers.
+  //     Chỉ áp dụng khi cả 2 phần đều là 1 chữ số và sau là "triệu"/"k"/"tr".
+  r = r.replace(/(\b\d)\.\s+(\d)\s+(triệu|tr|k)\b/gi, "$1.$2 $3");
 
   // 9. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
   if (r && /^[a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(r)) {

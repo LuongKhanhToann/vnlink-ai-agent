@@ -33,6 +33,16 @@ const SCENARIOS = [
       "Lịch học lớp học bơi và lịch học các bộ môn khác",
     ],
   },
+  {
+    name: "feedback_v2_boi_giam_can_short",
+    description:
+      "KH feedback v2 screenshot: alo → hỏi bơi + giảm cân ngắn → tư vấn giảm cân. Kiểm: (1) không nói 'bơi kết hợp với cardio'; (2) reply không cụt/nhảy số (1)→(3); (3) sale khôn — link bơi+giảm cân thành lộ trình.",
+    messages: [
+      "alo",
+      "mình muốn hỏi dịch vụ bơi và muốn hỏi giảm cân",
+      "tư vấn mình chương trình giảm cân và chi phí phù hợp nhất",
+    ],
+  },
 ];
 
 async function run() {
