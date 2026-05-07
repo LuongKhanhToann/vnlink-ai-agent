@@ -1429,7 +1429,7 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     // Goal-specific value hint
     const goalHint: Record<string, string> = {
       "tang-co": `Tăng cơ cần tập có hệ thống + kỹ thuật đúng giai đoạn đầu → nhấn PT cá nhân, cộng thêm Yoga/Pilates để phục hồi cơ. KHÔNG chỉ nhấn diện tích phòng.`,
-      "giam-mo": `Giảm mỡ = cardio (Bơi/Zumba/máy chạy LÀ cardio) + tập tạ kết hợp → nhấn thẻ Full (Gym + Zumba/Bơi dùng chung), bể bơi 4 mùa duy nhất Vĩnh Yên. ⚠ TUYỆT ĐỐI KHÔNG nói "bơi kết hợp với cardio" — bơi LÀ cardio, nói vậy là sai logic. KHÔNG chỉ nhấn diện tích phòng.`,
+      "giam-mo": `Giảm mỡ hiệu quả = cardio + weight training kết hợp → nhấn thẻ Full (Gym + Zumba/Bơi dùng chung), bể bơi 4 mùa duy nhất Vĩnh Yên. KHÔNG chỉ nhấn diện tích phòng.`,
       "thu-gian": `Thư giãn → nhấn Yoga GV Ấn Độ 4 ca/ngày linh hoạt lịch + không gian rộng không chen chúc.`,
       "hoc-boi": `Học bơi → nhấn bể 4 mùa duy nhất Vĩnh Yên + cam kết biết bơi sau khóa (học lại miễn phí).`,
       "suc-khoe": `Sức khỏe tổng thể → nhấn thẻ Full 4 dịch vụ trong 1 thẻ, dùng cả năm bảo lưu được khi bận.`,
@@ -1466,14 +1466,12 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
       `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
 
     // Pitch 3 gói anchor đa dạng (cao→vừa→nhẹ) — khách thấy nhiều choice dễ chọn theo budget
-    return `[EXAMPLE — Reply ≤ 450 ký tự. Value 1-2 câu + 3 GÓI ANCHOR + câu hỏi chốt]
+    return `[EXAMPLE — Reply ≤ 320 ký tự. Value 1 câu + 3 GÓI ANCHOR + câu hỏi chốt]
 Value cụ thể: ${specificHint}
 Gói (giá thật, thứ tự cao→vừa→nhẹ):
 ${concretePackages}
-Mẫu reply: "[1-2 câu value đầy đủ, không cắt từ giữa chừng]. Bên em có mấy hướng cho ${h}:
-[3 gói trên — mỗi gói 1 dòng]
-${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình"
-⚠️ MỖI gói PHẢI có giá. KHÔNG hỏi lại nhu cầu/giờ đã có trong [KNOWN]. KHÔNG cắt cụm "là cardio" / "kết hợp X" giữa câu — viết đầy đủ.`;
+Mẫu reply: "[1 câu value]. Bên em có mấy hướng cho ${h}: [3 gói trên]. ${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình nha"
+⚠️ MỖI gói PHẢI có giá. KHÔNG hỏi lại nhu cầu/giờ đã có trong [KNOWN].`;
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
@@ -1837,28 +1835,10 @@ export function buildPrefix(
           "Khách gia đình. Trả lời gói FULL gia đình: 2 người 12tr, 3 người 17tr, 4 người 20tr. " +
           "KHÔNG pitch InBody.";
       } else if (ki.serviceType === "boi" || ki.fitnessGoal === "hoc-boi") {
-        // Multi-goal: KH nói cả "bơi" + goal khác (giam-mo / tang-co) → link thành lộ trình.
-        const isMultiGoal =
-          ki.serviceType === "boi" &&
-          ki.fitnessGoal !== null &&
-          ki.fitnessGoal !== "hoc-boi" &&
-          ki.fitnessGoal !== "suc-khoe";
-        if (isMultiGoal && ki.fitnessGoal === "giam-mo") {
-          tactic =
-            "Khách MULTI-GOAL: vừa muốn học bơi vừa giảm cân. LIÊN KẾT 2 mục tiêu thành lộ trình tích hợp. " +
-            "Pitch theo cấu trúc: " +
-            "(1) Acknowledge cả 2 mục tiêu. " +
-            "(2) Đề xuất lộ trình 2 giai đoạn: GĐ1 = Học bơi 1-1 12 buổi 3tr (1-2 tháng) để biết bơi. " +
-            "GĐ2 = sau khi biết bơi → bơi tự do (cardio đốt mỡ) + Gym tạ → giảm cân tối ưu. " +
-            "(3) Giải pháp gọn nhất là thẻ Full 12 tháng 7tr — gồm cả Học bơi + Gym + Yoga/Zumba 1 thẻ. " +
-            "(4) Kết bằng 1 câu hỏi cá nhân hóa: 'Anh/chị nặng tầm bao nhiêu kg, muốn giảm về mức nào ạ' HOẶC 'Anh/chị tiện sáng hay chiều ạ'. " +
-            "❌ KHÔNG chỉ pitch học bơi mà bỏ qua giảm cân. KHÔNG nói 'bơi kết hợp với cardio' (bơi LÀ cardio). KHÔNG nhắc InBody trong tin này.";
-        } else {
-          tactic =
-            "Khách quan tâm bơi. Pitch CỤ THỂ: bể 4 mùa duy nhất Vĩnh Yên. " +
-            "Học bơi 1-1 12 buổi 3tr+3m | nhóm 1.2tr+1m. Cam kết biết bơi. " +
-            "❌ TUYỆT ĐỐI KHÔNG nhắc 'InBody' trong tin (bơi không liên quan InBody).";
-        }
+        tactic =
+          "Khách quan tâm bơi. Pitch CỤ THỂ: bể 4 mùa duy nhất Vĩnh Yên. " +
+          "Học bơi 1-1 12 buổi 3tr+3m | nhóm 1.2tr+1m. Cam kết biết bơi. " +
+          "❌ TUYỆT ĐỐI KHÔNG nhắc 'InBody' trong tin (bơi không liên quan InBody).";
       } else if (ki.serviceType === "yoga" || ki.fitnessGoal === "thu-gian") {
         tactic =
           "Khách yoga/thư giãn. Pitch yoga: 12 tháng 5.8tr fulltime / 4.5tr (3 buổi/tuần), GV Ấn Độ. " +
