@@ -11,10 +11,10 @@ const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
 const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
-// Debounce: gom các tin liên tiếp của cùng 1 khách trong DEBOUNCE_MS thành 1 turn.
-// Khách hay chia 1 ý thành nhiều tin nhỏ — bot trả lời 1 lần thay vì lủng củng nhiều lần.
-// 5s default: đủ ôm 2-3 tin gõ rời. Override qua env FB_DEBOUNCE_MS.
-const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "5000");
+// Debounce: gom các tin gõ liên tiếp trong DEBOUNCE_MS thành 1 turn (chỉ tiết kiệm token).
+// Race-condition triệt để KHÔNG dựa vào timer này — dựa generation counter ở dưới.
+// 2s default: đủ ôm tin gõ thật nhanh. Override qua env FB_DEBOUNCE_MS.
+const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "2000");
 
 type PendingEntry = { texts: string[]; timer: NodeJS.Timeout | null };
 const pending = new Map<string, PendingEntry>();
@@ -25,13 +25,20 @@ const queues = new Map<string, Promise<unknown>>();
 
 // Processing flag: khi bot đang xử lý turn của senderId, tin mới đến KHÔNG flush ngay
 // (tránh tạo turn parallel với state đã commit) — chỉ append vào pending, đợi xong rồi
-// re-debounce. Triệt để chống duplicate reply khi khách gõ tiếp giữa lúc bot đang nghĩ.
+// re-debounce.
 const processing = new Set<string>();
 
-// Anti-duplicate guard: cache reply gần nhất gửi cho senderId. Nếu turn sau sinh ra reply
-// giống y → skip gửi (defensive, fallback cuối khi processing flag không kịp).
-const lastReply = new Map<string, { text: string; ts: number }>();
-const DUPLICATE_WINDOW_MS = 30_000;
+// ─────────────────────────────────────────────
+// GENERATION COUNTER — anti-stale-reply
+// ─────────────────────────────────────────────
+// Pattern: mỗi tin từ KH bump seq[senderId]. handleMessage capture seq lúc bắt đầu
+// chạy LLM. Trước khi sendText → check seq còn match không. Nếu không (KH đã gõ tin
+// mới khi bot đang chạy LLM) → DROP reply, KHÔNG gửi. Tin mới sẽ tự trigger turn
+// tiếp theo và trả lời với context cập nhật.
+//
+// → Đảm bảo TRIỆT ĐỂ: chỉ tin cuối cùng của khách mới nhận reply, không có reply
+//   "lạc đề" / reply trùng do race-condition.
+const seq = new Map<string, number>();
 
 export const facebookWebhook = new Hono();
 
@@ -148,6 +155,10 @@ function enqueueMessage(senderId: string, text: string) {
   // Khách vừa nhắn → cancel follow-up timer (nếu có) vì khách đang active
   cancelFollowup(senderId);
 
+  // Bump generation: invalidate mọi handleMessage đang chạy cho senderId này.
+  // Reply từ turn trước (nếu LLM còn đang chạy) sẽ bị stale-drop trước khi gửi.
+  seq.set(senderId, (seq.get(senderId) ?? 0) + 1);
+
   // Hiện "..." typing indicator để khách biết bot đang đọc → giảm cảm giác lag
   // khi debounce wait. Typing tự tắt sau 20s hoặc khi gửi message.
   void sendTyping(senderId);
@@ -222,6 +233,11 @@ function flush(senderId: string) {
 }
 
 async function handleMessage(senderId: string, text: string) {
+  // Capture seq tại thời điểm bắt đầu chạy. Nếu seq tăng (KH gõ tin mới) trong lúc
+  // workflow chạy → reply này stale, drop trước khi gửi.
+  const mySeq = seq.get(senderId) ?? 0;
+  const isStale = () => (seq.get(senderId) ?? 0) !== mySeq;
+
   try {
     const run = await routerWorkflow.createRun();
 
@@ -232,6 +248,15 @@ async function handleMessage(senderId: string, text: string) {
         resourceId: "facebook-customer",
       },
     });
+
+    // Sau khi workflow xong (LLM đã chạy, state đã save), check stale.
+    // State save vẫn OK — tin mới sẽ load state đó (slot extracted từ tin này) + extract thêm.
+    if (isStale()) {
+      console.log(
+        `[fb] DROP stale reply for ${senderId} (seq ${mySeq} → ${seq.get(senderId)}) — KH đã gõ tin mới, tin sau sẽ trả lời với context cập nhật`,
+      );
+      return;
+    }
 
     if (result.status !== "success") {
       console.error("[fb] workflow failed:", result.status);
@@ -266,23 +291,16 @@ async function handleMessage(senderId: string, text: string) {
     console.log(`[fb] sending reply: "${reply}"`);
     console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
 
-    // Last line of defense: trim + dedup. Workflow đã cap nhưng giữ guard này
-    // phòng follow-up / fallback path gửi list chưa làm sạch.
+    // Stale-check lần cuối ngay trước khi gửi (defense — KH có thể gõ tin mới
+    // trong khoảng vài ms giữa "workflow xong" và "sendText").
+    if (isStale()) {
+      console.log(`[fb] DROP stale reply (race lúc sendText) for ${senderId}`);
+      return;
+    }
+
     const sentUrls = new Set<string>();
     if (reply) {
-      // Anti-duplicate: skip nếu reply giống y reply gần nhất (<30s) — chống case
-      // 2 turn liên tiếp cùng sinh ra confirmation y nhau (vd khách gửi 2 tin chốt liên tiếp).
-      const last = lastReply.get(senderId);
-      const isDup =
-        last &&
-        last.text === reply &&
-        Date.now() - last.ts < DUPLICATE_WINDOW_MS;
-      if (isDup) {
-        console.log(`[fb] skip duplicate reply (matches last sent ${Date.now() - last.ts}ms ago)`);
-      } else {
-        await sendText(senderId, reply);
-        lastReply.set(senderId, { text: reply, ts: Date.now() });
-      }
+      await sendText(senderId, reply);
     }
     if (mediaUrls?.length) {
       for (const rawUrl of mediaUrls) {
