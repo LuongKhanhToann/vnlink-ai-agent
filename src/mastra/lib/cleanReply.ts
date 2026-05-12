@@ -213,10 +213,23 @@ export function cleanReply(
 
     // Jaccard dedup: bắt cả trường hợp reply lặp ngữ NGHĨA (không cần cùng số tiền)
     // — vd lặp "qua thử 1 buổi", "bên em có nhiều dịch vụ"...
+    //
+    // EXEMPT: câu xác nhận trả lời trực tiếp ("Dạ bên em có", "Có ạ", "Dạ có ạ"...)
+    // — khi KH hỏi lại "có được tập thử không?" sau khi bot vừa pitch trial, bot PHẢI
+    // xác nhận lại. Nếu Jaccard strip → bot không trả lời được câu hỏi yes/no.
+    const isAffirmativeAnswer = (sent: string): boolean => {
+      const s = sent.toLowerCase().trim();
+      return (
+        /^d[ạa]?\s*(vâng|có|đúng|được|rồi)/.test(s) ||
+        /^(dạ\s+)?bên\s+em\s+có/.test(s) ||
+        /^(dạ\s+)?có\s+(ạ|nha|chứ)/.test(s)
+      );
+    };
     const prevSentences = splitSentences(prevReply).map(tokenize);
     const curSentences = splitSentences(r);
     if (prevSentences.length > 0 && curSentences.length >= 2) {
       const keptCur = curSentences.filter((sent) => {
+        if (isAffirmativeAnswer(sent)) return true; // luôn giữ câu xác nhận
         const tokens = tokenize(sent);
         if (tokens.length < 3) return true; // câu quá ngắn (thường là chào/ack) → giữ
         const maxSim = Math.max(

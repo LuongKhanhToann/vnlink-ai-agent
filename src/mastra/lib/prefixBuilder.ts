@@ -20,6 +20,7 @@ import {
 } from "./stateMachine";
 import { getTactic } from "./playbook";
 import { buildDateContext } from "./dateHelper";
+import { decideFitnessQuestion, formatDecision } from "./questionFlow";
 
 // ─────────────────────────────────────────────
 // DIGRESSION CLASSIFIER
@@ -1708,6 +1709,26 @@ export function buildPrefix(
   prevBotReply?: string,
 ): string {
   const h = resolveHonorific(state.honorific);
+
+  // ─── QUESTION FLOW DECISION (ưu tiên cao nhất) ───
+  // Nếu match 1 trong các pattern của TL Fami → return 1 ANSWER_LOCK duy nhất,
+  // bypass tất cả GATE / few-shot / TACTIC khác. gpt-4o-mini cần ít context để
+  // output đúng template.
+  if (state.flow === "fitness" && message) {
+    const decision = decideFitnessQuestion(state, message, prevBotReply);
+    if (decision) {
+      console.log(`[questionFlow] decision=${decision.id}`);
+      const lines: string[] = [
+        `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
+        `[TACTIC: ƯU TIÊN ANSWER_LOCK ở dưới — viết theo template, KHÔNG pitch/list/nhảy chủ đề khác.]`,
+        `[RULES: Text thuần, KHÔNG markdown, KHÔNG link [text](url). Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết bằng "ạ?" hoặc "?". 2 câu kết "ạ" liên tiếp PHẢI có dấu "." giữa. CẤM khen đáp án khách. CẤM "tuyệt vời/quá/chắc chắn rồi". CẤM "nha?".]`,
+        buildKnownSummary(state.knownInfo, state.flow),
+        formatDecision(decision),
+      ];
+      return lines.filter(Boolean).join("\n");
+    }
+  }
+
   let tactic = getTactic(state.flow, state.stage, state.emotion);
 
   // Override TACTIC khi khách đã chấp nhận ở negotiation
