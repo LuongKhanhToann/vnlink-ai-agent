@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { routerWorkflow } from "../workflows/routerWorkflow";
 import { scheduleFollowup, cancelFollowup } from "../lib/followup";
+import { memory } from "../config/memory";
 import "dotenv/config";
 
 const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
@@ -184,6 +185,36 @@ function enqueueMessage(senderId: string, text: string) {
   });
 }
 
+/**
+ * Sau khi drop stale reply, xóa luôn assistant message đã save ngầm vào memory.
+ * Tránh case bot nội bộ thấy "đã reply" rồi mà KH chưa thấy → nhảy bước context.
+ *
+ * Logic: recall 5 message gần nhất → tìm assistant msg mới nhất → delete by id.
+ * Best-effort: nếu lỗi cũng KHÔNG raise (memory dirty 1 entry vẫn workable, không crash flow).
+ */
+async function deleteLastAssistantMessage(senderId: string) {
+  try {
+    const result = await memory.recall({
+      threadId: senderId,
+      resourceId: "facebook-customer",
+      perPage: 5,
+      orderBy: { field: "createdAt", direction: "DESC" },
+    });
+    const lastAssistant = result.messages.find((m) => m.role === "assistant");
+    if (lastAssistant) {
+      await memory.deleteMessages([lastAssistant.id]);
+      console.log(
+        `[fb] deleted stale assistant msg id=${lastAssistant.id} for ${senderId}`,
+      );
+    }
+  } catch (e) {
+    console.warn(
+      `[fb] deleteLastAssistantMessage failed for ${senderId} (best-effort, ignore):`,
+      e,
+    );
+  }
+}
+
 async function sendTyping(recipientId: string) {
   try {
     await fetch(`${GRAPH_API}?access_token=${FB_PAGE_ACCESS_TOKEN}`, {
@@ -253,8 +284,9 @@ async function handleMessage(senderId: string, text: string) {
     // State save vẫn OK — tin mới sẽ load state đó (slot extracted từ tin này) + extract thêm.
     if (isStale()) {
       console.log(
-        `[fb] DROP stale reply for ${senderId} (seq ${mySeq} → ${seq.get(senderId)}) — KH đã gõ tin mới, tin sau sẽ trả lời với context cập nhật`,
+        `[fb] DROP stale reply for ${senderId} (seq ${mySeq} → ${seq.get(senderId)}) — KH đã gõ tin mới`,
       );
+      await deleteLastAssistantMessage(senderId);
       return;
     }
 
@@ -295,6 +327,7 @@ async function handleMessage(senderId: string, text: string) {
     // trong khoảng vài ms giữa "workflow xong" và "sendText").
     if (isStale()) {
       console.log(`[fb] DROP stale reply (race lúc sendText) for ${senderId}`);
+      await deleteLastAssistantMessage(senderId);
       return;
     }
 

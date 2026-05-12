@@ -131,7 +131,12 @@ function jaccardSim(a: string[], b: string[]): number {
 }
 
 function splitSentences(s: string): string[] {
-  return (s.match(/[^.!?]+[.!?]?/g) || []).map((x) => x.trim()).filter(Boolean);
+  // Split on .!? nhưng KHÔNG split khi "." nằm giữa 2 chữ số (vd "1.2 triệu", "2.5kg")
+  // hoặc khi "." là item marker "(1)." "(2)." (LLM hay output "(2). Học bơi 1.2 triệu").
+  // Dùng split lookbehind/lookahead: `.` chỉ là sentence-end khi sau là whitespace + chữ cái HOA,
+  // hoặc end-of-string.
+  const parts = s.split(/(?<=[.!?])(?!\d)\s+(?=\S)/);
+  return parts.map((x) => x.trim()).filter(Boolean);
 }
 
 /**
@@ -159,9 +164,11 @@ export function cleanReply(
     const forbidPhrases: string[] = [];
 
     // 1. Số tiền (chỉ khi prev có ≥2 → list package)
+    // Pre-normalize "1. 2 triệu" → "1.2 triệu" (LLM hay output decimal có space).
+    const prevNorm = prevReply.replace(/(\d+)\.\s+(\d+)/g, "$1.$2");
     const prevPrices = Array.from(
       new Set(
-        (prevReply.match(/\d+(?:\.\d+)?\s*(?:tr|triệu|k)\b/gi) || []).map((s) =>
+        (prevNorm.match(/\d+(?:\.\d+)?\s*(?:tr|triệu|k)\b/gi) || []).map((s) =>
           s.toLowerCase().replace(/\s+/g, ""),
         ),
       ),
@@ -177,18 +184,31 @@ export function cleanReply(
     }
 
     if (forbidPhrases.length > 0) {
-      const sentences = r.match(/[^.!?]+[.!?]?/g) || [];
-      const kept = sentences.filter((sent) => {
-        const norm = sent.toLowerCase().replace(/\s+/g, "");
-        return !forbidPhrases.some((p) => norm.includes(p));
-      });
-      const stripped = kept.join(" ").trim();
-      // Chỉ apply strip nếu reply sau strip còn ĐỦ context (≥ 60 chars).
-      // Nếu strip quá nhiều → giữ text gốc (tránh reply cụt như "Tiện ghé đo InBody hôm nào ạ").
-      if (kept.length >= 1 && stripped.length >= 60) {
-        r = stripped;
+      // Dùng splitSentences() đã fix (không split giữa "1.2") để strip per-sentence chuẩn.
+      const sentences = splitSentences(r);
+      // Detect numbered list (1)/(2)/(3) hoặc 1./2./3. — nếu có ≥2 list item, strip cả block
+      // hoặc giữ nguyên (tránh nhảy số như "(1) ... (3) ...").
+      const isListItem = (s: string) => /^\s*[\(\[]?\s*\d+\s*[\)\].]\s+/.test(s);
+      const listItems = sentences.filter(isListItem);
+      if (listItems.length >= 2) {
+        const anyHit = listItems.some((s) => {
+          const norm = s.toLowerCase().replace(/\s+/g, "");
+          return forbidPhrases.some((p) => norm.includes(p));
+        });
+        if (anyHit) {
+          // Toàn bộ list bị dính → strip cả block list
+          const kept = sentences.filter((s) => !isListItem(s));
+          const stripped = kept.join(" ").trim();
+          if (stripped.length >= 60) r = stripped;
+        }
+      } else {
+        const kept = sentences.filter((sent) => {
+          const norm = sent.toLowerCase().replace(/\s+/g, "");
+          return !forbidPhrases.some((p) => norm.includes(p));
+        });
+        const stripped = kept.join(" ").trim();
+        if (kept.length >= 1 && stripped.length >= 60) r = stripped;
       }
-      // Nếu strip hết hoặc còn quá ngắn → giữ text gốc (chấp nhận lặp 1 chút còn hơn cụt)
     }
 
     // Jaccard dedup: bắt cả trường hợp reply lặp ngữ NGHĨA (không cần cùng số tiền)
