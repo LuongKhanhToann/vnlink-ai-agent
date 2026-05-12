@@ -464,6 +464,34 @@ const SCENARIOS: Scenario[] = [
     ],
   },
 
+  // ═══ CONTINUOUS-THREAD: mô phỏng KH thật chat liên tục ═══
+  // Reproduce bug user thấy: T1 "Quan tâm", T2 "Tôi muốn tập trải nghiệm" cùng thread —
+  // bot ở T2 dễ hỏi gộp 2 câu hỏi liền nhau, hoặc thiếu dấu chấm.
+  {
+    name: "00_continuous_quan_tam_trai_nghiem",
+    turns: [
+      {
+        customer: "Quan tâm",
+        ideas: [GREETING_IDEA, ASK_BO_MON_IDEA],
+      },
+      {
+        customer: "Tôi muốn tập trải nghiệm",
+        ideas: [
+          {
+            label: "Hỏi đúng 1 thông tin tiếp theo",
+            anyOf: [
+              "bo mon nao",
+              "muc tieu",
+              "khung gio",
+            ],
+            semantic:
+              "Hỏi tiếp 1 thông tin DUY NHẤT (bộ môn / mục tiêu / khung giờ). KHÔNG hỏi gộp 2 câu trong 1 tin.",
+          },
+        ],
+      },
+    ],
+  },
+
   // ═══ GYM FLOW ═══
   {
     name: "11_gym_full",
@@ -513,9 +541,14 @@ async function judgeIdea(reply: string, idea: KeyIdea): Promise<{ match: boolean
   try {
     const result = await judgeAgent.generate(
       `REPLY BOT: """${reply}"""\n\n` +
-        `Ý CHÍNH cần check: "${idea.semantic ?? idea.label}"\n` +
-        `Reply có chứa ý này (hoặc paraphrase tương đương) không? ` +
-        `Trả JSON {match: true/false, reason}.`,
+        `Ý CHÍNH cần check (theo kịch bản): "${idea.semantic ?? idea.label}"\n\n` +
+        `CHẤM CHẶT — chỉ trả true khi reply THỰC SỰ thực hiện đúng ý này, không chỉ contain vài từ giống.\n` +
+        `Cụ thể:\n` +
+        `- Nếu ý là "hỏi X" thì reply phải có CÂU HỎI rõ ràng về X, không chỉ MENTION X.\n` +
+        `- Nếu ý là "trả lời X có/không" thì reply phải có câu khẳng định/phủ định.\n` +
+        `- Nếu ý là "list 4 dịch vụ" thì reply phải LIST đủ 4, không thiếu môn nào.\n` +
+        `- Nếu reply có nhiều câu hỏi mà chỉ 1 câu khớp ý → vẫn fail (vì bot vi phạm rule 1 Q/reply).\n` +
+        `Trả JSON {match: true/false, reason ngắn gọn dưới 30 từ}.`,
       {
         structuredOutput: {
           schema: judgeSchema,
@@ -542,12 +575,40 @@ interface TurnReport {
   passes: { label: string; method: "keyword" | "judge" | "miss"; reason?: string }[];
   fails: { label: string; reason: string }[];
   negativeFails: { label: string; matched: string }[];
+  styleFails: string[];
+}
+
+// Deterministic style checks: thiếu dấu chấm giữa 2 câu, > 1 câu hỏi/reply, vv.
+function deterministicStyleCheck(reply: string): string[] {
+  const issues: string[] = [];
+  if (!reply || !reply.trim()) {
+    issues.push("Reply rỗng");
+    return issues;
+  }
+
+  // 1. Số câu hỏi (rule fitness.ts: mỗi tin ≤1 câu hỏi)
+  const qCount = (reply.match(/[?？]/g) || []).length;
+  if (qCount > 1) {
+    issues.push(`${qCount} câu hỏi trong 1 reply (max 1)`);
+  }
+
+  // 2. Thiếu dấu chấm giữa 2 câu (sentence A kết "ạ"/"."/"!" rồi viết hoa mà không có dấu)
+  // Pattern: lowercase/space + "ạ" / "rồi" / số + WHITESPACE + capital letter (không phải tiếp nối)
+  // Vd: "...chưa ạ Mục tiêu..." → chỗ "ạ M" thiếu dấu chấm
+  // Detect: " ạ " followed by capital letter without intermediate punctuation
+  if (/\bạ\s+[A-ZĐĂÂÊÔƠƯÁÀẢÃẠÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴ]/.test(reply)) {
+    const m = reply.match(/\bạ\s+([A-ZĐĂÂÊÔƠƯÁÀẢÃẠÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴ][a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]{1,15})/);
+    issues.push(`Thiếu dấu "." giữa "ạ" và câu mới: "ạ ${m?.[1]}..."`);
+  }
+
+  return issues;
 }
 
 async function checkTurn(reply: string, expected: ExpectedTurn): Promise<{
   passes: TurnReport["passes"];
   fails: TurnReport["fails"];
   negativeFails: TurnReport["negativeFails"];
+  styleFails: string[];
 }> {
   const passes: TurnReport["passes"] = [];
   const fails: TurnReport["fails"] = [];
@@ -577,7 +638,9 @@ async function checkTurn(reply: string, expected: ExpectedTurn): Promise<{
     }
   }
 
-  return { passes, fails, negativeFails };
+  const styleFails = deterministicStyleCheck(reply);
+
+  return { passes, fails, negativeFails, styleFails };
 }
 
 // ─────────────────────────────────────────────
@@ -597,7 +660,8 @@ async function run() {
   let totalPasses = 0;
   let totalFails = 0;
   let totalNegFails = 0;
-  const failedTurns: { scenario: string; turn: number; customer: string; reply: string; fails: TurnReport["fails"]; negs: TurnReport["negativeFails"] }[] = [];
+  let totalStyleFails = 0;
+  const failedTurns: { scenario: string; turn: number; customer: string; reply: string; fails: TurnReport["fails"]; negs: TurnReport["negativeFails"]; styleFails: string[] }[] = [];
 
   for (const sc of selected) {
     const threadId = `test-kichban-${runId}-${sc.name}`;
@@ -625,11 +689,12 @@ async function run() {
       }
 
       const state = await loadState(mastra, threadId, resourceId);
-      const { passes, fails, negativeFails } = await checkTurn(reply, expected);
+      const { passes, fails, negativeFails, styleFails } = await checkTurn(reply, expected);
       totalIdeas += expected.ideas.length;
       totalPasses += passes.length;
       totalFails += fails.length;
       totalNegFails += negativeFails.length;
+      totalStyleFails += styleFails.length;
 
       console.log(`\n[T${i + 1}] KH: ${expected.customer}`);
       console.log(`     stage=${state.stage} intent=${state.intent}`);
@@ -643,8 +708,11 @@ async function run() {
       for (const n of negativeFails) {
         console.log(`     ⚠ NEG ${n.label} (matched: "${n.matched}")`);
       }
+      for (const s of styleFails) {
+        console.log(`     ✗ STYLE: ${s}`);
+      }
 
-      if (fails.length > 0 || negativeFails.length > 0) {
+      if (fails.length > 0 || negativeFails.length > 0 || styleFails.length > 0) {
         failedTurns.push({
           scenario: sc.name,
           turn: i + 1,
@@ -652,6 +720,7 @@ async function run() {
           reply,
           fails,
           negs: negativeFails,
+          styleFails,
         });
       }
     }
@@ -660,14 +729,17 @@ async function run() {
   console.log(`\n${"═".repeat(78)}\nSUMMARY\n${"═".repeat(78)}`);
   console.log(`Ideas: ${totalPasses}/${totalIdeas} pass — ${totalFails} fail`);
   if (totalNegFails > 0) console.log(`Negative violations: ${totalNegFails}`);
+  if (totalStyleFails > 0) console.log(`Style violations: ${totalStyleFails}`);
   console.log(`Failed turns: ${failedTurns.length}`);
 
   if (failedTurns.length > 0) {
     console.log(`\nDETAIL FAILED:`);
     for (const ft of failedTurns) {
       console.log(`  - ${ft.scenario} T${ft.turn}: "${ft.customer}"`);
+      console.log(`      BOT: ${ft.reply.slice(0, 200)}`);
       for (const f of ft.fails) console.log(`      ✗ ${f.label} — ${f.reason}`);
       for (const n of ft.negs) console.log(`      ⚠ NEG ${n.label}`);
+      for (const s of ft.styleFails) console.log(`      ✗ STYLE: ${s}`);
     }
     process.exit(1);
   }

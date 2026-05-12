@@ -616,6 +616,22 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
+  // ── KH explicit nói "muốn giảm cân" ở turn đầu (chưa có serviceType) — hỏi history TRƯỚC ──
+  // (Fami flow: ack mục tiêu → hỏi đã thử biện pháp gì chưa → mới recommend)
+  if (
+    flow === "fitness" &&
+    message &&
+    /(muốn\s+)?(giảm\s+cân|giảm\s+mỡ|giảm\s+béo)/i.test(message) &&
+    knownInfo.serviceType === null &&
+    state.turnCount <= 1
+  ) {
+    return (
+      `[GATE giam-can-opening: KHÔNG recommend dịch vụ NGAY, hỏi history TRƯỚC. ` +
+      `Reply 1 câu: 'Dạ em chào ${state.honorific}, cảm ơn ${state.honorific} đã quan tâm. Không biết ${state.honorific} có đang tập luyện hay sử dụng biện pháp giảm cân nào không ạ?'. ` +
+      `BẮT BUỘC nhắc 'tập luyện' và 'biện pháp giảm cân'. KHÔNG hỏi 'gym/yoga' cụ thể.]`
+    );
+  }
+
   // ── KH "đi qua tham quan thôi" — list 4 dịch vụ + gói Full đa năng ──
   if (flow === "fitness" && message && detectThamQuan(message)) {
     return (
@@ -767,18 +783,24 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── Bơi: KH chưa rõ NL/TE — Fami hỏi NL/TE TRƯỚC khi pitch gói ──
-  // (Detect: message nhắc "bơi" / "học bơi" mà CHƯA nhắc trẻ em / người lớn)
+  // ── Bơi: KH muốn HỌC BƠI nhưng chưa rõ NL/TE — Fami hỏi NL/TE TRƯỚC khi pitch gói ──
+  // CHỈ fire khi:
+  //   - message có ý "quan tâm/muốn HỌC bơi" (không phải FAQ về bể bơi)
+  //   - KHÔNG phải factual question (giờ mở/clo/đồ bơi...)
+  //   - chưa mention NL/TE hoặc tuổi
   if (
     flow === "fitness" &&
     knownInfo.serviceType === "boi" &&
-    knownInfo.fitnessGoal === "hoc-boi" &&
     message &&
+    /(quan\s*tâm|muốn|cần|hỏi\s+về)\s+(học\s+)?bơi|học\s+bơi/i.test(message) &&
+    !detectFacilityQuestion(message, flow) &&
     !/(trẻ\s*(con|em)|bé\s*nhà|con\s+(tôi|chị|anh|em)|cháu\s+(nhà|tôi|chị|anh)|\bbé\b|người\s*lớn|nl\b|adult)/i.test(message) &&
-    (state.turnCount <= 1 || state.stage === "discovery")
+    !detectChildAgeStated(message)
   ) {
-    hints.push(
-      "[GATE bơi-hỏi-NL/TE-trước: KHÔNG pitch 2 gói (1-1 / nhóm) ngay. ƯU TIÊN hỏi: 'Dạ em chào anh/chị, không biết anh/chị đang quan tâm học bơi cho người lớn hay trẻ em ạ' rồi mới phân nhánh tiếp.]",
+    return (
+      "[GATE bơi-hỏi-NL/TE: KHÔNG pitch gói, KHÔNG list 'có 2 lựa chọn'. " +
+      `Reply DUY NHẤT 1 câu: 'Dạ em chào ${state.honorific}, không biết ${state.honorific} đang quan tâm học bơi cho người lớn hay trẻ em ạ?'. ` +
+      "BẮT BUỘC nhắc 'người lớn' và 'trẻ em'.]"
     );
   }
 
@@ -1917,15 +1939,21 @@ export function buildPrefix(
   }
 
   // Build GATE first — detect "override mode" (hard-return single GATE) để skip few-shot/knowledge.
-  // Override = GATE ưu tiên tuyệt đối làm bộ não bot, KHÔNG nên bị few-shot/knowledge gây nhiễu.
+  // Override = GATE ưu tiên tuyệt đối làm bộ não bot, KHÔNG nên bị TACTIC/few-shot/knowledge gây nhiễu.
   const gateOutput = buildLogicGate(state, message);
   const isOverrideGate =
-    /Zumba-vs-Aerobic|chấn thương cấp|done-slots|đang lạnh|phản đối giá|GATE deposit|cold lead/i.test(
+    /Zumba-vs-Aerobic|chấn thương cấp|done-slots|đang lạnh|phản đối giá|GATE deposit|cold lead|giam-can-opening|bơi-hỏi-NL\/TE|bơi-trẻ-em|bơi-tuổi-stated|chuong-trinh-consult|chua-biet-tap-gi|tham-quan|full-package-confirm|trial-ask|explicit-price-list/i.test(
       gateOutput,
     );
 
   const knowledgeBlock = isOverrideGate ? "" : buildKnowledgeBlock(state, h, message, prevBotReply);
   const fewShotBlock = isOverrideGate ? "" : (buildFewShot(state, h, prevBotReply, message) ?? "");
+
+  // Khi override-GATE bật, TACTIC mặc định (vd "pitch CỤ THỂ bể 4 mùa") sẽ mâu thuẫn với GATE.
+  // → Thay TACTIC bằng instruction trung tính "đọc GATE bên dưới".
+  if (isOverrideGate) {
+    tactic = "ƯU TIÊN [GATE] ở dưới — viết theo đúng GATE, KHÔNG pitch/list/nhảy chủ đề khác.";
+  }
 
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,

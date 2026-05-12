@@ -271,6 +271,43 @@ export function cleanReply(
     r = r.replace(pattern, replacement);
   }
 
+  // 6b. Insert dấu "." giữa "ạ" + chữ HOA (bot hay viết "...ạ Mục tiêu..." thiếu chấm).
+  //     Pattern: " ạ " (kết câu) + space + chữ in hoa tiếng Việt → " ạ. " + chữ in hoa.
+  r = r.replace(
+    /\bạ(\s+)([A-ZĐĂÂÊÔƠƯÁÀẢÃẠÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴ][a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ])/g,
+    "ạ.$1$2",
+  );
+
+  // 6c. Strip câu hỏi thứ 2+: rule "max 1 câu hỏi/reply" (sale Zalo/Messenger).
+  //     Strategy:
+  //       - Find tất cả câu kết "?" (sau khi strip dấu "?" còn "ạ" + sentence boundary).
+  //       - Vì step 7 sắp strip "?" → ta detect trước: tìm các sentence kết "?" và đếm.
+  //       - Nếu ≥2, giữ câu hỏi ĐẦU TIÊN, các câu hỏi sau đổi thành câu khẳng định:
+  //         strip toàn bộ câu hỏi thứ 2+ luôn.
+  //     Pattern câu hỏi: kết bằng "?" hoặc " ạ?" (sau khi đã normalize).
+  const questionMarks = (r.match(/\?/g) || []).length;
+  if (questionMarks >= 2) {
+    const sentences = splitSentences(r);
+    let kept: string[] = [];
+    let questionUsed = false;
+    for (const s of sentences) {
+      const isQuestion = /[?]\s*$/.test(s.trim());
+      if (isQuestion) {
+        if (!questionUsed) {
+          kept.push(s);
+          questionUsed = true;
+        }
+        // else: skip câu hỏi thứ 2+ (drop sentence)
+      } else {
+        kept.push(s);
+      }
+    }
+    // Nếu chưa có câu hỏi nào được giữ (chỉ vì sentence split lỗi), keep all.
+    if (kept.length > 0) {
+      r = kept.join(" ").trim();
+    }
+  }
+
   // 7. Strip TOÀN BỘ dấu "?" — văn phong sale Việt thường mềm bằng "ạ"/"nha" thay vì "?".
   //    Bảo toàn "?" nằm trong URL (vd facebook.com/profile?id=...) bằng cách chỉ strip
   //    "?" khi KHÔNG đứng trước ký tự word (URL query thường có "?id=" → "?" theo "i" word char).
