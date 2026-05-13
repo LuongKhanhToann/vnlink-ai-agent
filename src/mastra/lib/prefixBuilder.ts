@@ -632,14 +632,15 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── KH explicit nói "muốn giảm cân" ở turn đầu (chưa có serviceType) — hỏi history TRƯỚC ──
+  // ── KH explicit nói "muốn giảm cân" + chưa biết bộ môn + chưa hỏi history → hỏi history TRƯỚC ──
   // (Fami flow: ack mục tiêu → hỏi đã thử biện pháp gì chưa → mới recommend)
+  // KHÔNG gate bằng turnCount — gate bằng prevBotReply để fire mọi turn cho tới khi history được hỏi.
   if (
     flow === "fitness" &&
     message &&
     /(muốn\s+)?(giảm\s+cân|giảm\s+mỡ|giảm\s+béo)/i.test(message) &&
     knownInfo.serviceType === null &&
-    state.turnCount <= 1
+    !/biện pháp giảm cân/i.test(state.lastBotReply || "")
   ) {
     return (
       `[GATE giam-can-opening: KHÔNG recommend dịch vụ NGAY, hỏi history TRƯỚC. ` +

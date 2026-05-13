@@ -282,6 +282,25 @@ export function decideFitnessQuestion(
   const stage = state.stage;
   const turn = state.turnCount;
   const m = message;
+  const prev = (prevBotReply || "").toLowerCase();
+  const askedGiamCanHistory = /biện pháp giảm cân/i.test(prev);
+
+  // ─── EARLY: KH "muốn giảm cân" + chưa biết bộ môn + chưa hỏi history.
+  // Áp dụng bất kể turn — kịch bản Fami: LUÔN hỏi history trước khi recommend.
+  // Turn 1 (chưa chào) → kèm câu chào. Turn 2+ (đã chào) → vào thẳng câu hỏi history.
+  if (isGiamCanIntro(m) && ki.serviceType === null && !askedGiamCanHistory) {
+    const greeting =
+      turn <= 1
+        ? `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. `
+        : `Dạ vâng ${h}, `;
+    return {
+      id: "giam_can_ask_history",
+      template:
+        greeting +
+        `Không biết ${h} có đang tập luyện hay sử dụng biện pháp giảm cân nào không ạ.`,
+      mustInclude: ["biện pháp giảm cân"],
+    };
+  }
 
   // ─── OPENING patterns (turn 1 — chưa có gì)
   if (turn <= 1 && stage === "opening" && ki.serviceType === null) {
@@ -297,16 +316,7 @@ export function decideFitnessQuestion(
       };
     }
 
-    // (2) "Tôi muốn tập giảm cân" — hỏi history giảm cân TRƯỚC khi pitch
-    if (isGiamCanIntro(m)) {
-      return {
-        id: "opening_giam_can",
-        template:
-          `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
-          `Không biết ${h} có đang tập luyện hay sử dụng biện pháp giảm cân nào không ạ.`,
-        mustInclude: ["em chào", "biện pháp giảm cân"],
-      };
-    }
+    // (2) [moved] "Tôi muốn tập giảm cân" — xem block EARLY giam_can_ask_history phía trên.
 
     // (3) "Tư vấn cho tôi về chương trình tập luyện" — list 4 dịch vụ
     if (isChuongTrinhConsult(m)) {
