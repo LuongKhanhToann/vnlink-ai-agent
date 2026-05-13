@@ -359,7 +359,7 @@ export function detectTrialAsk(message: string): boolean {
   const m = message.toLowerCase();
   if (/gói\s+giá|những\s+gói|các\s+gói\s+nào|gói\s+nào/.test(m)) return false;
   return (
-    /(tập\s*thử|tập\s*được\s*thử|trải\s*nghiệm\s*thử|thử\s+(1|một)\s+buổi|thử\s+xem|cho.{0,5}thử|được\s+thử)/.test(m)
+    /(tập\s*thử|tập\s*được\s*thử|trải\s*nghiệm\s*thử|thử\s+(1|một)\s+buổi|thử\s+xem|cho.{0,5}thử|được\s+thử|tập\s+trải\s+nghiệm|muốn\s+trải\s+nghiệm|đăng\s*ký\s+trải\s+nghiệm|đk\s+trải\s+nghiệm)/.test(m)
   );
 }
 
@@ -573,6 +573,15 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
 
   // ── KH hỏi tập thử / trải nghiệm thử ──
   if (flow === "fitness" && message && detectTrialAsk(message)) {
+    // Chưa biết bộ môn → hỏi BỘ MÔN trước (TL1 kịch bản Fami). KHÔNG hỏi khung giờ ngay
+    // khi chưa biết khách quan tâm gì — vô nghĩa, phải biết tập gì rồi mới sắp giờ.
+    if (knownInfo.serviceType === null) {
+      return (
+        `[GATE trial-ask (chưa biết bộ môn): hỏi BỘ MÔN trước, KHÔNG hỏi khung giờ. ` +
+        `Reply theo TL1 kịch bản Fami: 'Dạ em chào ${state.honorific}, cảm ơn ${state.honorific} đã quan tâm đến dịch vụ của trung tâm. Bên em có nhiều bộ môn Gym, Yoga, Zumba, Bơi — không biết ${state.honorific} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ'. ` +
+        `BẮT BUỘC nhắc đủ 4 từ Gym, Yoga, Zumba, Bơi. KHÔNG hỏi khung giờ. KHÔNG pitch giá.]`
+      );
+    }
     return (
       "[GATE trial-ask: trả lời TRƯỚC: 'Dạ bên em có ạ, em hỗ trợ mình tập thử 1 buổi để xem phòng tập và giáo viên có phù hợp không, sau đó mình cân đối các gói giá ạ'. " +
       "Có thể kèm khung giờ '5h sáng hoặc 18h chiều'. KHÔNG pitch 3 gói số giá ở turn này.]"

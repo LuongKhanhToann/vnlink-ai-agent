@@ -357,14 +357,16 @@ export function decideFitnessQuestion(
   }
 
   // ─── Continuous turn 2+: KH muốn trải nghiệm SAU khi đã chào
-  // Đảm bảo bot hỏi 1 thông tin DUY NHẤT — chọn KHUNG GIỜ để khác câu turn 1
-  // (T1 thường đã hỏi "bộ môn nào", nếu T2 lặp lại sẽ bị Jaccard dedup strip).
+  // Theo TL2 kịch bản Fami: list 4 dịch vụ + giờ mở cửa + hỏi khung giờ.
+  // KHÔNG hỏi "bộ môn nào" lại (T1 đã hỏi) — chuyển sang hỏi KHUNG GIỜ với
+  // đầy đủ ngữ cảnh dịch vụ để khách biết bên em có gì.
   if (turn >= 2 && stage !== "commitment" && isTrialIntro(m) && ki.serviceType === null) {
     return {
       id: "trial_intro_followup",
       template:
-        `Dạ vâng, để em hỗ trợ ${h} đăng ký trải nghiệm. ${h} có thể đi tập được khung giờ nào ạ.`,
-      mustInclude: ["khung giờ"],
+        `Dạ vâng ${h}, bên em cung cấp nhiều dịch vụ: Gym, Yoga, Zumba, Bơi, phòng tập mở cửa từ 5h00 đến 20h30. ` +
+        `Không biết ${h} có thể đi tập được khung giờ nào để em hỗ trợ tư vấn ạ.`,
+      mustInclude: ["Gym", "Yoga", "Zumba", "Bơi", "khung giờ", "20h30"],
     };
   }
 
