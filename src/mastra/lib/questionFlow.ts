@@ -628,38 +628,41 @@ export function decideFitnessQuestion(
     }
   }
 
-  // ─── DISCOVERY: hỏi "đã tập X bao giờ chưa" (turn đầu sau khi biết serviceType)
+  // ─── DISCOVERY: hỏi "đã tập X bao giờ chưa" — fire khi chưa hỏi experience cho bộ môn này.
+  // Gate bằng prevBotReply (kiểm "đã tập <bộ môn>") thay vì turnCount — để cover cả case
+  // KH đổi bộ môn giữa cuộc thoại (vd đang nói bơi → "tôi quan tâm gym" → fire gym_discovery).
   if (
     stage === "discovery" &&
     ki.serviceType !== null &&
-    ki.fitnessGoal === null &&
-    turn <= 2 &&
-    !prevBotReply
+    ki.fitnessGoal === null
   ) {
-    if (ki.serviceType === "gym") {
-      return {
-        id: "gym_discovery",
-        template:
-          `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn Gym của trung tâm. ` +
-          `Không biết ${h} đã tập gym bao giờ chưa ạ.`,
-        mustInclude: ["em chào", "đã tập gym"],
-      };
-    }
-    if (ki.serviceType === "yoga") {
-      return {
-        id: "yoga_discovery",
-        template:
-          `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập yoga chưa ạ.`,
-        mustInclude: ["đã tập yoga"],
-      };
-    }
-    if (ki.serviceType === "zumba") {
-      return {
-        id: "zumba_discovery",
-        template:
-          `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập zumba chưa ạ.`,
-        mustInclude: ["đã tập zumba"],
-      };
+    const askedExperience = new RegExp(`đã tập ${ki.serviceType}`, "i").test(prev);
+    if (!askedExperience) {
+      if (ki.serviceType === "gym") {
+        return {
+          id: "gym_discovery",
+          template:
+            `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn Gym của trung tâm. ` +
+            `Không biết ${h} đã tập gym bao giờ chưa ạ.`,
+          mustInclude: ["em chào", "đã tập gym"],
+        };
+      }
+      if (ki.serviceType === "yoga") {
+        return {
+          id: "yoga_discovery",
+          template:
+            `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập yoga chưa ạ.`,
+          mustInclude: ["đã tập yoga"],
+        };
+      }
+      if (ki.serviceType === "zumba") {
+        return {
+          id: "zumba_discovery",
+          template:
+            `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập zumba chưa ạ.`,
+          mustInclude: ["đã tập zumba"],
+        };
+      }
     }
   }
 

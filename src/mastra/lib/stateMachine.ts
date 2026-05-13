@@ -225,6 +225,35 @@ const PAIN_PRIORITY = new RegExp(
   "iu",
 );
 
+/**
+ * Detect KH đổi bộ môn giữa cuộc thoại.
+ * Trả về tên bộ môn MỚI (gym/yoga/zumba/boi/pilates) khi:
+ *   - message có keyword bộ môn, VÀ
+ *   - previousService đã có và KHÁC bộ môn mới.
+ * Trả null nếu không switch.
+ *
+ * Lý do tách riêng khỏi detectFlowByKeyword: detectFlowByKeyword chỉ phân biệt
+ * fitness vs giai-co; cần detector cấp service-level cho merge logic.
+ */
+const SERVICE_PATTERNS: Array<[string, RegExp]> = [
+  ["zumba", new RegExp(`${VI_BOUND_L}zumba${VI_BOUND_R}`, "iu")],
+  ["yoga", new RegExp(`${VI_BOUND_L}yoga${VI_BOUND_R}`, "iu")],
+  ["boi", new RegExp(`${VI_BOUND_L}(bơi|bể\\s*bơi|bơi\\s*lội)${VI_BOUND_R}`, "iu")],
+  ["pilates", new RegExp(`${VI_BOUND_L}pilates${VI_BOUND_R}`, "iu")],
+  ["gym", new RegExp(`${VI_BOUND_L}gym${VI_BOUND_R}`, "iu")],
+];
+
+export function detectServiceSwitch(
+  message: string,
+  previousService: string | null,
+): string | null {
+  if (!message || !previousService) return null;
+  for (const [svc, re] of SERVICE_PATTERNS) {
+    if (re.test(message) && svc !== previousService) return svc;
+  }
+  return null;
+}
+
 export function detectFlowByKeyword(
   message: string,
   _previousFlow: Flow | null
@@ -519,10 +548,36 @@ export function buildNextState(
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   const flow = keywordFlow ?? llm.flow ?? previous.flow;
 
-  const baseStage: Stage =
-    flow !== previous.flow ? "opening" : previous.stage;
+  // Detect SERVICE SWITCH: KH chủ động đổi bộ môn giữa cuộc thoại
+  // ("đang nói bơi → tôi quan tâm gym"). Khi switch:
+  //   - lock serviceType vào bộ môn mới (override pick() trong mergeSlots)
+  //   - reset slots phụ thuộc service: fitnessGoal, schedule, durationMonths, sessionPackage
+  //   - giữ name/phone/preferredTime/memberType (không phụ thuộc service)
+  //   - reset stage về opening để re-chạy discovery (hỏi "đã tập X chưa", mục tiêu...)
+  const switched =
+    flow === "fitness" ? detectServiceSwitch(message, previous.knownInfo.serviceType) : null;
 
-  const knownInfo = mergeSlots(previous.knownInfo, llm.extractedSlots);
+  let knownInfo = mergeSlots(previous.knownInfo, llm.extractedSlots);
+  if (switched) {
+    // Reset toàn bộ slot phụ thuộc bộ môn — bao gồm memberType vì nó được suy ra trong
+    // context bộ môn cũ (vd hoc-sinh extract từ flow bơi trẻ em không nhất thiết apply gym).
+    // Giữ: name, phone, preferredTime (cross-service).
+    knownInfo = {
+      ...knownInfo,
+      serviceType: switched,
+      fitnessGoal: null,
+      memberType: null,
+      schedule: null,
+      durationMonths: null,
+      sessionPackage: null,
+    };
+  }
+
+  const baseStage: Stage =
+    flow !== previous.flow ? "opening"
+      : switched ? "opening"
+      : previous.stage;
+
   const intent = llm.intent;
 
   const stage = computeNextStage(
