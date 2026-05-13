@@ -32,6 +32,7 @@ type TemplateGenerator = (
   state: ConversationState,
   h: string,
   prev: string,
+  message: string,
 ) => QuestionFlowDecision | null;
 
 // ─────────────────────────────────────────────
@@ -70,49 +71,78 @@ function greetingPrefix(state: ConversationState, h: string): string {
     : `Dạ vâng ${h}, `;
 }
 
+// KH vừa mention dịch vụ (yoga/zumba/gym) lần đầu, chưa hỏi experience, chưa có goal.
+// → Ưu tiên discovery thay vì templates opening_* / generic.
+function isFreshServiceDiscovery(
+  state: ConversationState,
+  prev: string,
+): boolean {
+  const svc = state.knownInfo.serviceType;
+  if (!svc) return false;
+  if (svc !== "yoga" && svc !== "zumba" && svc !== "gym") return false;
+  if (state.knownInfo.fitnessGoal !== null) return false;
+  if (askedExperience(prev, svc)) return false;
+  return true;
+}
+
 // ─────────────────────────────────────────────
 // TEMPLATE GENERATORS
 // ─────────────────────────────────────────────
 
 const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   // ── OPENING ──────────────────────────────
-  opening_greeting: (_s, h) => ({
-    id: "opening_greeting",
-    template:
-      `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
-      `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
-    mustInclude: ["em chào", "bộ môn nào"],
-  }),
+  // Khi KH đã mention dịch vụ cụ thể (yoga/zumba/gym) → yield cho discovery
+  // (tránh classifier mis-label "Quan tâm zumba" → opening_chua_biet).
+  opening_greeting: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
+    return {
+      id: "opening_greeting",
+      template:
+        `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
+        `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
+      mustInclude: ["em chào", "bộ môn nào"],
+    };
+  },
 
-  opening_chuong_trinh: (_s, h) => ({
-    id: "opening_chuong_trinh",
-    template:
-      `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
-      `Bên em hiện tại có rất nhiều bộ môn: Gym, Yoga, Zumba, Bơi. ` +
-      `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
-    mustInclude: ["em chào", "Gym", "Yoga", "Zumba", "Bơi", "bộ môn nào"],
-  }),
+  opening_chuong_trinh: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
+    return {
+      id: "opening_chuong_trinh",
+      template:
+        `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
+        `Bên em hiện tại có rất nhiều bộ môn: Gym, Yoga, Zumba, Bơi. ` +
+        `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
+      mustInclude: ["em chào", "Gym", "Yoga", "Zumba", "Bơi", "bộ môn nào"],
+    };
+  },
 
-  opening_chua_biet: (_s, h) => ({
-    id: "opening_chua_biet",
-    template:
-      `Dạ em chào ${h}, ${h} ơi trước đây mình đã từng tập bộ môn nào chưa ạ, ` +
-      `hay là mình có yêu thích bộ môn nào không ạ.`,
-    mustInclude: ["em chào", "đã từng tập"],
-    mustNotInclude: ["Gym, Yoga, Zumba, Bơi"],
-  }),
+  opening_chua_biet: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
+    return {
+      id: "opening_chua_biet",
+      template:
+        `Dạ em chào ${h}, ${h} ơi trước đây mình đã từng tập bộ môn nào chưa ạ, ` +
+        `hay là mình có yêu thích bộ môn nào không ạ.`,
+      mustInclude: ["em chào", "đã từng tập"],
+      mustNotInclude: ["Gym, Yoga, Zumba, Bơi"],
+    };
+  },
 
-  tham_quan: (_s, h) => ({
-    id: "tham_quan",
-    template:
-      `Dạ vâng ${h}, bên em là Tổ hợp thể thao bao gồm Gym, Yoga, Zumba và Bơi, mỗi bộ môn sẽ có lợi ích riêng. ` +
-      `Bên em cũng có gói Full đa năng bao gồm cả 4 dịch vụ để mình linh động đỡ nhàm chán. ` +
-      `${h} đang thiên về mục tiêu nào để em tư vấn thêm ạ.`,
-    mustInclude: ["Gym", "Yoga", "Zumba", "Bơi", "gói Full"],
-  }),
+  tham_quan: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
+    return {
+      id: "tham_quan",
+      template:
+        `Dạ vâng ${h}, bên em là Tổ hợp thể thao bao gồm Gym, Yoga, Zumba và Bơi, mỗi bộ môn sẽ có lợi ích riêng. ` +
+        `Bên em cũng có gói Full đa năng bao gồm cả 4 dịch vụ để mình linh động đỡ nhàm chán. ` +
+        `${h} đang thiên về mục tiêu nào để em tư vấn thêm ạ.`,
+      mustInclude: ["Gym", "Yoga", "Zumba", "Bơi", "gói Full"],
+    };
+  },
 
   // ── INTRO ────────────────────────────────
-  intro_trai_nghiem: (s, h) => {
+  intro_trai_nghiem: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
     if (s.turnCount <= 1) {
       // Turn 1: list 4 dịch vụ + giờ mở (kịch bản TL2)
       return {
@@ -148,7 +178,8 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     return null; // fallback (LLM tự pitch giải pháp theo EXAMPLE)
   },
 
-  intro_uu_dai: (s, h) => {
+  intro_uu_dai: (s, h, prev) => {
+    if (isFreshServiceDiscovery(s, prev)) return null;
     if (s.knownInfo.serviceType !== null) return null; // đã biết bộ môn → fallback
     return {
       id: "uu_dai_ask_service",
@@ -342,24 +373,33 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   }),
 
   // ── ZUMBA ────────────────────────────────
-  zumba_vs_aerobic: (_s, h) => ({
-    id: "zumba_vs_aerobic",
-    template:
-      `Dạ Zumba và Aerobic đều tập trên nền nhạc, tuy nhiên Zumba thiên về nhảy và cảm thụ âm nhạc hơn — ` +
-      `đa dạng động tác, nhẹ nhàng uyển chuyển cũng có mà mạnh mẽ dứt khoát cũng có. ` +
-      `Aerobic thiên về mạnh mẽ, cardio liên tục, sẽ khó theo hơn Zumba ạ. ` +
-      `${h} qua thử 1 buổi Zumba xem phòng tập và giáo viên có phù hợp không nha.`,
-    mustInclude: ["Aerobic", "nền nhạc", "nhảy"],
-  }),
+  // Guard: chỉ fire khi message THỰC SỰ nhắc "aerobic" — tránh classifier mis-label
+  // "Quan tâm zumba" thành zumba_vs_aerobic.
+  zumba_vs_aerobic: (_s, h, _prev, message) => {
+    if (!/aerobic/i.test(message)) return null;
+    return {
+      id: "zumba_vs_aerobic",
+      template:
+        `Dạ Zumba và Aerobic đều tập trên nền nhạc, tuy nhiên Zumba thiên về nhảy và cảm thụ âm nhạc hơn — ` +
+        `đa dạng động tác, nhẹ nhàng uyển chuyển cũng có mà mạnh mẽ dứt khoát cũng có. ` +
+        `Aerobic thiên về mạnh mẽ, cardio liên tục, sẽ khó theo hơn Zumba ạ. ` +
+        `${h} qua thử 1 buổi Zumba xem phòng tập và giáo viên có phù hợp không nha.`,
+      mustInclude: ["Aerobic", "nền nhạc", "nhảy"],
+    };
+  },
 
-  zumba_weight_loss: (_s, h) => ({
-    id: "zumba_weight_loss",
-    template:
-      `Dạ Zumba là một trong những bộ môn giảm mỡ toàn thân, săn chắc eo, đùi và bắp tay, ` +
-      `đồng thời giúp xả stress, xóa tan năng lượng tiêu cực. ` +
-      `${h} đang có nhu cầu giảm cân thì có thể kết hợp thêm 1-2 buổi Gym để có kết quả tốt nhất ạ.`,
-    mustInclude: ["giảm mỡ", "săn chắc"],
-  }),
+  // Guard: chỉ fire khi message thực sự hỏi giảm cân (tránh mis-label).
+  zumba_weight_loss: (_s, h, _prev, message) => {
+    if (!/(giảm\s*(cân|mỡ|béo)|đốt\s*mỡ|béo)/i.test(message)) return null;
+    return {
+      id: "zumba_weight_loss",
+      template:
+        `Dạ Zumba là một trong những bộ môn giảm mỡ toàn thân, săn chắc eo, đùi và bắp tay, ` +
+        `đồng thời giúp xả stress, xóa tan năng lượng tiêu cực. ` +
+        `${h} đang có nhu cầu giảm cân thì có thể kết hợp thêm 1-2 buổi Gym để có kết quả tốt nhất ạ.`,
+      mustInclude: ["giảm mỡ", "săn chắc"],
+    };
+  },
 
   // ── PRICING ──────────────────────────────
   price_with_worry: (_s, h) => ({
@@ -542,11 +582,24 @@ export function decideFitnessQuestion(
   const h = resolveHonorific(state.honorific);
   const prev = prevBotReply || "";
 
+  // Override: nếu KH nhắc "aerobic" trực tiếp (so sánh với Zumba) → force topic.
+  // Classifier có khi miss topic này khi cùng tin có cả "giảm cân" lẫn "aerobic".
+  if (
+    /aerobic/i.test(message) &&
+    (state.knownInfo.serviceType === "zumba" || !state.knownInfo.serviceType)
+  ) {
+    const zumbaCmp = TEMPLATES.zumba_vs_aerobic;
+    if (zumbaCmp) {
+      const decision = zumbaCmp(state, h, prev, message);
+      if (decision) return decision;
+    }
+  }
+
   // 1. Lookup topic-based template
   if (state.intentTopic) {
     const generator = TEMPLATES[state.intentTopic];
     if (generator) {
-      const decision = generator(state, h, prev);
+      const decision = generator(state, h, prev, message);
       if (decision) return decision;
     }
   }
