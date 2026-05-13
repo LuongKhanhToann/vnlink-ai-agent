@@ -507,13 +507,19 @@ export function computeSuggestedMediaKey(state: ConversationState): string | nul
  */
 function buildMediaHint(state: ConversationState): string {
   if (state.mediaShown) return "";
-  if (state.stage === "opening" || state.stage === "commitment") return "";
+  // Discovery = bot đang HỎI thăm dò (đã tập chưa, mục tiêu gì) → gửi ảnh là chen ngang.
+  // Chỉ gợi media khi sang inbody/evaluation/negotiation — moment bot build value/pitch.
+  if (
+    state.stage === "opening" ||
+    state.stage === "discovery" ||
+    state.stage === "commitment"
+  ) return "";
 
   const key = computeSuggestedMediaKey(state);
   if (!key) return "";
 
   return (
-    `[MEDIA: chưa gửi. suggestedKey="${key}". TỰ QUYẾT gọi get-media nếu khách đang phân vân/build-value/xin xem trực tiếp. KHÔNG gửi khi chào hỏi/đang chốt. Max 1 lần/conv.]`
+    `[MEDIA: chưa gửi. suggestedKey="${key}". TỰ QUYẾT gọi get-media nếu khách đang phân vân/build-value/xin xem trực tiếp. KHÔNG gửi khi chào hỏi/đang chốt/đang thăm dò. Max 1 lần/conv.]`
   );
 }
 
@@ -732,7 +738,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const proactiveKey = mentionedKey ?? computeSuggestedMediaKey(state);
   const keyAlreadySent = proactiveKey !== null && mediaShownKeys.includes(proactiveKey);
   // Stage được phép proactive media:
-  //   - fitness: discovery/inbody/evaluation — sale chủ động build trust sớm bằng visual.
+  //   - fitness: CHỈ inbody/evaluation — moment bot đã pitch value, ảnh để build trust.
+  //     KHÔNG fire ở discovery — discovery là lúc bot ĐANG HỎI thăm dò ("đã tập chưa",
+  //     "mục tiêu gì"), gửi ảnh kèm câu hỏi discovery là chen ngang, sai moment.
+  //     (User feedback 2026-05: bot từng gửi media ngay turn đầu khi khách mới nói
+  //     "quan tâm zumba" — bot mới hỏi "đã tập chưa" mà đã đính kèm ảnh → awkward.)
   //   - giai-co: evaluation, HOẶC khi ĐỦ 3 slot pain (painArea + painSpread + pastMethod) —
   //     ngầm hiểu đã sang evaluation, kể cả khi stage transition lag do classifier.
   //     KHÔNG fire khi mới có painArea+painSpread (chưa hỏi pastMethod) — moment đó vẫn
@@ -743,7 +753,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     knownInfo.pastMethod !== null;
   const stageAllowsProactiveMedia =
     flow === "fitness"
-      ? stage === "discovery" || stage === "inbody" || stage === "evaluation"
+      ? stage === "inbody" || stage === "evaluation"
       : stage === "evaluation" || giaiCoAllPainSlots;
   if (
     !keyAlreadySent &&
