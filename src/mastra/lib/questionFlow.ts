@@ -81,6 +81,8 @@ function isFreshServiceDiscovery(
   if (!svc) return false;
   if (svc !== "yoga" && svc !== "zumba" && svc !== "gym") return false;
   if (state.knownInfo.fitnessGoal !== null) return false;
+  // Đã có tên hoặc SĐT → KH đang ở giai đoạn chốt slot, KHÔNG quay lại discovery.
+  if (state.knownInfo.name || state.knownInfo.phone) return false;
   if (askedExperience(prev, svc)) return false;
   return true;
 }
@@ -165,6 +167,20 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   },
 
   intro_giam_can: (s, h, prev) => {
+    // Context: KH đã ở tham_quan (bot đã list 4 dịch vụ + gói Full) — KHÔNG hỏi history nữa,
+    // recommend thẳng giải pháp Gym+Zumba+Bơi theo TL Fami.
+    const inThamQuanContext =
+      /Tổ hợp/i.test(prev) || /gói Full/i.test(prev);
+    if (inThamQuanContext) {
+      return {
+        id: "giam_can_recommend_solution",
+        template:
+          `Dạ vâng ${h}, đối với giảm cân em khuyến khích mình kết hợp Gym và Zumba ạ. ` +
+          `Nếu ${h} thích Bơi có thể kết hợp thêm Bơi — 3 bộ môn này đều đốt calo và săn chắc cơ thể, kết hợp với nhau sẽ đạt mục tiêu nhanh hơn. ` +
+          `Zumba còn giúp xả stress để mình duy trì lâu dài ạ.`,
+        mustInclude: ["Gym", "Zumba", "Bơi"],
+      };
+    }
     // Chưa biết bộ môn + chưa hỏi history → hỏi history (TL Fami kịch bản)
     if (s.knownInfo.serviceType === null && !askedGiamCanHistory(prev)) {
       return {
@@ -538,6 +554,8 @@ function fallbackDiscoveryAfterServiceMention(
   if (state.stage !== "discovery") return null;
   if (state.knownInfo.serviceType === null) return null;
   if (state.knownInfo.fitnessGoal !== null) return null;
+  // Đã thu được tên hoặc SĐT → không quay lại hỏi discovery (đang chốt slot).
+  if (state.knownInfo.name || state.knownInfo.phone) return null;
   const svc = state.knownInfo.serviceType;
   if (askedExperience(prev, svc)) return null;
 

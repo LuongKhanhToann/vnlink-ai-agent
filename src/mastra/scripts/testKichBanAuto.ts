@@ -268,6 +268,40 @@ const SCENARIOS: Scenario[] = [
           },
         ],
       },
+      {
+        customer: "thủy 0929229291",
+        ideas: [
+          {
+            label: "Hỏi/xác nhận khung giờ — KHÔNG hỏi lại đã tập yoga chưa",
+            anyOf: ["khung gio", "buoi sang", "sang", "chieu", "toi", "tien gio nao", "giu slot", "thuy"],
+            semantic: "Sau khi khách cho tên+SĐT, bot phải hỏi khung giờ hoặc xác nhận slot, KHÔNG được hỏi lại 'đã tập yoga chưa'",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG re-ask discovery 'đã tập yoga chưa'",
+            anyOf: ["da tap yoga chua", "tap yoga bao gio chua", "tap yoga chua a"],
+            semantic: "Bot KHÔNG được hỏi lại câu discovery sau khi đã có tên+SĐT",
+          },
+        ],
+      },
+      {
+        customer: "8h sáng mai",
+        ideas: [
+          {
+            label: "Chốt slot — giữ slot + hẹn gặp",
+            anyOf: ["giu slot", "hen gap", "8h", "sang mai"],
+            semantic: "Bot xác nhận đã giữ slot 8h sáng mai cho khách thủy, hẹn gặp",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG hỏi lại tên/SĐT/giờ đã có",
+            anyOf: ["cho em xin ten", "cho em xin sdt", "cho em xin so dien thoai"],
+            semantic: "Bot KHÔNG hỏi lại tên/SĐT đã có trong KNOWN",
+          },
+        ],
+      },
     ],
   },
 
@@ -332,6 +366,43 @@ const SCENARIOS: Scenario[] = [
             label: "List gói giá",
             anyOf: ["6 thang", "12 thang", "375k", "/thang", "goi"],
             semantic: "Liệt kê các gói giá (6-12 tháng) hoặc giá ưu đãi từ 375k/tháng",
+          },
+        ],
+      },
+      {
+        customer: "ok chị lấy gói 6 tháng, mai chị qua thử",
+        ideas: [
+          {
+            label: "Xin tên + SĐT để đăng ký",
+            anyOf: ["ten", "sdt", "so dien thoai", "ho ten", "thong tin"],
+            semantic: "Bot xin tên và SĐT để hoàn tất đăng ký",
+          },
+        ],
+      },
+      {
+        customer: "thủy 0929229291",
+        ideas: [
+          {
+            label: "Hỏi khung giờ / xác nhận — KHÔNG re-ask discovery",
+            anyOf: ["khung gio", "sang", "chieu", "toi", "tien gio nao", "giu slot"],
+            semantic: "Bot hỏi khung giờ hoặc xác nhận slot (KH đã cho tên+SĐT)",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG re-ask 'đã tập zumba chưa'",
+            anyOf: ["da tap zumba chua", "tap zumba bao gio chua"],
+            semantic: "Bot KHÔNG được hỏi lại discovery",
+          },
+        ],
+      },
+      {
+        customer: "7h sáng mai",
+        ideas: [
+          {
+            label: "Chốt slot — giữ slot + hẹn gặp",
+            anyOf: ["giu slot", "hen gap", "7h", "sang mai"],
+            semantic: "Bot xác nhận đã giữ slot 7h sáng mai cho khách thủy, hẹn gặp",
           },
         ],
       },
@@ -461,6 +532,33 @@ const SCENARIOS: Scenario[] = [
           },
         ],
       },
+      {
+        customer: "thủy 0929229291",
+        ideas: [
+          {
+            label: "Hỏi khung giờ / xác nhận — KHÔNG re-ask discovery",
+            anyOf: ["khung gio", "sang", "chieu", "toi", "tien gio nao", "giu slot"],
+            semantic: "Bot hỏi khung giờ hoặc xác nhận slot",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG re-ask discovery 'đã tập bộ môn nào chưa'",
+            anyOf: ["da tap bo mon nao", "da tung tap", "yeu thich bo mon"],
+            semantic: "Bot KHÔNG được hỏi lại discovery sau khi đã có tên+SĐT",
+          },
+        ],
+      },
+      {
+        customer: "buổi tối nha em",
+        ideas: [
+          {
+            label: "Chốt slot — giữ slot + hẹn gặp",
+            anyOf: ["giu slot", "hen gap", "toi", "thuy"],
+            semantic: "Bot xác nhận đã giữ slot buổi tối cho khách thủy, hẹn gặp",
+          },
+        ],
+      },
     ],
   },
 
@@ -513,6 +611,43 @@ const SCENARIOS: Scenario[] = [
             label: "Hỏi mục tiêu",
             anyOf: ["muc tieu", "tang can", "giam can", "duy tri", "tang co"],
             semantic: "Hỏi mục tiêu tập gym (tăng cân/giảm cân/duy trì sức khoẻ)",
+          },
+        ],
+      },
+      {
+        customer: "tăng cơ",
+        ideas: [
+          {
+            label: "Recommend PT 1-1 / Pitch gym tăng cơ",
+            anyOf: ["pt", "ca nhan", "1-1", "ky thuat", "tap thu", "trai nghiem", "inbody", "khung gio"],
+            semantic: "Bot recommend PT cá nhân 1-1 hoặc mời tập thử / hỏi khung giờ",
+          },
+        ],
+      },
+      {
+        customer: "thủy 0929229291",
+        ideas: [
+          {
+            label: "Hỏi khung giờ / xác nhận — KHÔNG re-ask discovery",
+            anyOf: ["khung gio", "sang", "chieu", "toi", "tien gio nao", "giu slot"],
+            semantic: "Bot hỏi khung giờ hoặc xác nhận slot (KH đã cho tên+SĐT)",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG re-ask 'đã tập gym chưa'",
+            anyOf: ["da tap gym chua", "tap gym bao gio chua"],
+            semantic: "Bot KHÔNG được hỏi lại discovery",
+          },
+        ],
+      },
+      {
+        customer: "chiều 17h",
+        ideas: [
+          {
+            label: "Chốt slot — giữ slot + hẹn gặp",
+            anyOf: ["giu slot", "hen gap", "17h", "chieu", "thuy"],
+            semantic: "Bot xác nhận đã giữ slot 17h chiều cho khách thủy, hẹn gặp",
           },
         ],
       },

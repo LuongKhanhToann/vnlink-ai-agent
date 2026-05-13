@@ -194,10 +194,23 @@ export function mergeSlots(
     return x;
   }
 
+  // Fami chỉ có 5 service: gym/yoga/zumba/boi/pilates (+ full combo).
+  // Reject mọi giá trị khác (vd "aerobic" — khách nhắc để so sánh nhưng KHÔNG phải dịch vụ
+  // bên em → không được switch sang).
+  function pickServiceType(
+    e: string | null,
+    x: string | null | undefined,
+  ): string | null {
+    if (e !== null) return e;
+    if (x === null || x === undefined) return null;
+    const valid = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+    return valid.includes(x.toLowerCase()) ? x.toLowerCase() : null;
+  }
+
   return {
     name:           pick(existing.name,           extracted.name),
     phone:          pick(existing.phone,          extracted.phone),
-    serviceType:    pick(existing.serviceType,    extracted.serviceType),
+    serviceType:    pickServiceType(existing.serviceType, extracted.serviceType),
     memberType:     pick(existing.memberType,     extracted.memberType),
     durationMonths: pick(existing.durationMonths, extracted.durationMonths),
     schedule:       pick(existing.schedule,       extracted.schedule),
@@ -588,13 +601,16 @@ export function buildNextState(
   //   - giữ name/phone/preferredTime (cross-service)
   //   - reset stage về opening để re-chạy discovery (hỏi "đã tập X chưa", mục tiêu...)
   const extractedService = llm.extractedSlots.serviceType;
+  const FAMI_SERVICES = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+  const normalizedExtracted =
+    typeof extractedService === "string" ? extractedService.toLowerCase() : null;
   const switched =
     flow === "fitness" &&
-    typeof extractedService === "string" &&
-    extractedService !== null &&
+    normalizedExtracted !== null &&
+    FAMI_SERVICES.includes(normalizedExtracted) &&
     previous.knownInfo.serviceType !== null &&
-    extractedService !== previous.knownInfo.serviceType
-      ? extractedService
+    normalizedExtracted !== previous.knownInfo.serviceType
+      ? normalizedExtracted
       : null;
 
   let knownInfo = mergeSlots(previous.knownInfo, llm.extractedSlots);
