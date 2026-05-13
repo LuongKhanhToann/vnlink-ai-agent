@@ -115,7 +115,7 @@ const processStep = createStep({
     }
 
     console.log(
-      `[process] llm: flow=${llmResult.flow ?? "unchanged"} emotion=${llmResult.emotion} intent=${llmResult.intent}`
+      `[process] llm: flow=${llmResult.flow ?? "unchanged"} emotion=${llmResult.emotion} intent=${llmResult.intent} topic=${llmResult.intentTopic ?? "null"}`
     );
 
     const nextState = buildNextState(previousState, message, llmResult);

@@ -45,6 +45,62 @@ export type Emotion =
 export type Intent = "explore" | "compare" | "selecting" | "ready";
 
 // ─────────────────────────────────────────────
+// INTENT TOPIC — phân loại nội dung KH đang hỏi/nói (semantic intent)
+// Khác Intent (explore/compare/selecting/ready) ở scope: Intent là MỨC độ commit;
+// IntentTopic là CHỦ ĐỀ tin nhắn. Cả 2 cùng do LLM classifier output.
+//
+// Topic chính được map sang template trong questionFlow.ts. null = bot fallback
+// về reply tự nhiên qua agent prompt (TACTIC/EXAMPLE).
+// ─────────────────────────────────────────────
+
+export type IntentTopic =
+  // Opening — turn 1 chưa rõ nhu cầu
+  | "opening_greeting"            // "Quan tâm", "Hi", chào suông
+  | "opening_chuong_trinh"        // "Tư vấn chương trình tập luyện", "có chương trình gì"
+  | "opening_chua_biet"           // "chưa biết tập gì", "cho chị tham khảo"
+  | "tham_quan"                   // "đi qua tham quan thôi"
+  // Intro mục tiêu/môn (có thể fire bất kể turn)
+  | "intro_trai_nghiem"           // "muốn tập trải nghiệm", "muốn thử"
+  | "intro_giam_can"              // "muốn giảm cân", "giảm mỡ", "giảm béo"
+  | "intro_uu_dai"                // "có ưu đãi/khuyến mãi gì không"
+  // Trial-related
+  | "trial_ask_confirm"           // "có được tập thử không"
+  | "trial_register_how"          // "đăng ký trải nghiệm như thế nào"
+  // Discovery answers / class structure
+  | "no_experience"               // "chưa tập bao giờ", "chưa từng"
+  | "new_class_inquiry"           // "có lớp cho người mới không em"
+  | "class_has_newbies"           // "Lớp bây giờ có người mới không"
+  // Bơi
+  | "pool_audience_ask"           // "muốn học bơi" — chưa rõ NL/TE
+  | "pool_child_no_age"           // bơi cho con/bé — chưa nói tuổi
+  | "pool_child_with_age"         // bơi cho con/bé — đã nói tuổi
+  | "pool_hours"
+  | "pool_temperature"
+  | "pool_swimwear"
+  | "pool_chlorine"
+  | "pool_water_change"
+  | "pool_lifeguard"
+  | "pool_traffic"
+  | "pool_limit"
+  // Zumba
+  | "zumba_vs_aerobic"            // so sánh Zumba vs Aerobic
+  | "zumba_weight_loss"           // "Zumba có giảm cân không"
+  // Pricing
+  | "price_ask_generic"           // "bao nhiêu tiền/tháng", "giá thế nào"
+  | "price_with_worry"            // giá + lo "không theo được"
+  | "price_explicit_list"         // "có những gói nào", "gói giá nào em"
+  | "price_objection"             // "đắt quá", "cao thế"
+  // Goal/package
+  | "full_package_confirm"        // "đăng ký gói Full" / "thẻ Full nhỉ"
+  | "maintain_after_goal"         // "sau khi giảm cân muốn duy trì", "mất ngủ"
+  | "guidance_ask"                // "có ai hướng dẫn không"
+  | "combo_service_ask"           // "tập kèm dịch vụ khác không"
+  // Media
+  | "media_request"               // "cho xem ảnh phòng", "có hình không"
+  // Switch service (giữa cuộc thoại) — slot extraction sẽ extract serviceType mới
+  | "switch_service";             // "tôi quan tâm tập gym" (khi đang trên service khác)
+
+// ─────────────────────────────────────────────
 // KNOWN INFO — khác nhau giữa 2 flows
 // ─────────────────────────────────────────────
 
@@ -75,6 +131,10 @@ export interface ConversationState {
   temperature: Temperature;
   emotion: Emotion;
   intent: Intent;
+  // intentTopic: chủ đề ngữ nghĩa của tin nhắn turn hiện tại (LLM classify mỗi turn).
+  // Transient — chỉ dùng cho turn này, không persist semantics. State có lưu để các
+  // hàm downstream (questionFlow, prefixBuilder GATE) đọc thay vì regex parse lại message.
+  intentTopic: IntentTopic | null;
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
   turnCount: number;
@@ -224,35 +284,6 @@ const PAIN_PRIORITY = new RegExp(
     `|nhức\\s+(?:mỏi|cơ)|cứng\\s+cơ|mỏi\\s+(?:lưng|vai|cổ|gáy|chân|gối|hông|cơ)`,
   "iu",
 );
-
-/**
- * Detect KH đổi bộ môn giữa cuộc thoại.
- * Trả về tên bộ môn MỚI (gym/yoga/zumba/boi/pilates) khi:
- *   - message có keyword bộ môn, VÀ
- *   - previousService đã có và KHÁC bộ môn mới.
- * Trả null nếu không switch.
- *
- * Lý do tách riêng khỏi detectFlowByKeyword: detectFlowByKeyword chỉ phân biệt
- * fitness vs giai-co; cần detector cấp service-level cho merge logic.
- */
-const SERVICE_PATTERNS: Array<[string, RegExp]> = [
-  ["zumba", new RegExp(`${VI_BOUND_L}zumba${VI_BOUND_R}`, "iu")],
-  ["yoga", new RegExp(`${VI_BOUND_L}yoga${VI_BOUND_R}`, "iu")],
-  ["boi", new RegExp(`${VI_BOUND_L}(bơi|bể\\s*bơi|bơi\\s*lội)${VI_BOUND_R}`, "iu")],
-  ["pilates", new RegExp(`${VI_BOUND_L}pilates${VI_BOUND_R}`, "iu")],
-  ["gym", new RegExp(`${VI_BOUND_L}gym${VI_BOUND_R}`, "iu")],
-];
-
-export function detectServiceSwitch(
-  message: string,
-  previousService: string | null,
-): string | null {
-  if (!message || !previousService) return null;
-  for (const [svc, re] of SERVICE_PATTERNS) {
-    if (re.test(message) && svc !== previousService) return svc;
-  }
-  return null;
-}
 
 export function detectFlowByKeyword(
   message: string,
@@ -529,6 +560,7 @@ export interface LLMClassification {
   llmStage: Stage;
   emotion: Emotion;
   intent: Intent;
+  intentTopic: IntentTopic | null;
   extractedSlots: Partial<KnownInfo>;
   qrShown: boolean | null;
   mediaShown: boolean | null;
@@ -548,20 +580,25 @@ export function buildNextState(
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   const flow = keywordFlow ?? llm.flow ?? previous.flow;
 
-  // Detect SERVICE SWITCH: KH chủ động đổi bộ môn giữa cuộc thoại
-  // ("đang nói bơi → tôi quan tâm gym"). Khi switch:
+  // Detect SERVICE SWITCH: KH đổi bộ môn giữa cuộc thoại.
+  // Tín hiệu: LLM classifier extract serviceType MỚI khác serviceType hiện tại trong state.
+  // Khi switch:
   //   - lock serviceType vào bộ môn mới (override pick() trong mergeSlots)
-  //   - reset slots phụ thuộc service: fitnessGoal, schedule, durationMonths, sessionPackage
-  //   - giữ name/phone/preferredTime/memberType (không phụ thuộc service)
+  //   - reset slots phụ thuộc service: fitnessGoal, memberType, schedule, durationMonths, sessionPackage
+  //   - giữ name/phone/preferredTime (cross-service)
   //   - reset stage về opening để re-chạy discovery (hỏi "đã tập X chưa", mục tiêu...)
+  const extractedService = llm.extractedSlots.serviceType;
   const switched =
-    flow === "fitness" ? detectServiceSwitch(message, previous.knownInfo.serviceType) : null;
+    flow === "fitness" &&
+    typeof extractedService === "string" &&
+    extractedService !== null &&
+    previous.knownInfo.serviceType !== null &&
+    extractedService !== previous.knownInfo.serviceType
+      ? extractedService
+      : null;
 
   let knownInfo = mergeSlots(previous.knownInfo, llm.extractedSlots);
   if (switched) {
-    // Reset toàn bộ slot phụ thuộc bộ môn — bao gồm memberType vì nó được suy ra trong
-    // context bộ môn cũ (vd hoc-sinh extract từ flow bơi trẻ em không nhất thiết apply gym).
-    // Giữ: name, phone, preferredTime (cross-service).
     knownInfo = {
       ...knownInfo,
       serviceType: switched,
@@ -604,6 +641,7 @@ export function buildNextState(
     temperature,
     emotion,
     intent,
+    intentTopic: llm.intentTopic,
     honorific,
     knownInfo,
     turnCount,
@@ -625,6 +663,7 @@ export const DEFAULT_STATE: ConversationState = {
   temperature: "cold",
   emotion: "neutral",
   intent: "explore",
+  intentTopic: null,
   honorific: "anh/chị",
   knownInfo: {
     name: null,

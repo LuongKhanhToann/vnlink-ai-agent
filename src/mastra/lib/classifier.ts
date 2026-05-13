@@ -15,12 +15,52 @@ import {
   Stage,
   Emotion,
   Intent,
+  IntentTopic,
   KnownInfo,
   LLMClassification,
   nullSlots,
 } from "./stateMachine";
 import { buildDateContext, verifyWeekdayInTime } from "./dateHelper";
 import { openai } from "../config/openai";
+
+// Single source of truth: list giá trị topic được phép — dùng cho cả zod enum + map output.
+const INTENT_TOPICS = [
+  "opening_greeting",
+  "opening_chuong_trinh",
+  "opening_chua_biet",
+  "tham_quan",
+  "intro_trai_nghiem",
+  "intro_giam_can",
+  "intro_uu_dai",
+  "trial_ask_confirm",
+  "trial_register_how",
+  "no_experience",
+  "new_class_inquiry",
+  "class_has_newbies",
+  "pool_audience_ask",
+  "pool_child_no_age",
+  "pool_child_with_age",
+  "pool_hours",
+  "pool_temperature",
+  "pool_swimwear",
+  "pool_chlorine",
+  "pool_water_change",
+  "pool_lifeguard",
+  "pool_traffic",
+  "pool_limit",
+  "zumba_vs_aerobic",
+  "zumba_weight_loss",
+  "price_ask_generic",
+  "price_with_worry",
+  "price_explicit_list",
+  "price_objection",
+  "full_package_confirm",
+  "maintain_after_goal",
+  "guidance_ask",
+  "combo_service_ask",
+  "media_request",
+  "switch_service",
+] as const satisfies readonly IntentTopic[];
 
 const classifierAgent = new Agent({
   name: "classifier",
@@ -36,6 +76,7 @@ const classifierSchema = z.object({
     "neutral", "excited", "anxious", "frustrated", "hesitant", "trusting",
   ]),
   intent: z.enum(["explore", "compare", "selecting", "ready"]),
+  intentTopic: z.enum(INTENT_TOPICS).nullable().optional(),
   slots: z
     .object({
       name:           z.string().nullable().optional(),
@@ -91,6 +132,12 @@ export async function classify(
   // preferredTime: luôn cho re-extract (refine + đổi ý).
   if (!slotsToExtract.includes("preferredTime")) {
     slotsToExtract.push("preferredTime");
+  }
+
+  // serviceType: luôn cho re-extract để detect KH đổi bộ môn ("đang nói bơi → quan tâm gym").
+  // mergeSlots / buildNextState sẽ so sánh diff để detect switch + reset slots phụ thuộc.
+  if (!slotsToExtract.includes("serviceType")) {
+    slotsToExtract.push("serviceType");
   }
 
   // pastMethod: cho re-extract khi tin mới có cue về phương pháp đã thử
@@ -225,10 +272,85 @@ Trả JSON thuần:
   ${flowInstruction}
   "emotion": "neutral"|"excited"|"anxious"|"frustrated"|"hesitant"|"trusting",
   "intent": "explore"|"compare"|"selecting"|"ready",
+  "intentTopic": <1 trong các topic bên dưới, hoặc null nếu không match>,
   ${missingSlots.length > 0 ? `"slots": {${slotExtractionFields}}` : `// slots đã đủ`}
 }
 
 EMOTION: suy luận từ cách viết, dấu câu, từ ngữ.
+
+INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic phù hợp NHẤT, hoặc null nếu KHÔNG có topic nào sát.
+  CHỈ chọn topic khi MESSAGE THỰC SỰ khớp ý nghĩa. KHÔNG đoán bừa — null tốt hơn sai.
+
+  ── OPENING (chào hỏi / chưa rõ nhu cầu) ──
+  opening_greeting          = chào suông không có nội dung: "Quan tâm", "Hi", "Alo", "Chào shop"
+  opening_chuong_trinh      = "tư vấn chương trình tập luyện cho tôi", "có chương trình gì", "có gói tập nào"
+  opening_chua_biet         = "chưa biết tập gì", "cho chị tham khảo", "không biết tập môn nào"
+  tham_quan                 = "đi qua tham quan thôi", "chỉ ghé xem"
+
+  ── INTRO MỤC TIÊU / TRẢI NGHIỆM ──
+  intro_trai_nghiem         = "tôi muốn tập trải nghiệm", "muốn thử tập", "đến trải nghiệm"
+                              (KH chủ động ngỏ ý trải nghiệm, KHÔNG hỏi "có được thử không")
+  intro_giam_can            = "muốn giảm cân/mỡ/béo", "tập giảm cân"
+                              (KH chỉ khai mục tiêu, chưa hỏi gì cụ thể)
+  intro_uu_dai              = "có ưu đãi nào không", "có khuyến mãi gì", "đang khuyến mãi gì"
+
+  ── TRIAL ──
+  trial_ask_confirm         = "có được tập thử không em", "cho thử 1 buổi được không"
+                              (câu HỎI yes/no về việc có cho thử — khác intro_trai_nghiem)
+  trial_register_how        = "đăng ký trải nghiệm như thế nào", "đk thử kiểu gì"
+
+  ── DISCOVERY / LỚP HỌC ──
+  no_experience             = "chưa tập bao giờ", "chưa từng tập", "mới tập"
+                              (KH trả lời câu "đã tập X chưa")
+  new_class_inquiry         = "có lớp cho người mới không em", "có lớp dành cho người mới tập"
+                              (KH lo lắng, hỏi xem có lớp riêng newbie không)
+  class_has_newbies         = "Lớp bây giờ có người mới không em", "hiện tại lớp có ai mới không"
+                              (KH muốn biết THÀNH PHẦN lớp hiện tại — khác new_class_inquiry)
+
+  ── BƠI ──
+  pool_audience_ask         = "muốn học bơi" / "quan tâm bơi" — KH chưa nói NL hay TE, chưa nói tuổi
+  pool_child_no_age         = "cho con tôi học", "bé nhà mình", "cháu" — chưa đề cập tuổi
+  pool_child_with_age       = đã đề cập tuổi cụ thể của bé ("6 tuổi", "bé 5t")
+  pool_hours                = "bể bơi mở giờ nào", "bể bơi mở mấy giờ"
+  pool_temperature          = hỏi về nước ấm/lạnh/4 mùa/mái che/trong nhà ngoài trời
+  pool_swimwear             = "có cần mặc đồ bơi không", "có bắt buộc đồ bơi"
+  pool_chlorine             = "bể có clo không", "có dùng chlorine"
+  pool_water_change         = "có thay nước không em", "nước bể có sạch không"
+  pool_lifeguard            = "có cứu hộ không", "có thầy kèm khi bơi không"
+  pool_traffic              = "giờ nào vắng/đông", "khung giờ ít người"
+  pool_limit                = "giới hạn lượt bơi không", "có hạn số lần không"
+
+  ── ZUMBA ──
+  zumba_vs_aerobic          = so sánh Zumba với Aerobic ("đang phân vân aerobic", "Zumba khác Aerobic chỗ nào")
+  zumba_weight_loss         = "Zumba có giảm cân không", "tập Zumba giảm mỡ không"
+
+  ── PRICING ──
+  price_ask_generic         = hỏi giá chung "bao nhiêu tiền/tháng", "giá thế nào", "phí tập"
+                              (KHÔNG match: "có gói nào" — đó là price_explicit_list)
+  price_with_worry          = hỏi giá + tỏ lo "chưa tập bao giờ, không biết có theo được không"
+                              (HẢ HAI yếu tố: hỏi giá VÀ tỏ lo lắng trong cùng 1 tin)
+  price_explicit_list       = "có những gói giá nào em", "gói giá nào thế", "có các gói gì"
+  price_objection           = "đắt quá", "chi phí cao quá", "có gói rẻ hơn không"
+
+  ── PACKAGE / GOAL ──
+  full_package_confirm      = "đăng ký gói Full luôn", "chọn gói Full nhỉ", "lấy gói Full"
+  maintain_after_goal       = "sau khi giảm cân muốn duy trì", "mất ngủ", "khó ngủ"
+  guidance_ask              = "có ai hướng dẫn không", "có HLV kèm không"
+
+  ── COMBO ──
+  combo_service_ask         = "tập Zumba có tập kèm dịch vụ khác không", "có gói combo không"
+
+  ── MEDIA ──
+  media_request             = "cho xem ảnh phòng tập", "có hình bể bơi không", "gửi video xem với"
+
+  ── SWITCH SERVICE ──
+  switch_service            = KH đang trên bộ môn X, giờ chủ động đổi sang Y
+                              ("đang nói bơi → tôi quan tâm tập gym", "thôi chuyển sang yoga")
+                              (CHỈ khi previous flow đã có serviceType khác)
+
+  ── null ──
+  null                      = không topic nào match, hoặc KH đang trả lời thông thường
+                              (vd: cung cấp tên/SĐT, "ừ", "ok", "dạ", câu chat thường ngày)
 
 INTENT:
   explore   = hỏi chung chung, khai báo mục tiêu, hoặc trả lời đơn giản chưa rõ ý định mua
@@ -352,6 +474,8 @@ const VALID_EMOTIONS: Emotion[] = [
 
 const VALID_INTENTS: Intent[] = ["explore", "compare", "selecting", "ready"];
 
+const VALID_TOPICS: readonly string[] = INTENT_TOPICS;
+
 function mapToClassification(
   parsed: any,
   hadFlowInPrompt: boolean,
@@ -364,6 +488,11 @@ function mapToClassification(
   const intent: Intent = VALID_INTENTS.includes(parsed.intent)
     ? parsed.intent
     : "explore";
+
+  const intentTopic: IntentTopic | null =
+    parsed.intentTopic && VALID_TOPICS.includes(parsed.intentTopic)
+      ? (parsed.intentTopic as IntentTopic)
+      : null;
 
   const flow: Flow | null = hadFlowInPrompt
     ? (["fitness", "giai-co"].includes(parsed.flow) ? parsed.flow : null)
@@ -396,6 +525,7 @@ function mapToClassification(
     llmStage: "discovery",
     emotion,
     intent,
+    intentTopic,
     extractedSlots,
     qrShown: null,
     mediaShown: null,
@@ -411,6 +541,7 @@ function getDefaultClassification(
     llmStage: previousStage,
     emotion: "neutral",
     intent: "explore",
+    intentTopic: null,
     extractedSlots: {},
     qrShown: null,
     mediaShown: null,

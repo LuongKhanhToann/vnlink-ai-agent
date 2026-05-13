@@ -68,6 +68,9 @@ export async function loadState(
       temperature: m.temperature ?? DEFAULT_STATE.temperature,
       emotion: m.emotion ?? DEFAULT_STATE.emotion,
       intent: m.intent ?? DEFAULT_STATE.intent,
+      // intentTopic là TRANSIENT — chỉ relevant cho turn này, LLM classifier re-output mỗi turn.
+      // KHÔNG load từ store cũ (tránh stale topic từ turn trước).
+      intentTopic: null,
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
         name: m.knownInfo?.name ?? null,
