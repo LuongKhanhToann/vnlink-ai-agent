@@ -260,6 +260,48 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     return null;
   },
 
+  // KH trả lời "đã từng tập rồi" — TL Fami: bước tiếp theo của TL1 là TL2 hỏi mục tiêu.
+  // Branch theo bộ môn (gym ask goal, yoga/zumba hỏi schedule trial-first).
+  has_experience: (s, h) => {
+    const svc = s.knownInfo.serviceType;
+    if (svc === "gym" && s.knownInfo.fitnessGoal === null) {
+      return {
+        id: "gym_ask_goal_yes",
+        template:
+          `Dạ vâng ${h}. Mục tiêu tập gym của mình là tăng cân, giảm cân hay duy trì sức khoẻ ạ.`,
+        mustInclude: ["mục tiêu", "tăng cân", "giảm cân", "duy trì"],
+      };
+    }
+    if (svc === "yoga") {
+      return {
+        id: "yoga_experienced_ask_schedule",
+        template:
+          `Dạ vâng ${h} đã có kinh nghiệm yoga rồi nha. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+        mustInclude: ["sáng", "chiều"],
+      };
+    }
+    if (svc === "zumba") {
+      return {
+        id: "zumba_experienced_ask_schedule",
+        template:
+          `Dạ vâng ${h} đã có kinh nghiệm zumba rồi nha. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+        mustInclude: ["sáng", "chiều"],
+      };
+    }
+    // Bộ môn khác / chưa biết → ack ngắn + hỏi mục tiêu chung
+    return null;
+  },
+
+  // ── LOGISTICS ────────────────────────────
+  // KH hỏi giờ mở cửa / "khi nào qua được". Phải answer 5h–20h30 + mời ghé buổi.
+  // CẤM list 3 gói (đã từng fail khi stage=evaluation override bằng EXAMPLE).
+  ask_open_hours: (_s, h) => ({
+    id: "ask_open_hours",
+    template:
+      `Dạ trung tâm bên em mở cửa từ 5h sáng đến 20h30 tất cả các ngày ạ. ${h} tiện ghé buổi sáng hay chiều ạ.`,
+    mustInclude: ["5h", "20h30", "sáng", "chiều"],
+  }),
+
   new_class_inquiry: (s, h) => {
     // "có lớp cho người mới không" — trấn an theo dịch vụ
     if (s.knownInfo.serviceType === "yoga") {
@@ -569,8 +611,31 @@ function fallbackDiscoveryAfterServiceMention(
   // Đã thu được tên hoặc SĐT → không quay lại hỏi discovery (đang chốt slot).
   if (state.knownInfo.name || state.knownInfo.phone) return null;
   const svc = state.knownInfo.serviceType;
-  if (askedExperience(prev, svc)) return null;
 
+  // ── BƯỚC 2: prev đã hỏi experience, KH đã trả lời (classifier không bắt
+  // được no_experience / has_experience topic vì câu trả lời mơ hồ). Fire
+  // ask-goal cho gym hoặc ask-schedule cho yoga/zumba theo TL Fami.
+  if (askedExperience(prev, svc)) {
+    if (svc === "gym") {
+      return {
+        id: "gym_ask_goal_after_experience",
+        template:
+          `Dạ vâng ${h}. Mục tiêu tập gym của mình là tăng cân, giảm cân hay duy trì sức khoẻ ạ.`,
+        mustInclude: ["mục tiêu", "tăng cân", "giảm cân", "duy trì"],
+      };
+    }
+    if (svc === "yoga" || svc === "zumba") {
+      return {
+        id: `${svc}_ask_schedule_after_experience`,
+        template:
+          `Dạ vâng ${h}. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+        mustInclude: ["sáng", "chiều"],
+      };
+    }
+    return null;
+  }
+
+  // ── BƯỚC 1: chưa hỏi experience → fire câu hỏi discovery theo bộ môn.
   if (svc === "gym") {
     return {
       id: "gym_discovery",

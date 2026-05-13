@@ -68,8 +68,11 @@ export type IntentTopic =
   | "trial_register_how"          // "đăng ký trải nghiệm như thế nào"
   // Discovery answers / class structure
   | "no_experience"               // "chưa tập bao giờ", "chưa từng"
+  | "has_experience"              // "đã tập rồi", "tập rồi", "có tập", "từng đi rồi"
   | "new_class_inquiry"           // "có lớp cho người mới không em"
   | "class_has_newbies"           // "Lớp bây giờ có người mới không"
+  // Logistics — giờ mở cửa / lúc nào qua được (KHÔNG dành riêng cho bể)
+  | "ask_open_hours"              // "khi nào qua được", "mấy giờ mở cửa", "qua lúc nào"
   // Bơi
   | "pool_audience_ask"           // "muốn học bơi" — chưa rõ NL/TE
   | "pool_child_no_age"           // bơi cho con/bé — chưa nói tuổi

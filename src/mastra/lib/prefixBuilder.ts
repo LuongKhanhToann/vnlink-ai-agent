@@ -518,10 +518,12 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   }
 
   // ── ƯU TIÊN: khách hỏi GIỜ MỞ CỬA → trả giờ, KHÔNG xin tên/SĐT (compact) ──
+  // Lưu ý: trường hợp classifier hit `ask_open_hours` topic, questionFlow đã short-circuit
+  // với ANSWER_LOCK rồi. GATE này chỉ là safety net khi classifier miss.
   if (message && detectHoursQuestion(message)) {
-    const hours = flow === "fitness" ? "05:00–20:00" : "09:00–23:00";
+    const hours = flow === "fitness" ? "5h sáng – 20h30" : "9h – 23h";
     hints.push(
-      `[GATE giờ mở cửa: trả "bên em mở ${hours}" + hỏi sáng/chiều tiện. KHÔNG xin tên/SĐT turn này.]`,
+      `[GATE giờ mở cửa: trả "bên em mở từ ${hours} hàng ngày" + hỏi sáng/chiều tiện. ❌ TUYỆT ĐỐI KHÔNG list 3 gói/giá. KHÔNG xin tên/SĐT turn này.]`,
     );
   }
 
@@ -1053,7 +1055,7 @@ function buildKnowledgeBlock(
   if (flow === "fitness") {
     if (stage === "opening" || stage === "discovery") {
       blocks.push(
-        `[CENTER: Fami Fitness & Yoga Center Vĩnh Yên | 05:00–20:00 | Thành lập 2014\n` +
+        `[CENTER: Fami Fitness & Yoga Center Vĩnh Yên | 05:00–20:30 | Thành lập 2014\n` +
         `  Bơi → Bể 4 mùa 350m2 DUY NHẤT Vĩnh Yên, nước nóng quanh năm, lọc ozone\n` +
         `  Gym → 700m2 trong nhà + 300m2 ngoài có mái che, chứa 100 người\n` +
         `  Yoga/Zumba → GV người Ấn Độ chuyên nghiệp, 4 ca/ngày\n` +
@@ -1250,6 +1252,29 @@ SAI: "Tuyệt vời!", list gói/giá, list nhiều câu hỏi gộp.`;
 
   // ── FITNESS: inbody pitch — few-shot ──
   if (flow === "fitness" && stage === "inbody") {
+    // GUARD: KH hỏi FAQ off-topic → KHÔNG ép pitch InBody — answer câu hỏi trước.
+    if (
+      message &&
+      (detectHoursQuestion(message) ||
+        detectClassScheduleQuestion(message) ||
+        detectFacilityQuestion(message, flow) ||
+        state.intentTopic === "ask_open_hours" ||
+        state.intentTopic === "pool_hours" ||
+        state.intentTopic === "pool_temperature" ||
+        state.intentTopic === "pool_swimwear" ||
+        state.intentTopic === "pool_chlorine" ||
+        state.intentTopic === "pool_water_change" ||
+        state.intentTopic === "pool_lifeguard" ||
+        state.intentTopic === "pool_traffic" ||
+        state.intentTopic === "pool_limit" ||
+        state.intentTopic === "guidance_ask" ||
+        state.intentTopic === "combo_service_ask" ||
+        state.intentTopic === "maintain_after_goal" ||
+        state.intentTopic === "new_class_inquiry" ||
+        state.intentTopic === "class_has_newbies")
+    ) {
+      return null;
+    }
     const goal = knownInfo.fitnessGoal ?? "mục tiêu";
     return `[EXAMPLE — INBODY PITCH: text thuần, KHÔNG **bold**, KHÔNG giá/gói]
 1 message = xác nhận lịch ngắn + pitch Inbody + câu mời. KHÔNG kèm bất cứ gì khác.
@@ -1264,6 +1289,30 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     stage === "evaluation" &&
     knownInfo.serviceType !== null
   ) {
+    // GUARD: KH hỏi FAQ off-topic (giờ mở cửa, lịch lớp, cơ sở vật chất) → KHÔNG pitch 3 gói.
+    // Để GATE/template trả lời câu hỏi cụ thể trước. Sale tự nhiên là answer-first.
+    if (
+      message &&
+      (detectHoursQuestion(message) ||
+        detectClassScheduleQuestion(message) ||
+        detectFacilityQuestion(message, flow) ||
+        state.intentTopic === "ask_open_hours" ||
+        state.intentTopic === "pool_hours" ||
+        state.intentTopic === "pool_temperature" ||
+        state.intentTopic === "pool_swimwear" ||
+        state.intentTopic === "pool_chlorine" ||
+        state.intentTopic === "pool_water_change" ||
+        state.intentTopic === "pool_lifeguard" ||
+        state.intentTopic === "pool_traffic" ||
+        state.intentTopic === "pool_limit" ||
+        state.intentTopic === "guidance_ask" ||
+        state.intentTopic === "combo_service_ask" ||
+        state.intentTopic === "maintain_after_goal" ||
+        state.intentTopic === "new_class_inquiry" ||
+        state.intentTopic === "class_has_newbies")
+    ) {
+      return null;
+    }
     const svc = knownInfo.serviceType;
     const goal = knownInfo.fitnessGoal ?? "sức khỏe tổng thể";
 

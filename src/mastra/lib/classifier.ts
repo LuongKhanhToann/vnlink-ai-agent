@@ -35,8 +35,10 @@ const INTENT_TOPICS = [
   "trial_ask_confirm",
   "trial_register_how",
   "no_experience",
+  "has_experience",
   "new_class_inquiry",
   "class_has_newbies",
+  "ask_open_hours",
   "pool_audience_ask",
   "pool_child_no_age",
   "pool_child_with_age",
@@ -300,12 +302,21 @@ INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic ph
   trial_register_how        = "đăng ký trải nghiệm như thế nào", "đk thử kiểu gì"
 
   ── DISCOVERY / LỚP HỌC ──
-  no_experience             = "chưa tập bao giờ", "chưa từng tập", "mới tập"
-                              (KH trả lời câu "đã tập X chưa")
+  no_experience             = "chưa tập bao giờ", "chưa từng tập", "mới tập", "chưa tập"
+                              (KH trả lời câu "đã tập X chưa" với NO/chưa)
+  has_experience            = "đã tập rồi", "tập rồi", "có tập", "từng tập", "từng đi rồi",
+                              "đã có kinh nghiệm", "tôi tập gym lâu rồi", "tập được vài năm"
+                              (KH trả lời câu "đã tập X chưa" với YES/đã từng)
   new_class_inquiry         = "có lớp cho người mới không em", "có lớp dành cho người mới tập"
                               (KH lo lắng, hỏi xem có lớp riêng newbie không)
   class_has_newbies         = "Lớp bây giờ có người mới không em", "hiện tại lớp có ai mới không"
                               (KH muốn biết THÀNH PHẦN lớp hiện tại — khác new_class_inquiry)
+
+  ── LOGISTICS / GIỜ MỞ CỬA ──
+  ask_open_hours            = "khi nào qua được", "qua lúc nào", "mấy giờ mở", "lúc nào ghé được",
+                              "trung tâm mở mấy giờ", "mấy giờ đóng cửa", "mở giờ nào"
+                              (KH hỏi giờ trung tâm hoạt động chung — KHÔNG phải hỏi giá / lịch lớp cụ thể.
+                               Nếu KH chỉ định "bể bơi mở giờ nào" → chọn pool_hours thay vì cái này.)
 
   ── BƠI ──
   pool_audience_ask         = "muốn học bơi" / "quan tâm bơi" — KH chưa nói NL hay TE, chưa nói tuổi

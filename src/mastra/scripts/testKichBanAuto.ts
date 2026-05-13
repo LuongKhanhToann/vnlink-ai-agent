@@ -613,6 +613,13 @@ const SCENARIOS: Scenario[] = [
             semantic: "Hỏi mục tiêu tập gym (tăng cân/giảm cân/duy trì sức khoẻ)",
           },
         ],
+        notIdeas: [
+          {
+            label: "KHÔNG hỏi schedule khi chưa biết mục tiêu",
+            anyOf: ["khung gio nao", "tien sang hay chieu", "may buoi"],
+            semantic: "Bot phải hỏi mục tiêu trước (theo TL Fami), KHÔNG nhảy thẳng schedule",
+          },
+        ],
       },
       {
         customer: "tăng cơ",
@@ -648,6 +655,126 @@ const SCENARIOS: Scenario[] = [
             label: "Chốt slot — giữ slot + hẹn gặp",
             anyOf: ["giu slot", "hen gap", "17h", "chieu", "thuy"],
             semantic: "Bot xác nhận đã giữ slot 17h chiều cho khách thủy, hẹn gặp",
+          },
+        ],
+      },
+    ],
+  },
+
+  // ═══ GYM — KH đã tập rồi (off-script branch của TL1) ═══
+  {
+    name: "12_gym_da_tap_roi",
+    turns: [
+      {
+        customer: "chị đăng kí tập gym",
+        ideas: [
+          {
+            label: "Hỏi đã tập gym chưa",
+            anyOf: ["da tap gym chua", "tap gym bao gio chua", "tap gym bao gio"],
+            semantic: "Bot hỏi khách đã tập gym bao giờ chưa",
+          },
+        ],
+      },
+      {
+        customer: "mình từng đi rồi",
+        ideas: [
+          {
+            label: "Hỏi mục tiêu (TL2 Fami)",
+            anyOf: ["muc tieu", "tang can", "giam can", "duy tri"],
+            semantic: "Theo TL Fami, sau khi KH trả lời 'đã tập rồi', bot phải hỏi mục tiêu (tăng cân/giảm cân/duy trì)",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG nhảy thẳng schedule",
+            anyOf: ["khung gio nao", "tien sang hay chieu", "may buoi"],
+            semantic: "Bot KHÔNG được bỏ qua câu hỏi mục tiêu để hỏi schedule",
+          },
+        ],
+      },
+    ],
+  },
+
+  // ═══ OFF-SCRIPT — KH hỏi giờ mở cửa sau khi bot pitch InBody ═══
+  // Repro bug user thấy: bot trả lời lệch tùm lum (list 3 gói) khi KH hỏi câu logistics.
+  {
+    name: "13_inbody_then_hours_question",
+    turns: [
+      {
+        customer: "chị đăng kí tập gym",
+        ideas: [
+          {
+            label: "Hỏi đã tập gym chưa",
+            anyOf: ["da tap gym chua", "tap gym bao gio chua"],
+            semantic: "Bot hỏi đã tập gym chưa",
+          },
+        ],
+      },
+      {
+        customer: "đã tập rồi",
+        ideas: [
+          {
+            label: "Hỏi mục tiêu",
+            anyOf: ["muc tieu", "tang can", "giam can", "duy tri"],
+            semantic: "Hỏi mục tiêu",
+          },
+        ],
+      },
+      {
+        customer: "giảm cân",
+        ideas: [
+          {
+            label: "Tiếp tục discovery hoặc pitch InBody/schedule",
+            anyOf: ["khung gio", "sang", "chieu", "inbody", "may buoi", "buoi nao", "ket hop", "zumba", "boi"],
+            semantic: "Bot hỏi schedule hoặc gợi giải pháp giảm cân (Gym+Zumba+Bơi) hoặc pitch InBody",
+          },
+        ],
+      },
+      {
+        customer: "chị có thể qua lúc nào",
+        ideas: [
+          {
+            label: "Trả giờ mở cửa 5h-20h30 + hỏi sáng/chiều",
+            anyOf: ["5h", "20h30", "5 gio", "20h", "mo cua", "hang ngay"],
+            semantic: "Bot trả giờ mở cửa của trung tâm (5h-20h30) và hỏi khách tiện sáng hay chiều",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG list 3 gói khi KH chỉ hỏi giờ",
+            anyOf: [
+              "fulltime 12 thang 5",
+              "3 buoi/tuan 12 thang 4.5",
+              "pt 20 buoi",
+              "7 trieu",
+              "5 trieu",
+              "4.5 trieu",
+            ],
+            semantic: "Bot KHÔNG được list 3 gói tập / giá tiền khi KH chỉ hỏi giờ mở cửa",
+          },
+        ],
+      },
+    ],
+  },
+
+  // ═══ OFF-SCRIPT — KH hỏi giờ ngay từ đầu ═══
+  {
+    name: "14_hours_question_first_turn",
+    turns: [
+      {
+        customer: "trung tâm mở mấy giờ vậy em",
+        ideas: [
+          {
+            label: "Trả giờ mở cửa",
+            anyOf: ["5h", "20h30", "20h", "mo cua", "hang ngay"],
+            semantic: "Bot trả giờ mở cửa của trung tâm",
+          },
+        ],
+        notIdeas: [
+          {
+            label: "KHÔNG list gói",
+            anyOf: ["7 trieu", "5 trieu", "fulltime 12 thang"],
+            semantic: "Bot KHÔNG list giá gói",
           },
         ],
       },
