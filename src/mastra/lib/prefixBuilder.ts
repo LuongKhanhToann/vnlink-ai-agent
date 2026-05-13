@@ -893,15 +893,17 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // ── Khách hỏi giá (Fami trial-first close style) ──
   if (message && detectPriceQuestion(message) && !knownInfo.name && !knownInfo.phone) {
     if (flow === "fitness") {
-      // Nếu CHƯA có goal cụ thể → nói ưu đãi chung + mời trải nghiệm (tránh bung 3 gói khi chưa hiểu nhu cầu).
-      // Có goal rồi → bung gói theo goal (PRICING block lọc theo goal).
-      if (knownInfo.fitnessGoal === null) {
+      // Theo kịch bản Fami: cần BIẾT BỘ MÔN trước khi bung 3 gói chi tiết.
+      //   - Chưa serviceType (kể cả khi có goal) → nói ưu đãi CHUNG 333k/tháng + hỏi bộ môn.
+      //   - Đã có serviceType → bung gói theo service+goal (PRICING block lọc).
+      // KHÔNG dựa duy nhất vào fitnessGoal — có goal nhưng chưa biết môn vẫn phải hỏi môn trước.
+      if (knownInfo.serviceType === null) {
         hints.push(
-          "[GATE giá (chưa goal): nói ưu đãi chung 'chỉ từ 333k/tháng' + mời TRẢI NGHIỆM THỬ — KHÔNG bung 3 gói chi tiết khi chưa biết mục tiêu. Vd 'Hiện tại bên em có nhiều ưu đãi chỉ từ 333k/tháng, em tặng anh/chị chương trình trải nghiệm thử xem có phù hợp không. Anh/chị có muốn đăng ký trải nghiệm không ạ'. KHÔNG dẫn InBody, KHÔNG xin tên/SĐT.]",
+          "[GATE giá (chưa serviceType): nói ưu đãi CHUNG 'chỉ từ 333k/tháng' + hỏi BỘ MÔN nào. KHÔNG bung 3 gói chi tiết khi chưa biết khách quan tâm bộ môn nào. Vd 'Hiện tại bên em có nhiều ưu đãi chỉ từ 333k/tháng. Không biết " + state.honorific + " đang quan tâm đến bộ môn nào để em tư vấn ưu đãi phù hợp ạ'. KHÔNG xin tên/SĐT, KHÔNG bung PT/Full số cụ thể.]",
         );
       } else {
         hints.push(
-          "[GATE giá (đã có goal): trả giá CỤ THỂ từ [PRICING] theo goal. Vd 'Full 1.2tr/tháng, 3tr/3 tháng, 7tr/12 tháng'. KHÔNG né, KHÔNG xin tên/SĐT.]",
+          "[GATE giá (đã có service+goal): trả giá CỤ THỂ từ [PRICING] theo service+goal. Vd 'Full 1.2tr/tháng, 3tr/3 tháng, 7tr/12 tháng'. KHÔNG né, KHÔNG xin tên/SĐT.]",
         );
       }
     } else {
@@ -1329,22 +1331,23 @@ function buildFewShot(
     return `[EXAMPLE — đã pitch giá tin trước → tin này KHÔNG list lại 3 gói. Tối đa nhắc 1 gói + chuyển sang câu hỏi chốt giờ. Reply ≤ 150 ký tự.]`;
   }
 
-  // ── KHÁCH HỎI GIÁ lần đầu (chưa có goal cụ thể) — Fami trial-first close ──
-  // Phong cách Fami: nói giá "ưu đãi chỉ từ Xk/tháng" → MỜI TRẢI NGHIỆM THỬ trước khi bung gói
+  // ── KHÁCH HỎI GIÁ lần đầu (chưa biết bộ môn) — Fami trial-first close ──
+  // Phong cách Fami: nói giá "ưu đãi chỉ từ Xk/tháng" → hỏi BỘ MÔN nào (TL kịch bản).
+  // Trigger khi serviceType=null — kể cả có goal vẫn phải hỏi bộ môn trước khi bung 3 gói.
   if (
     state.flow === "fitness" &&
     !prevHadPricing &&
     message &&
     detectPriceQuestion(message) &&
-    state.knownInfo.fitnessGoal === null
+    state.knownInfo.serviceType === null
   ) {
-    return `[EXAMPLE — KHÁCH HỎI GIÁ lần đầu (chưa có goal): TRIAL-FIRST CLOSE phong cách Fami]
+    return `[EXAMPLE — KHÁCH HỎI GIÁ lần đầu (chưa biết bộ môn): TRIAL-FIRST CLOSE phong cách Fami]
 Khách: "bao nhiêu tiền/tháng" / "giá thế nào" / "có ưu đãi gì không"
 ĐÚNG (chọn 1):
   (a) "Dạ hiện tại bên em có rất nhiều ưu đãi chỉ từ 333k/tháng ${h}. Vì ${h} là người mới, em tặng ${h} chương trình trải nghiệm thử để xem có phù hợp không. ${h} có muốn đăng ký trải nghiệm không ạ?"
   (b) "Dạ trung tâm mở từ 5h–20h30, giá ưu đãi chỉ từ 333k/tháng. Không biết ${h} đang quan tâm bộ môn nào để em tư vấn gói phù hợp ạ?"
-SAI: bung 3 gói chi tiết ngay; pitch InBody; hỏi 'tập để làm gì' (quá direct).
-NGUYÊN TẮC: nói giá ƯU ĐÃI chung chung → MỜI trải nghiệm → khách đồng ý mới bung gói cụ thể.`;
+SAI: bung 3 gói chi tiết ngay (Gym 5tr/PT 6tr/Full 7tr); pitch InBody; hỏi 'tập để làm gì' (quá direct).
+NGUYÊN TẮC: nói giá ƯU ĐÃI chung chung → hỏi bộ môn / MỜI trải nghiệm → khách trả lời bộ môn mới bung gói cụ thể.`;
   }
 
   // ── DISCOVERY + khách hỏi giá LẦN 2 sau khi bot đã pitch giá ──

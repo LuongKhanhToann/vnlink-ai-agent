@@ -302,6 +302,24 @@ export function decideFitnessQuestion(
     };
   }
 
+  // ─── EARLY: KH hỏi "có ưu đãi/khuyến mãi gì không" + chưa biết bộ môn.
+  // Áp dụng bất kể turn — kịch bản Fami: nói ưu đãi CHUNG (333k/tháng) + redirect hỏi BỘ MÔN,
+  // KHÔNG bung 3 gói cụ thể khi chưa biết khách quan tâm bộ môn nào.
+  if (isPriceOpening(m) && ki.serviceType === null) {
+    const greeting =
+      turn <= 1
+        ? `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. `
+        : `Dạ vâng ${h}, `;
+    return {
+      id: "uu_dai_ask_service",
+      template:
+        greeting +
+        `Hiện tại trung tâm mở cửa từ 5h00 đến 20h30 tất cả các ngày, giá ưu đãi chỉ từ 333k/tháng. ` +
+        `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn ưu đãi phù hợp ạ.`,
+      mustInclude: ["333k", "20h30", "bộ môn nào"],
+    };
+  }
+
   // ─── OPENING patterns (turn 1 — chưa có gì)
   if (turn <= 1 && stage === "opening" && ki.serviceType === null) {
     // (1) "Tôi muốn tập trải nghiệm" — list dịch vụ + giờ mở
@@ -330,17 +348,7 @@ export function decideFitnessQuestion(
       };
     }
 
-    // (4) "có chương trình ưu đãi nào không?" — ưu đãi + hỏi bộ môn
-    if (isPriceOpening(m)) {
-      return {
-        id: "opening_uu_dai",
-        template:
-          `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
-          `Hiện tại trung tâm mở cửa từ 5h00 đến 20h30 tất cả các ngày, giá ưu đãi chỉ từ 333k/tháng. ` +
-          `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn ưu đãi cho ${h} ạ.`,
-        mustInclude: ["em chào", "333k", "20h30", "bộ môn nào"],
-      };
-    }
+    // (4) [moved] "có chương trình ưu đãi nào không?" — xem block EARLY uu_dai_ask_service phía trên.
 
     // (5) Greeting only ("Quan tâm", "alo") — hỏi bộ môn
     if (isGreetingOnly(m)) {
