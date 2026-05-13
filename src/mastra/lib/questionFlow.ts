@@ -470,13 +470,25 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   },
 
   // ── PACKAGE / GOAL ───────────────────────
-  full_package_confirm: (_s, h) => ({
-    id: "full_package_confirm",
-    template:
-      `Dạ vâng ${h}, em thấy gói Full phù hợp với ${h} lắm — vì mỗi thời điểm mình sẽ có 1 mục tiêu khác nhau, tập đủ 4 dịch vụ rất linh động. ` +
-      `Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối ạ.`,
-    mustInclude: ["gói Full", "phù hợp", "tên", "SĐT"],
-  }),
+  full_package_confirm: (s, h) => {
+    // Đã có tên + SĐT → KHÔNG xin lại; hỏi luôn khung giờ để chốt slot.
+    if (s.knownInfo.name && s.knownInfo.phone) {
+      return {
+        id: "full_package_ask_time",
+        template:
+          `Dạ vâng ${h} ${s.knownInfo.name}, gói Full rất phù hợp với mình ạ. ` +
+          `${h} muốn đến buổi sáng, chiều hay tối để em giữ slot ạ.`,
+        mustInclude: ["gói Full", "sáng", "chiều", "tối"],
+      };
+    }
+    return {
+      id: "full_package_confirm",
+      template:
+        `Dạ vâng ${h}, em thấy gói Full phù hợp với ${h} lắm — vì mỗi thời điểm mình sẽ có 1 mục tiêu khác nhau, tập đủ 4 dịch vụ rất linh động. ` +
+        `Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối ạ.`,
+      mustInclude: ["gói Full", "phù hợp", "tên", "SĐT"],
+    };
+  },
 
   maintain_after_goal: (_s, h) => ({
     id: "maintain_after_goal",
@@ -599,6 +611,34 @@ export function decideFitnessQuestion(
 
   const h = resolveHonorific(state.honorific);
   const prev = prevBotReply || "";
+
+  // Ưu tiên cao nhất: đã đủ tên + SĐT + giờ → CHỐT SLOT, KHÔNG hỏi gì nữa.
+  if (
+    state.knownInfo.name &&
+    state.knownInfo.phone &&
+    state.knownInfo.preferredTime
+  ) {
+    return {
+      id: "close_slot_confirm",
+      template:
+        `Dạ em giữ slot ${state.knownInfo.preferredTime} cho mình rồi nha ${h} ${state.knownInfo.name}, hẹn gặp ${h} ạ.`,
+      mustInclude: ["giữ slot", "hẹn gặp"],
+    };
+  }
+
+  // Đã có tên + SĐT nhưng thiếu giờ → hỏi khung giờ, KHÔNG hỏi gì khác.
+  if (
+    state.knownInfo.name &&
+    state.knownInfo.phone &&
+    !state.knownInfo.preferredTime
+  ) {
+    return {
+      id: "ask_time_after_name_phone",
+      template:
+        `Dạ vâng ${h} ${state.knownInfo.name}, ${h} tiện đến buổi sáng, chiều hay tối để em giữ slot ạ.`,
+      mustInclude: ["sáng", "chiều", "tối"],
+    };
+  }
 
   // Override: nếu KH nhắc "aerobic" trực tiếp (so sánh với Zumba) → force topic.
   // Classifier có khi miss topic này khi cùng tin có cả "giảm cân" lẫn "aerobic".
