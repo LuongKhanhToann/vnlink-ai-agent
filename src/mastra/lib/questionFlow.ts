@@ -178,6 +178,16 @@ function isNewUserAsk(m: string): boolean {
   );
 }
 
+function isClassHasNewbiesAsk(m: string): boolean {
+  // "Lớp bây giờ có người mới không?" — câu hỏi về thành phần lớp HIỆN TẠI,
+  // khác isNewUserAsk (khách hỏi "có lớp dành cho người mới"). Phải trả tuyển sinh liên tục.
+  const s = lc(m);
+  return (
+    /lớp.{0,30}(có|hiện).{0,15}người\s+mới/.test(s) ||
+    /(bây\s+giờ|hiện\s+(tại|nay)).{0,20}người\s+mới/.test(s)
+  );
+}
+
 function isHaveYouPracticedBefore(m: string): boolean {
   // Bot hỏi "trước đây mình đã tập X chưa" — match từ prev bot reply
   const s = lc(m);
@@ -626,6 +636,21 @@ export function decideFitnessQuestion(
         mustInclude: ["yên tâm", "cô giáo", "hỗ trợ"],
       };
     }
+  }
+
+  // ─── KH hỏi "Lớp bây giờ có người mới không?" — trả tuyển sinh liên tục (Fami kịch bản)
+  // Áp dụng cho yoga/zumba (lớp nhóm). Đặt TRƯỚC block DISCOVERY để không bị nhảy vào discovery.
+  if (
+    isClassHasNewbiesAsk(m) &&
+    (ki.serviceType === "zumba" || ki.serviceType === "yoga")
+  ) {
+    return {
+      id: "class_has_newbies",
+      template:
+        `Dạ lớp bên em tuyển sinh liên tục, nên ở thời điểm nào cũng sẽ có 1 vài người mới vào, ` +
+        `có thể là chỉ trước mình 1-2 buổi thôi ${h} ạ.`,
+      mustInclude: ["tuyển sinh liên tục", "1-2 buổi"],
+    };
   }
 
   // ─── DISCOVERY: hỏi "đã tập X bao giờ chưa" — fire khi chưa hỏi experience cho bộ môn này.
