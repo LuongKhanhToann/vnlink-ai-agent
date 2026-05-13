@@ -264,6 +264,20 @@ function flush(senderId: string) {
 }
 
 async function handleMessage(senderId: string, text: string) {
+  // ORDER LOCK: đơn đã chốt (sheetsWritten=true) → bot im lặng cho phần còn lại của session.
+  // Khách nhắn thêm gì cũng không reply, tránh tiếp tục pitch / hỏi lại sau khi đã có lead.
+  try {
+    const { mastra } = await import("../index");
+    const { loadState } = await import("../lib/stateStore");
+    const lockedState = await loadState(mastra, senderId, "facebook-customer");
+    if (lockedState.sheetsWritten) {
+      console.log(`[fb] SKIP ${senderId} — đơn đã chốt (sheetsWritten=true), bot không reply nữa`);
+      return;
+    }
+  } catch (e) {
+    console.warn(`[fb] order-lock check failed for ${senderId} (proceed normally):`, e);
+  }
+
   // Capture seq tại thời điểm bắt đầu chạy. Nếu seq tăng (KH gõ tin mới) trong lúc
   // workflow chạy → reply này stale, drop trước khi gửi.
   const mySeq = seq.get(senderId) ?? 0;
