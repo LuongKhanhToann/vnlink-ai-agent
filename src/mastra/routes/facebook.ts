@@ -41,6 +41,22 @@ const processing = new Set<string>();
 //   "lạc đề" / reply trùng do race-condition.
 const seq = new Map<string, number>();
 
+/**
+ * Reset toàn bộ session in-memory của FB — dùng cho admin /reset trên Telegram.
+ * Clear timer debounce, queue, processing lock, generation counter.
+ * Lưu ý: không xoá state trong DB (caller chịu trách nhiệm truncate).
+ */
+export function resetAllFbSessionState(): void {
+  for (const entry of pending.values()) {
+    if (entry.timer) clearTimeout(entry.timer);
+  }
+  pending.clear();
+  queues.clear();
+  processing.clear();
+  seq.clear();
+  console.log("[fb] resetAllFbSessionState: cleared pending/queues/processing/seq");
+}
+
 export const facebookWebhook = new Hono();
 
 facebookWebhook.get("/webhook", (c) => {

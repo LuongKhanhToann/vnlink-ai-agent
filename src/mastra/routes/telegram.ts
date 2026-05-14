@@ -6,6 +6,8 @@
 import { Hono } from "hono";
 import { Pool } from "pg";
 import "dotenv/config";
+import { resetAllFbSessionState } from "./facebook";
+import { resetAllFollowupState } from "../lib/followup";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -63,7 +65,14 @@ telegramWebhook.post("/telegram", async (c) => {
       `);
 
       console.log("[tg] reset: all tables truncated");
-      await sendMessage(chatId, "✅ Đã xoá toàn bộ memory trong database!");
+
+      // Clear in-memory session: pending/queues/processing/seq + followup timers/cooldown.
+      // Cần thiết để unlock các user mà bot đã "tắt nhắn tin" (sheetsWritten lock + ghost timers
+      // còn pending) — chỉ truncate DB không đủ vì state in-memory vẫn giữ qua restart-free.
+      resetAllFbSessionState();
+      resetAllFollowupState();
+
+      await sendMessage(chatId, "✅ Đã xoá toàn bộ memory (DB + session in-memory)!");
     } catch (e) {
       console.error("[tg] reset error:", e);
       await sendMessage(chatId, `❌ Lỗi khi xoá memory:\n${String(e)}`);

@@ -40,7 +40,14 @@ async function handleReset(chatId: number) {
       END $$;
     `);
     console.log("[tg] reset: all tables truncated");
-    await sendMessage(chatId, "✅ Đã xoá toàn bộ memory trong database!");
+    // Note: script này chạy ở process riêng so với bot → KHÔNG clear được in-memory state
+    // (pending/queues/processing/seq trong facebook.ts, followup timers). Nếu cần full reset
+    // (gồm unlock user mà bot đã "tắt nhắn tin"), dùng webhook /reset thay vì poll script,
+    // hoặc restart bot process sau khi truncate.
+    await sendMessage(
+      chatId,
+      "✅ Đã truncate DB.\n⚠️ In-memory state (followup timers, debounce queue) cần restart bot để clear hoàn toàn.",
+    );
   } catch (e) {
     console.error("[tg] reset error:", e);
     await sendMessage(chatId, `❌ Lỗi khi xoá memory:\n${String(e)}`);

@@ -141,6 +141,17 @@ export function cancelFollowup(senderId: string): void {
   }
 }
 
+/**
+ * Reset toàn bộ state in-memory của followup — dùng cho admin /reset.
+ * Cancel mọi timer đang pending + clear cooldown để admin có thể test lại từ đầu.
+ */
+export function resetAllFollowupState(): void {
+  for (const t of followupTimers.values()) clearTimeout(t);
+  followupTimers.clear();
+  lastFollowupSent.clear();
+  console.log("[followup] resetAllFollowupState: cleared all timers + cooldowns");
+}
+
 // ─────────────────────────────────────────────
 // Build content theo state
 // ─────────────────────────────────────────────
