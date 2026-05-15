@@ -101,7 +101,21 @@ export type IntentTopic =
   // Media
   | "media_request"               // "cho xem ảnh phòng", "có hình không"
   // Switch service (giữa cuộc thoại) — slot extraction sẽ extract serviceType mới
-  | "switch_service";             // "tôi quan tâm tập gym" (khi đang trên service khác)
+  | "switch_service"              // "tôi quan tâm tập gym" (khi đang trên service khác)
+  // ── EDGE TOPICS — câu hỏi ngoài kịch bản Fami chính thức ──
+  | "ask_address"                 // "địa chỉ ở đâu", "trung tâm chỗ nào"
+  | "ask_branch"                  // "có cơ sở 2 không", "chi nhánh ở HN"
+  | "ask_facility"                // gửi xe, tủ đồ, phòng tắm, điều hòa, wifi, lọc khí
+  | "ask_hold_policy"             // "thẻ có bảo lưu được không"
+  | "ask_refund_policy"           // "không tập có hoàn tiền không"
+  | "ask_change_package"          // "đổi gói giữa chừng được không"
+  | "ask_unsupported_service"     // hỏi boxing/dance/aerobic standalone/kickbox/crossfit
+  | "complaint_crowded"           // "phòng tập đông quá"
+  | "ask_kid_supervision"         // "có chỗ trông trẻ con không"
+  | "ask_postpartum_safety"       // "mới sinh / cho con bú tập được không"
+  | "ask_senior_safety"           // "60+ tuổi / có bệnh nền tập được không"
+  | "ask_renewal"                 // "hội viên cũ gia hạn"
+  | "ask_combo_pricing";          // "1 tháng combo bao nhiêu", "gym+yoga giá combo"
 
 // ─────────────────────────────────────────────
 // KNOWN INFO — khác nhau giữa 2 flows
@@ -140,7 +154,10 @@ export interface ConversationState {
   intentTopic: IntentTopic | null;
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
+  /** Tổng số turn của cuộc thoại — KHÔNG reset khi flow đổi. Dùng cho greeting decision. */
   turnCount: number;
+  /** Số turn trong flow HIỆN TẠI — reset về 1 khi flow đổi. Dùng cho anti-loop guards. */
+  flowTurnCount: number;
   qrShown: boolean;
   mediaShown: boolean;
   // Track riêng từng key media đã gửi — cho phép gửi media khi khách hỏi DỊCH VỤ MỚI.
@@ -300,6 +317,22 @@ const PAIN_PRIORITY = new RegExp(
     `|nhức\\s+(?:mỏi|cơ)|cứng\\s+cơ|mỏi\\s+(?:lưng|vai|cổ|gáy|chân|gối|hông|cơ)`,
   "iu",
 );
+
+// Detect serviceType từ keyword — backup khi LLM classifier miss extract.
+// Vd: "à không, cho anh yoga thôi" — classifier có khi không extract được "yoga".
+export function detectServiceByKeyword(message: string): string | null {
+  if (!message) return null;
+  const m = message.toLowerCase();
+  // Order: dùng từ ít ambiguity nhất trước
+  if (/\bpilates?\b/.test(m)) return "pilates";
+  if (/\b(yoga)\b/.test(m)) return "yoga";
+  if (/\b(zumba)\b/.test(m)) return "zumba";
+  if (/\b(gym|tập\s*gym|đăng\s*kí?\s*gym)\b/.test(m)) return "gym";
+  // "bơi" phải có context (học bơi, tập bơi) để tránh false positive
+  if (/(học\s*bơi|tập\s*bơi|bộ\s*môn\s*bơi|gói\s*bơi|đi\s*bơi|biết\s*bơi)/.test(m)) return "boi";
+  if (/(gói\s*full|thẻ\s*full|combo\s*4|đa\s*dịch\s*vụ)/.test(m)) return "full";
+  return null;
+}
 
 export function detectFlowByKeyword(
   message: string,
@@ -467,11 +500,27 @@ export function computeNextStage(
       if (turnCount <= 1 && intent !== "selecting" && intent !== "ready" && !coreSlotsFilled) {
         return "discovery";
       }
+      // ANTI-PREMATURE-COMMITMENT GUARD:
+      // Khách nói "đăng ký gym" / "lấy yoga" → classifier hay nhầm thành intent=ready,
+      // dẫn đến jump thẳng commitment trong khi bot CHƯA hỏi "đã tập X chưa".
+      // Yêu cầu ít nhất 1 tín hiệu commit thật: preferredTime, name+phone, hoặc goal+schedule.
+      const hasCommitSignal =
+        info.preferredTime !== null ||
+        (info.name !== null && info.phone !== null) ||
+        (info.fitnessGoal !== null && info.schedule !== null);
+      if (
+        flow === "fitness" &&
+        (intent === "selecting" || intent === "ready") &&
+        !hasCommitSignal
+      ) {
+        console.log(`[stateMachine] guard: intent=${intent} nhưng chưa có commit signal → stay discovery`);
+        return "discovery";
+      }
       // Giải cơ: khách đã báo giờ + chủ động đặt lịch → thẳng commitment, skip evaluation pitch
       if (flow === "giai-co" && (intent === "selecting" || intent === "ready") && info.preferredTime !== null) {
         return "commitment";
       }
-      // Fitness: khách chủ động chọn gói / đăng ký → thẳng commitment
+      // Fitness: khách chủ động chọn gói / đăng ký → thẳng commitment (đã pass guard)
       if (flow === "fitness" && (intent === "selecting" || intent === "ready")) {
         return "commitment";
       }
@@ -594,7 +643,19 @@ export function buildNextState(
   const honorific = detectHonorific(message, previous.honorific);
 
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
-  const flow = keywordFlow ?? llm.flow ?? previous.flow;
+  let flow = keywordFlow ?? llm.flow ?? previous.flow;
+
+  // HEALTH-SAFETY FLOW LOCK: Nếu turn trước fire ask_senior_safety / ask_postpartum_safety
+  // (tức KH đang hỏi về tập cho người già / sau sinh), turn này dù có mention đau cơ
+  // (vd "khớp gối yếu", "cao huyết áp") thì vẫn STAY fitness flow.
+  // Lý do: đang trong context tư vấn tập, KHÔNG phải đặt giải cơ.
+  const wasSafetyContext =
+    previous.intentTopic === "ask_senior_safety" ||
+    previous.intentTopic === "ask_postpartum_safety";
+  if (wasSafetyContext && flow === "giai-co") {
+    console.log(`[stateMachine] safety lock: previous=${previous.intentTopic} → giữ flow=fitness`);
+    flow = "fitness";
+  }
 
   // Detect SERVICE SWITCH: KH đổi bộ môn giữa cuộc thoại.
   // Tín hiệu: LLM classifier extract serviceType MỚI khác serviceType hiện tại trong state.
@@ -603,7 +664,9 @@ export function buildNextState(
   //   - reset slots phụ thuộc service: fitnessGoal, memberType, schedule, durationMonths, sessionPackage
   //   - giữ name/phone/preferredTime (cross-service)
   //   - reset stage về opening để re-chạy discovery (hỏi "đã tập X chưa", mục tiêu...)
-  const extractedService = llm.extractedSlots.serviceType;
+  // FALLBACK: nếu LLM classifier không extract serviceType, thử keyword detect (vd "yoga thôi").
+  const extractedService =
+    llm.extractedSlots.serviceType ?? detectServiceByKeyword(message);
   const FAMI_SERVICES = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
   const normalizedExtracted =
     typeof extractedService === "string" ? extractedService.toLowerCase() : null;
@@ -636,13 +699,20 @@ export function buildNextState(
 
   const intent = llm.intent;
 
+  // turnCount: conversation-wide — KHÔNG reset khi flow đổi.
+  // Dùng cho greeting decision (đã chào ở turn 1 rồi thì các turn sau dùng "Dạ vâng").
+  const turnCount = previous.turnCount + 1;
+  // flowTurnCount: per-flow — reset về 1 khi flow đổi.
+  // Dùng cho anti-loop guards / discovery guard trong flow hiện tại.
+  const flowTurnCount = flow !== previous.flow ? 1 : (previous.flowTurnCount ?? 0) + 1;
+
   const stage = computeNextStage(
     baseStage,
     knownInfo,
     intent,
     flow,
     llm.llmStage,
-    previous.turnCount   // truyền turnCount để guard "tin đầu tiên"
+    flowTurnCount   // dùng flowTurnCount cho discovery guard (relative đến flow hiện tại)
   );
 
   const temperature = computeTemperature(knownInfo, intent, stage);
@@ -650,9 +720,6 @@ export function buildNextState(
 
   const qrShown    = llm.qrShown    ?? previous.qrShown;
   const mediaShown = llm.mediaShown ?? previous.mediaShown;
-
-  // Reset turnCount khi flow thay đổi — tránh GATE "lần 2" trigger ngay turn đầu của flow mới.
-  const turnCount = flow !== previous.flow ? 1 : previous.turnCount + 1;
 
   return {
     flow,
@@ -664,6 +731,7 @@ export function buildNextState(
     honorific,
     knownInfo,
     turnCount,
+    flowTurnCount,
     qrShown,
     mediaShown,
     mediaShownKeys: previous.mediaShownKeys ?? [],
@@ -700,6 +768,7 @@ export const DEFAULT_STATE: ConversationState = {
     preferredTime: null,
   },
   turnCount: 0,
+  flowTurnCount: 0,
   qrShown: false,
   mediaShown: false,
   mediaShownKeys: [],

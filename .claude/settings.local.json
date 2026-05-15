@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH|^  BOT|^▶|^✓|^✗|^⚠|SUMMARY|^Ideas|^Failed|^DETAIL|^✅|^❌|^Negative|^Style|^═\" | Select-Object -Last 250)",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; $env:SCENARIOS=\"khach_lanh,me_bim,khach_doi_y\"; npx tsx src/mastra/scripts/testNaturalUser.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; $env:SCENARIOS=\"khach_lanh,me_bim,khach_doi_y\"; npx tsx src/mastra/scripts/testNaturalUser.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═|getStorage|turnCount\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testEdgeCases.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 30)",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; $env:SCENARIOS=\"doi_tuong_dac_thu,khieu_nai,hoi_vien_cu,hoi_gop_combo\"; npx tsx src/mastra/scripts/testEdgeCases.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═|safety lock\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testNaturalUser.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 15)"
+    ]
+  }
+}

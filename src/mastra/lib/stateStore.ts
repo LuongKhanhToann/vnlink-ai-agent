@@ -68,9 +68,14 @@ export async function loadState(
       temperature: m.temperature ?? DEFAULT_STATE.temperature,
       emotion: m.emotion ?? DEFAULT_STATE.emotion,
       intent: m.intent ?? DEFAULT_STATE.intent,
-      // intentTopic là TRANSIENT — chỉ relevant cho turn này, LLM classifier re-output mỗi turn.
-      // KHÔNG load từ store cũ (tránh stale topic từ turn trước).
-      intentTopic: null,
+      // Load intentTopic của TURN TRƯỚC (đã lưu từ saveState lần trước).
+      // Dùng cho:
+      //   (1) Safety flow lock: nếu previous=ask_senior_safety/ask_postpartum_safety,
+      //       turn này dù có mention "đau khớp" cũng STAY fitness flow.
+      //   (2) Follow-up context: classifier dùng previousIntentTopic để route đúng
+       //      (vd previous=complaint_crowded → "giờ vắng" vẫn complaint_crowded).
+      // Sau buildNextState, intentTopic sẽ bị overwrite bằng kết quả classifier turn HIỆN TẠI.
+      intentTopic: (m.intentTopic ?? null) as any,
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
         name: m.knownInfo?.name ?? null,
@@ -88,6 +93,7 @@ export async function loadState(
         fitnessGoal: m.knownInfo?.fitnessGoal ?? null,
       },
       turnCount: m.turnCount ?? 0,
+      flowTurnCount: (m as any).flowTurnCount ?? 0,
       qrShown: m.qrShown ?? false,
       mediaShown: m.mediaShown ?? false,
       mediaShownKeys: (m as any).mediaShownKeys ?? [],

@@ -71,6 +71,26 @@ function greetingPrefix(state: ConversationState, h: string): string {
     : `Dạ vâng ${h}, `;
 }
 
+// Service-specific greeting (cho gym discovery — TL Fami: "bộ môn gym của trung tâm").
+function greetingServicePrefix(
+  state: ConversationState,
+  h: string,
+  serviceName: string,
+): string {
+  return state.turnCount <= 1
+    ? `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn ${serviceName} của trung tâm. `
+    : `Dạ vâng ${h}, `;
+}
+
+// mustInclude phụ thuộc turn — turn 1 cần "em chào", turn 2+ không cần.
+function turnAwareMustInclude(
+  state: ConversationState,
+  base: string[],
+): string[] {
+  if (state.turnCount <= 1) return ["em chào", ...base];
+  return base;
+}
+
 // KH vừa mention dịch vụ (yoga/zumba/gym) lần đầu, chưa hỏi experience, chưa có goal.
 // → Ưu tiên discovery thay vì templates opening_* / generic.
 function isFreshServiceDiscovery(
@@ -100,9 +120,9 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     return {
       id: "opening_greeting",
       template:
-        `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
+        greetingPrefix(s, h) +
         `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
-      mustInclude: ["em chào", "bộ môn nào"],
+      mustInclude: turnAwareMustInclude(s, ["bộ môn nào"]),
     };
   },
 
@@ -111,21 +131,24 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     return {
       id: "opening_chuong_trinh",
       template:
-        `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
+        greetingPrefix(s, h) +
         `Bên em hiện tại có rất nhiều bộ môn: Gym, Yoga, Zumba, Bơi. ` +
         `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ.`,
-      mustInclude: ["em chào", "Gym", "Yoga", "Zumba", "Bơi", "bộ môn nào"],
+      mustInclude: turnAwareMustInclude(s, ["Gym", "Yoga", "Zumba", "Bơi", "bộ môn nào"]),
     };
   },
 
   opening_chua_biet: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    const prefix =
+      s.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "opening_chua_biet",
       template:
-        `Dạ em chào ${h}, ${h} ơi trước đây mình đã từng tập bộ môn nào chưa ạ, ` +
+        prefix +
+        `${h} ơi trước đây mình đã từng tập bộ môn nào chưa ạ, ` +
         `hay là mình có yêu thích bộ môn nào không ạ.`,
-      mustInclude: ["em chào", "đã từng tập"],
+      mustInclude: turnAwareMustInclude(s, ["đã từng tập"]),
       mustNotInclude: ["Gym, Yoga, Zumba, Bơi"],
     };
   },
@@ -150,10 +173,10 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
       return {
         id: "intro_trai_nghiem_t1",
         template:
-          `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. ` +
+          greetingPrefix(s, h) +
           `Bên em cung cấp rất nhiều dịch vụ: Gym, Yoga, Zumba, Bơi, phòng tập mở cửa từ 5h00 đến 20h30. ` +
           `Không biết ${h} có thể đi tập được khung giờ nào để em hỗ trợ tư vấn ạ.`,
-        mustInclude: ["em chào", "Gym", "Yoga", "Zumba", "Bơi", "khung giờ", "20h30"],
+        mustInclude: turnAwareMustInclude(s, ["Gym", "Yoga", "Zumba", "Bơi", "khung giờ", "20h30"]),
       };
     }
     if (s.knownInfo.serviceType !== null) return null; // đã biết bộ môn → fallback
@@ -341,12 +364,17 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   },
 
   // ── BƠI ──────────────────────────────────
-  pool_audience_ask: (_s, h) => ({
-    id: "pool_audience_ask",
-    template:
-      `Dạ em chào ${h}, không biết ${h} đang quan tâm học bơi cho người lớn hay trẻ em ạ.`,
-    mustInclude: ["người lớn", "trẻ em"],
-  }),
+  pool_audience_ask: (s, h) => {
+    const prefix =
+      s.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
+    return {
+      id: "pool_audience_ask",
+      template:
+        prefix +
+        `không biết ${h} đang quan tâm học bơi cho người lớn hay trẻ em ạ.`,
+      mustInclude: ["người lớn", "trẻ em"],
+    };
+  },
 
   pool_child_no_age: (_s, h) => ({
     id: "pool_child_no_age",
@@ -560,34 +588,214 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     mustInclude: ["gói kết hợp", "sắp xếp"],
   }),
 
+  // ── EDGE TOPICS — câu hỏi NGOÀI tài liệu Fami chính thức ─────────────────
+  // Quy tắc: trả THẲNG vào câu hỏi (answer-first), KHÔNG pivot sang "bộ môn nào".
+  // Greeting tối giản ("Dạ vâng" / "Dạ") — không lặp "em chào ... cảm ơn" mỗi turn.
+  // ────────────────────────────────────────────────────────────────────────
+
+  ask_address: (_s, h) => ({
+    id: "ask_address",
+    template:
+      `Dạ trung tâm bên em ở 32A Nguyễn Chí Thanh, Vĩnh Yên ${h} ạ. ` +
+      `${h} có cần em hướng dẫn đường đi không ạ.`,
+    mustInclude: ["32A Nguyễn Chí Thanh", "Vĩnh Yên"],
+  }),
+
+  ask_branch: (_s, h) => ({
+    id: "ask_branch",
+    template:
+      `Dạ hiện tại bên em có 1 cơ sở duy nhất tại 32A Nguyễn Chí Thanh, Vĩnh Yên ${h} ạ. ` +
+      `Bên em chưa mở chi nhánh ở tỉnh khác nha.`,
+    mustInclude: ["1 cơ sở", "Vĩnh Yên"],
+  }),
+
+  ask_facility: (_s, h, _prev, message) => {
+    const m = (message || "").toLowerCase();
+    if (/(gửi\s*xe|để\s*xe|đỗ\s*xe|chỗ\s*xe|bãi\s*xe|parking)/.test(m)) {
+      return {
+        id: "ask_facility_parking",
+        template:
+          `Dạ bên em có bãi gửi xe riêng cho hội viên, không mất phí ${h} ạ. ` +
+          `${h} cứ ghé tập không lo nha.`,
+        mustInclude: ["gửi xe", "không mất phí"],
+      };
+    }
+    if (/(tủ\s*đồ|locker|cất\s*đồ|phòng\s*tắm|tắm|thay\s*đồ|vòi\s*sen|sauna|xông\s*hơi)/.test(m)) {
+      return {
+        id: "ask_facility_locker",
+        template:
+          `Dạ bên em có tủ đồ riêng cho hội viên cùng phòng tắm có vòi sen nước nóng sau khi tập ${h} ạ.`,
+        mustInclude: ["tủ đồ", "phòng tắm"],
+      };
+    }
+    if (/(lọc\s*(khí|không\s*khí)|điều\s*hòa|máy\s*lạnh|wifi|wi-?fi|nhiệt\s*độ|thông\s*gió)/.test(m)) {
+      return {
+        id: "ask_facility_air",
+        template:
+          `Dạ phòng tập bên em có điều hòa, hệ thống lọc không khí và wifi miễn phí cho hội viên ${h} ạ.`,
+        mustInclude: ["điều hòa"],
+      };
+    }
+    return {
+      id: "ask_facility_generic",
+      template:
+        `Dạ cơ sở vật chất bên em gồm phòng gym 700m2, bể bơi 4 mùa, phòng yoga/zumba có điều hòa, ` +
+        `kèm tủ đồ + phòng tắm + bãi gửi xe miễn phí ${h} ạ.`,
+      mustInclude: ["700m2", "tủ đồ"],
+    };
+  },
+
+  ask_hold_policy: (_s, h) => ({
+    id: "ask_hold_policy",
+    template:
+      `Dạ với gói năm, ${h} có thể bảo lưu khi vắng 1-2 tuần ạ. ` +
+      `Gói tháng không bảo lưu nhưng có thể chuyển nhượng trong gia đình ${h} nha.`,
+    mustInclude: ["bảo lưu", "gói năm", "chuyển nhượng"],
+  }),
+
+  ask_refund_policy: (_s, h) => ({
+    id: "ask_refund_policy",
+    template:
+      `Dạ bên em không có chính sách hoàn tiền sau khi đăng ký ${h} ạ. ` +
+      `Tuy nhiên ${h} có thể bảo lưu (gói năm 1-2 tuần) hoặc chuyển nhượng cho người thân, nên cứ yên tâm nha.`,
+    mustInclude: ["không có chính sách hoàn tiền", "bảo lưu"],
+  }),
+
+  ask_change_package: (_s, h) => ({
+    id: "ask_change_package",
+    template:
+      `Dạ ${h} có thể đổi sang dịch vụ khác giữa chừng ạ, bên em sẽ tính chênh lệch theo bảng giá hiện tại. ` +
+      `${h} đang muốn đổi sang môn nào để em check phù hợp giúp ạ.`,
+    mustInclude: ["đổi", "chênh lệch"],
+  }),
+
+  ask_unsupported_service: (_s, h, _prev, message) => {
+    const m = (message || "").toLowerCase();
+    let alt = "";
+    if (/(boxing|kickbox|võ|đấm\s*bốc|muay)/.test(m)) {
+      alt = `Tuy nhiên Gym của bên em có khu cardio + tạ free-weight phù hợp với mục tiêu đốt mỡ + săn chắc tương tự boxing ${h} ạ.`;
+    } else if (/(dance|nhảy|aerobic)/.test(m)) {
+      alt = `Tuy nhiên Zumba của bên em chính là dance fitness — nhảy theo nhạc, đốt mỡ + xả stress với GV Ấn Độ ${h} ạ.`;
+    } else if (/(crossfit|hiit|functional)/.test(m)) {
+      alt = `Tuy nhiên Gym của bên em có khu cardio + tạ free-weight, ${h} có thể tự tập HIIT theo lịch riêng ạ.`;
+    } else {
+      alt = `Bên em hiện tập trung 5 dịch vụ: Gym, Yoga, Zumba, Bơi và Pilates ${h} ạ.`;
+    }
+    return {
+      id: "ask_unsupported_service",
+      template: `Dạ bộ môn này bên em hiện chưa có ${h} ạ. ${alt}`,
+      mustInclude: ["chưa có"],
+    };
+  },
+
+  complaint_crowded: (_s, h) => ({
+    id: "complaint_crowded",
+    template:
+      `Dạ em xin lỗi vì bất tiện vừa rồi ${h} ạ. ` +
+      `Khung 18-20h là giờ cao điểm nhất, nếu ${h} đổi sang khung 5-7h sáng, 10-12h trưa hoặc sau 20h thì sẽ vắng hơn nhiều. ` +
+      `Em note lại để bên em cân đối thêm máy giờ cao điểm nha.`,
+    mustInclude: ["xin lỗi", "vắng hơn"],
+  }),
+
+  ask_kid_supervision: (_s, h) => ({
+    id: "ask_kid_supervision",
+    template:
+      `Dạ bên em hiện chưa có dịch vụ trông trẻ riêng ${h} ạ. ` +
+      `Tuy nhiên có khu chờ thoáng cho người nhà, hoặc nếu bé từ 6 tuổi thì có thể đăng ký lớp bơi/yoga trẻ em tập cùng giờ ${h} nha.`,
+    mustInclude: ["chưa có", "khu chờ"],
+  }),
+
+  ask_postpartum_safety: (_s, h) => ({
+    id: "ask_postpartum_safety",
+    template:
+      `Dạ ${h} mới sinh là bình thường có ngấn mỡ vùng bụng-eo do giãn cơ ${h} ạ. ` +
+      `Đang cho con bú vẫn tập được — bên em sẽ điều chỉnh cường độ nhẹ (yoga phục hồi + đi bộ + gym nhẹ), tránh tập nặng làm mất sữa. ` +
+      `HLV có kinh nghiệm tư vấn mẹ bỉm rồi, ${h} cứ yên tâm ạ.`,
+    mustInclude: ["cho con bú", "điều chỉnh", "yên tâm"],
+  }),
+
+  ask_senior_safety: (_s, h) => ({
+    id: "ask_senior_safety",
+    template:
+      `Dạ với người trên 60 tuổi hoặc có bệnh nền (cao huyết áp, tim mạch, khớp), ` +
+      `${h} nên có giấy khám sức khỏe và trao đổi với HLV trước khi tập ạ. ` +
+      `Bên em có Yoga nhẹ + bể bơi 4 mùa rất hợp cho duy trì sức khỏe + giảm áp lực khớp ${h} nha.`,
+    mustInclude: ["bệnh nền", "giấy khám", "Yoga", "bể bơi"],
+  }),
+
+  ask_renewal: (s, h) => {
+    const prefix =
+      s.turnCount <= 1
+        ? `Dạ em chào ${h}, cảm ơn ${h} đã quay lại với bên em ạ. `
+        : `Dạ vâng ${h}, em hỗ trợ ${h} gia hạn nha. `;
+    return {
+      id: "ask_renewal",
+      template:
+        prefix +
+        `Hội viên cũ gia hạn được ưu đãi giảm thêm so với khách mới. ` +
+        `${h} cho em xin SĐT cũ để em check thẻ giúp ạ.`,
+      mustInclude: ["hội viên cũ", "SĐT cũ"],
+    };
+  },
+
+  ask_combo_pricing: (_s, h) => ({
+    id: "ask_combo_pricing",
+    template:
+      `Dạ gói combo đa dịch vụ bên em — thẻ Full bao gồm Gym + Yoga + Zumba + Bơi — ` +
+      `chỉ từ 7tr/12 tháng ${h} ạ. Tính ra mỗi bộ môn chỉ ~146k/tháng, rẻ hơn nhiều so với tập riêng từng môn. ` +
+      `${h} có muốn em tư vấn thêm gói ngắn hạn không ạ.`,
+    mustInclude: ["thẻ Full", "7tr", "12 tháng"],
+  }),
+
   // ── SWITCH SERVICE ───────────────────────
   // Khi LLM classify switch_service → kết hợp với slot extraction (serviceType mới)
   // và logic switch trong stateMachine.buildNextState (đã reset slots phụ thuộc).
   // Template ở đây = discovery turn của bộ môn mới.
   switch_service: (s, h, prev) => {
+    // switch_service xảy ra trong cùng cuộc thoại (turn 2+), nên KHÔNG dùng greeting dài.
     if (s.knownInfo.serviceType === "gym" && !askedExperience(prev, "gym")) {
       return {
         id: "gym_discovery_after_switch",
-        template:
-          `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn Gym của trung tâm. ` +
-          `Không biết ${h} đã tập gym bao giờ chưa ạ.`,
-        mustInclude: ["em chào", "đã tập gym"],
+        template: `Dạ vâng ${h}, ${h} đã tập gym bao giờ chưa ạ.`,
+        mustInclude: ["đã tập gym"],
       };
     }
     if (s.knownInfo.serviceType === "yoga" && !askedExperience(prev, "yoga")) {
       return {
         id: "yoga_discovery_after_switch",
-        template:
-          `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập yoga chưa ạ.`,
+        template: `Dạ vâng ${h}, trước đây ${h} đã tập yoga chưa ạ.`,
         mustInclude: ["đã tập yoga"],
       };
     }
     if (s.knownInfo.serviceType === "zumba" && !askedExperience(prev, "zumba")) {
       return {
         id: "zumba_discovery_after_switch",
-        template:
-          `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập zumba chưa ạ.`,
+        template: `Dạ vâng ${h}, trước đây ${h} đã tập zumba chưa ạ.`,
         mustInclude: ["đã tập zumba"],
+      };
+    }
+    if (s.knownInfo.serviceType === "pilates" && !askedExperience(prev, "pilates")) {
+      return {
+        id: "pilates_discovery_after_switch",
+        template:
+          `Dạ vâng ${h}, Pilates bên em có 13 máy chuẩn quốc tế. Trước đây ${h} đã tập pilates chưa ạ.`,
+        mustInclude: ["pilates", "13 máy"],
+      };
+    }
+    if (s.knownInfo.serviceType === "boi") {
+      return {
+        id: "boi_discovery_after_switch",
+        template:
+          `Dạ vâng ${h}, không biết ${h} đang quan tâm học bơi cho người lớn hay trẻ em ạ.`,
+        mustInclude: ["người lớn", "trẻ em"],
+      };
+    }
+    if (s.knownInfo.serviceType === "full") {
+      return {
+        id: "full_discovery_after_switch",
+        template:
+          `Dạ vâng ${h}, gói Full bên em bao gồm Gym + Yoga + Zumba + Bơi. ${h} ơi trước đây mình đã tập bộ môn nào chưa ạ.`,
+        mustInclude: ["gói Full", "Gym", "Yoga", "Zumba"],
       };
     }
     return null;
@@ -640,25 +848,43 @@ function fallbackDiscoveryAfterServiceMention(
     return {
       id: "gym_discovery",
       template:
-        `Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn Gym của trung tâm. ` +
+        greetingServicePrefix(state, h, "Gym") +
         `Không biết ${h} đã tập gym bao giờ chưa ạ.`,
-      mustInclude: ["em chào", "đã tập gym"],
+      mustInclude: turnAwareMustInclude(state, ["đã tập gym"]),
     };
   }
   if (svc === "yoga") {
+    const prefix =
+      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "yoga_discovery",
-      template: `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập yoga chưa ạ.`,
+      template: prefix + `trước đây ${h} đã tập yoga chưa ạ.`,
       mustInclude: ["đã tập yoga"],
     };
   }
   if (svc === "zumba") {
+    const prefix =
+      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "zumba_discovery",
-      template: `Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập zumba chưa ạ.`,
+      template: prefix + `trước đây ${h} đã tập zumba chưa ạ.`,
       mustInclude: ["đã tập zumba"],
     };
   }
+  if (svc === "pilates") {
+    const prefix =
+      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
+    return {
+      id: "pilates_discovery",
+      template:
+        prefix +
+        `Pilates bên em có 13 máy chuẩn quốc tế. Trước đây ${h} đã tập pilates hoặc yoga chưa ạ.`,
+      mustInclude: ["pilates", "13 máy"],
+    };
+  }
+  // KHÔNG fallback cho `boi` — flow bơi đã có pool_* topics riêng (pool_audience_ask,
+  // pool_child_no_age, ...). Thêm boi_discovery generic sẽ override các topic cụ thể này.
+  // KHÔNG fallback cho `full` — full_package_confirm + tham_quan đã cover các flow chính.
   return null;
 }
 
@@ -676,6 +902,34 @@ export function decideFitnessQuestion(
 
   const h = resolveHonorific(state.honorific);
   const prev = prevBotReply || "";
+
+  // COLD LEAD PRIORITY: khách nói "thôi" / "không cần nữa" / "tham khảo thêm" → reply LÙI.
+  // Phải check TRƯỚC các priority chốt slot, vì khi state có preferredTime + intent=selecting,
+  // bot sẽ xin tên/SĐT ngay cả khi khách bảo "thôi" — không tự nhiên.
+  // NHƯNG: nếu khách kèm câu hỏi cụ thể (vd "thôi để chị qua xem, địa chỉ ở đâu") —
+  // KHÔNG fire cold_lead, để topic ask_address trả thẳng địa chỉ.
+  const m = message.toLowerCase().trim();
+  const hasFollowUpQuestion =
+    // Hỏi địa chỉ / chi nhánh / facility — trả thẳng quan trọng hơn back-off
+    /(địa\s*chỉ|ở\s+đâu|chỗ\s+nào|cơ\s+sở|chi\s+nhánh|gửi\s*xe|tủ\s*đồ|phòng\s*tắm|điều\s*hòa|wifi|máy\s*lọc)/i.test(m) ||
+    // Hỏi giá / chính sách
+    /(bao\s*nhiêu|giá|tiền\s*nào|hoàn\s*tiền|bảo\s*lưu|đổi\s*gói|gia\s*hạn)/i.test(m) ||
+    // Có dấu hỏi
+    /\?$/.test(m);
+  const isColdLead =
+    !hasFollowUpQuestion &&
+    (/^thôi\s*[.!?]?$/.test(m) ||
+      /^thôi\s+(nha|nhé|à|vậy|em|anh|chị|ạ|nhỉ)\s*[.!?]?$/.test(m) ||
+      /^(không\s+cần\s+(đâu|nữa)?|không\s+nữa|không\s+rồi)\s*[.!?]?$/.test(m) ||
+      /thôi\s+(để|tham\s?khảo|xem)|tham\s?khảo\s+thêm|cho\s+(em|anh|chị)\s+nghĩ/.test(m));
+  if (isColdLead) {
+    return {
+      id: "cold_lead_back_off",
+      template:
+        `Dạ vâng nha ${h}, ${h} cứ tham khảo thoải mái, có gì cần em sẵn sàng tư vấn thêm ạ.`,
+      mustInclude: ["tham khảo", "tư vấn thêm"],
+    };
+  }
 
   // Ưu tiên cao nhất: đã đủ tên + SĐT + giờ → CHỐT SLOT, KHÔNG hỏi gì nữa.
   if (
@@ -702,6 +956,24 @@ export function decideFitnessQuestion(
       template:
         `Dạ vâng ${h} ${state.knownInfo.name}, ${h} tiện đến buổi sáng, chiều hay tối để em giữ slot ạ.`,
       mustInclude: ["sáng", "chiều", "tối"],
+    };
+  }
+
+  // KH đã commit giờ ("mai chị qua thử") VÀ chọn gói (intent=selecting/ready)
+  // nhưng CHƯA có tên/SĐT → xin tên/SĐT ngay (bypass topic templates).
+  // Bug đã thấy: KH nói "ok chị lấy gói 6 tháng, mai chị qua thử" → classifier hit price_explicit_list
+  // → bot lặp pitch gói thay vì xin info để chốt slot.
+  if (
+    state.knownInfo.preferredTime &&
+    (state.intent === "selecting" || state.intent === "ready") &&
+    (!state.knownInfo.name || !state.knownInfo.phone)
+  ) {
+    return {
+      id: "ask_name_phone_after_time",
+      template:
+        `Dạ vâng ${h}, để em giữ slot ${state.knownInfo.preferredTime} cho mình, ` +
+        `${h} cho em xin tên với SĐT để em đăng ký giúp nha.`,
+      mustInclude: ["tên", "SĐT"],
     };
   }
 
@@ -741,6 +1013,10 @@ export function decideFitnessQuestion(
  * đảm bảo chứa các keyword bắt buộc.
  */
 export function formatDecision(d: QuestionFlowDecision): string {
+  // Detect: template KHÔNG có câu chào dài → cấm LLM thêm vào.
+  const templateHasGreeting =
+    /em chào|cảm ơn .*đã quan tâm|quay lại với bên em/i.test(d.template);
+
   const parts: string[] = [
     `[ANSWER_LOCK ${d.id}: BẮT BUỘC reply theo template dưới đây.`,
     `Cho phép paraphrase NHẸ (đổi vài từ nối, đảo thứ tự câu) để giọng tự nhiên,`,
@@ -754,6 +1030,14 @@ export function formatDecision(d: QuestionFlowDecision): string {
   if (d.mustNotInclude && d.mustNotInclude.length > 0) {
     parts.push(
       `TUYỆT ĐỐI KHÔNG chứa: ${d.mustNotInclude.map((s) => `"${s}"`).join(", ")}.`,
+    );
+  }
+  // ANTI-EXPANSION: nếu template KHÔNG có "Dạ em chào... cảm ơn..." thì bot KHÔNG được thêm vào.
+  // Bug đã gặp: LLM paraphrase mở rộng template ngắn ("Dạ vâng anh/chị,...")
+  // thành "Dạ em chào anh/chị, cảm ơn anh/chị đã quan tâm đến..." — vi phạm rule turn-aware greeting.
+  if (!templateHasGreeting) {
+    parts.push(
+      `⛔ TUYỆT ĐỐI KHÔNG thêm câu chào "Dạ em chào", "cảm ơn ... đã quan tâm", hoặc bất kỳ greeting nào ngoài template. TEMPLATE đã đầy đủ — bot chỉ paraphrase câu chữ trong template, KHÔNG prepend greeting mới.`,
     );
   }
   parts.push(

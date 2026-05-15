@@ -62,6 +62,20 @@ const INTENT_TOPICS = [
   "combo_service_ask",
   "media_request",
   "switch_service",
+  // EDGE TOPICS — ngoài tài liệu Fami chính thức
+  "ask_address",
+  "ask_branch",
+  "ask_facility",
+  "ask_hold_policy",
+  "ask_refund_policy",
+  "ask_change_package",
+  "ask_unsupported_service",
+  "complaint_crowded",
+  "ask_kid_supervision",
+  "ask_postpartum_safety",
+  "ask_senior_safety",
+  "ask_renewal",
+  "ask_combo_pricing",
 ] as const satisfies readonly IntentTopic[];
 
 const classifierAgent = new Agent({
@@ -109,6 +123,8 @@ export interface ClassifyInput {
   previousStage: Stage;
   currentKnownInfo: KnownInfo;
   needFlowClassification: boolean;
+  /** intentTopic của turn trước — dùng cho context-aware classification (follow-up). */
+  previousIntentTopic?: IntentTopic | null;
 }
 
 export async function classify(
@@ -120,6 +136,7 @@ export async function classify(
     previousStage,
     currentKnownInfo,
     needFlowClassification,
+    previousIntentTopic,
   } = input;
 
   const missingSlots = nullSlots(currentKnownInfo);
@@ -195,7 +212,8 @@ export async function classify(
     previousStage,
     currentKnownInfo,
     slotsToExtract,
-    needFlowClassification
+    needFlowClassification,
+    previousIntentTopic ?? null
   );
 
   try {
@@ -234,7 +252,8 @@ function buildPrompt(
   previousStage: Stage,
   knownInfo: KnownInfo,
   missingSlots: (keyof KnownInfo)[],
-  needFlow: boolean
+  needFlow: boolean,
+  previousIntentTopic: IntentTopic | null
 ): string {
   const knownParts: string[] = [];
   const dateContext = buildDateContext();
@@ -262,9 +281,14 @@ function buildPrompt(
     ? `"flow": "fitness"|"giai-co",  // fitness=tập thể dục/gym/bơi/yoga/zumba | giai-co=massage/đau mỏi/giải cơ/spa`
     : `// flow đã xác định: "${previousFlow}" — không cần classify`;
 
+  const prevTopicLine = previousIntentTopic
+    ? `IntentTopic turn TRƯỚC: "${previousIntentTopic}" — nếu KH đang follow-up cùng chủ đề, ưu tiên gán lại topic này (xem mục FOLLOW-UP CONTEXT).`
+    : `IntentTopic turn TRƯỚC: null`;
+
   return `Tin nhắn khách: "${message}"
 Đã biết: ${knownSummary}
 Flow trước: "${previousFlow}", Stage trước: "${previousStage}"
+${prevTopicLine}
 
 NGÀY HIỆN TẠI (múi giờ VN):
 ${dateContext}
@@ -320,7 +344,11 @@ INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic ph
 
   ── BƠI ──
   pool_audience_ask         = "muốn học bơi" / "quan tâm bơi" — KH chưa nói NL hay TE, chưa nói tuổi
-  pool_child_no_age         = "cho con tôi học", "bé nhà mình", "cháu" — chưa đề cập tuổi
+                              (CHỈ dùng turn ĐẦU mention bơi; nếu KH đã specify "cho trẻ em / cho người lớn" — dùng pool_child_no_age / khác)
+  pool_child_no_age         = "cho con tôi học", "bé nhà mình", "cháu", "cho trẻ em", "cho học sinh",
+                              "bơi cho bé", "lớp bơi trẻ em" — KHÔNG có số tuổi cụ thể
+                              ⚠️ NẾU message có số tuổi (vd "6 tuổi", "bé 5t", "cháu 7t") → BẮT BUỘC dùng pool_child_with_age,
+                              KHÔNG dùng pool_child_no_age dù previous=pool_child_no_age.
   pool_child_with_age       = đã đề cập tuổi cụ thể của bé ("6 tuổi", "bé 5t")
   pool_hours                = "bể bơi mở giờ nào", "bể bơi mở mấy giờ"
   pool_temperature          = hỏi về nước ấm/lạnh/4 mùa/mái che/trong nhà ngoài trời
@@ -359,6 +387,38 @@ INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic ph
                               ("đang nói bơi → tôi quan tâm tập gym", "thôi chuyển sang yoga")
                               (CHỈ khi previous flow đã có serviceType khác)
 
+  ── EDGE TOPICS (ngoài kịch bản Fami chính) ──
+  ask_address               = "địa chỉ ở đâu", "trung tâm ở chỗ nào", "cho xin địa chỉ", "đến đâu để tập"
+                              (CHỈ khi KH hỏi địa điểm/địa chỉ cụ thể, KHÔNG phải "lúc nào qua" — đó là ask_open_hours)
+  ask_branch                = "có cơ sở 2 không", "có chi nhánh ở HN/SG", "ngoài Vĩnh Yên có chỗ nào", "anh ở Hà Nội tập được không"
+  ask_facility              = hỏi tiện ích cơ sở: "có chỗ gửi xe không", "có tủ đồ phòng tắm không",
+                              "phòng có điều hòa/máy lọc khí/wifi không", "có sauna/xông hơi không"
+                              (KHÁC pool_* — pool dành riêng cho bể bơi)
+  ask_hold_policy           = "thẻ tập có bảo lưu không", "đi công tác giữ thẻ được không", "vắng có bảo lưu được không"
+  ask_refund_policy         = "lỡ đăng ký không tập có hoàn tiền không", "trả lại tiền được không", "có refund không"
+  ask_change_package        = "đang tập gym muốn đổi sang yoga thì sao", "đổi gói giữa chừng được không", "có chuyển sang gói khác được không"
+  ask_unsupported_service   = hỏi bộ môn KHÔNG có trong [Gym, Yoga, Zumba, Bơi, Pilates]:
+                              "có boxing không", "có kickbox", "có aerobic riêng không", "có lớp dance",
+                              "có CrossFit", "có võ thuật", "có cardio dance"
+                              (Aerobic CHỈ → ask_unsupported_service khi KH hỏi LỚP aerobic riêng;
+                               nếu so sánh Zumba vs Aerobic → zumba_vs_aerobic)
+  complaint_crowded         = "phòng tập đông quá", "hôm qua đến không có máy", "lúc nào cũng đông kiểu này",
+                              "không có máy để tập", "đông không tập được"
+  ask_kid_supervision       = "có chỗ trông trẻ con không", "có dịch vụ trông trẻ khi mẹ tập không",
+                              "không có ai trông con", "mang con đi tập gửi ai"
+                              (KHÁC pool_child_* — đây hỏi TRÔNG TRẺ khi MẸ tập, không phải bé đi học bơi)
+  ask_postpartum_safety     = "mới sinh tập được không", "đang cho con bú có tập được không",
+                              "sau sinh tập sao", "vừa sinh được X tháng"
+  ask_senior_safety         = "người 60/65/70 tuổi tập được không", "mẹ/bà tập được không",
+                              "có bệnh tim mạch/huyết áp/khớp/tiểu đường tập được không",
+                              "thoái hóa khớp tập được không"
+  ask_renewal               = "hết hạn thẻ giờ muốn gia hạn", "thẻ tập cũ", "anh tập rồi giờ muốn đăng ký lại",
+                              "hội viên cũ", "đã đăng ký năm ngoái"
+  ask_combo_pricing         = "1 tháng combo bao nhiêu", "gym+yoga 1 tháng nhiêu", "gói combo 2 môn giá nào",
+                              "kết hợp 2 môn bao nhiêu/tháng"
+                              (KHÁC combo_service_ask — combo_service_ask hỏi CÓ combo không;
+                               ask_combo_pricing hỏi GIÁ combo cụ thể)
+
   ── null ──
   null                      = không topic nào match, hoặc KH đang trả lời thông thường
                               (vd: cung cấp tên/SĐT, "ừ", "ok", "dạ", câu chat thường ngày)
@@ -383,6 +443,20 @@ INTENT:
     * Nếu tin trước bot hỏi "có muốn thử không" → khách nói "ok" = selecting
     * Nếu Stage=inbody và khách đồng ý ("ok", "được", "e cũng được", "thử đi", "ok thử") → selecting (đồng ý đến đo InBody)
     * Nếu không có ngữ cảnh chọn lịch/dịch vụ → explore
+  - "đăng ký X" (X là bộ môn: gym/yoga/zumba/...) — chỉ là EXPLORE khi KH mới bắt đầu, KHÔNG phải READY:
+    * "chị đăng ký tập gym" / "anh muốn đăng ký yoga" / "đk tập zumba" → intent=explore (KH mới ngỏ ý, chưa chốt gói/giờ)
+    * "ok đăng ký luôn" / "đăng ký gói đó nha" / "chốt đi" → intent=ready (đã có gói/giờ trước đó)
+
+FOLLOW-UP CONTEXT — dùng IntentTopic turn TRƯỚC để chọn topic turn này khi KH chat tiếp cùng chủ đề:
+  - Trước = complaint_crowded:
+    * KH hỏi tiếp về giờ vắng / cao điểm / khung giờ ít người → vẫn complaint_crowded (KHÔNG nhầm sang pool_traffic).
+    * pool_traffic chỉ dùng khi KH hỏi rõ về BỂ BƠI ("bể giờ nào vắng").
+  - Trước = ask_renewal:
+    * KH hỏi "có ưu đãi gì cho khách cũ" / "gói 12 tháng cho HV cũ" / "giảm thêm bao nhiêu" → vẫn ask_renewal.
+  - Trước = ask_postpartum_safety / ask_senior_safety:
+    * KH mô tả thêm bệnh nền / triệu chứng ("bà có cao huyết áp", "khớp gối yếu") → vẫn topic safety đó (KHÔNG nhầm sang flow giai-co).
+  - Trước = ask_facility / ask_address / ask_branch:
+    * KH hỏi tiếp về CSVC khác cùng category → vẫn cùng topic group.
 
 SLOTS cho fitness:
   serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể

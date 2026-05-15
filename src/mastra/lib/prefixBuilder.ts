@@ -60,7 +60,17 @@ export function detectDepositAsk(message: string): boolean {
  */
 export function detectColdLead(message: string): boolean {
   if (!message) return false;
-  const m = message.toLowerCase();
+  const m = message.toLowerCase().trim();
+  // "thôi" standalone hoặc cụt — KH muốn dừng: "thôi", "thôi nha", "thôi em", "thôi vậy"
+  // (KHÔNG match "thôi vẫn tập gym" / "thôi đi" — có cue tiếp tục)
+  if (
+    /^thôi\s*[.!?]?$/.test(m) ||
+    /^thôi\s+(nha|nhé|à|vậy|em|anh|chị|ạ|nhỉ)\s*[.!?]?$/.test(m) ||
+    /^(không\s+cần\s+(đâu|nữa)?|không\s+nữa|không\s+rồi)\s*[.!?]?$/.test(m) ||
+    /^(nghĩ\s+thêm\s+đã|để\s+(em|anh|chị)\s+suy\s+nghĩ)\s*[.!?]?$/.test(m)
+  ) {
+    return true;
+  }
   return (
     /thôi\s+(để|tham\s?khảo|xem)|tham\s?khảo\s+thêm|cho\s+(em|anh|chị)\s+nghĩ/.test(m) ||
     /chưa\s+(quyết|cần|gấp|liền)|không\s+(cần\s+gấp|gấp)/.test(m) ||
@@ -688,13 +698,15 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   }
 
   // ── OPENING lặp: khách reply ngắn (ok/ừ/được) lần 2+ mà chưa cho signal ──
+  // Dùng flowTurnCount để guard relative trong flow hiện tại (không bị reset count khi switch).
+  const fc = state.flowTurnCount ?? state.turnCount;
   if (
     state.stage === "opening" &&
-    state.turnCount >= 2 &&
+    fc >= 2 &&
     knownInfo.serviceType === null &&
     knownInfo.painArea === null
   ) {
-    if (state.turnCount >= 3) {
+    if (fc >= 3) {
       hints.push("[GATE opening-lặp ≥3: reply ≤80 chars 'Dạ vâng, anh/chị cần gì cứ nhắn em nha'. KHÔNG pitch.]");
     } else {
       hints.push(
@@ -788,8 +800,10 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   ) {
     // Anti-loop: nếu turn ≥ 3 hoặc đã có painDuration/pastMethod → SKIP painSpread,
     // không lặp đi lặp lại câu hỏi "đau lan ra hay cố định".
+    // Dùng flowTurnCount (per-flow giải cơ) để guard chính xác hơn.
+    const ftc = state.flowTurnCount ?? state.turnCount;
     const shouldSkipSpread =
-      state.turnCount >= 3 ||
+      ftc >= 3 ||
       knownInfo.painDuration !== null ||
       knownInfo.pastMethod !== null;
     if (shouldSkipSpread) {
@@ -823,7 +837,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const prevMentionedKTV = state.lastBotReply
       ? /\bKTV\s+bên\s+em\b/i.test(state.lastBotReply)
       : false;
-    if (prevAskedMethod || state.turnCount >= 3) {
+    const ftc2 = state.flowTurnCount ?? state.turnCount;
+    if (prevAskedMethod || ftc2 >= 3) {
       hints.push(
         "[GATE: đã hỏi pastMethod tin trước → SKIP, KHÔNG hỏi lại. " +
           "Tiến tới evaluation: hình ảnh hóa vùng đau + contrast bề mặt vs sâu + mời 1 buổi thử.]",

@@ -108,6 +108,7 @@ const processStep = createStep({
       previousStage: previousState.stage,
       currentKnownInfo: previousState.knownInfo,
       needFlowClassification: needFlowLLM,
+      previousIntentTopic: previousState.intentTopic,
     });
 
     if (!needFlowLLM) {
