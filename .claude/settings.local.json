@@ -8,7 +8,9 @@
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 30)",
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; $env:SCENARIOS=\"doi_tuong_dac_thu,khieu_nai,hoi_vien_cu,hoi_gop_combo\"; npx tsx src/mastra/scripts/testEdgeCases.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═|safety lock\")",
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testNaturalUser.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═\")",
-      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 15)"
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 15)",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/runFullReport.ts 2>&1 | Select-String -Pattern \"^🏃|^📋|^🔬|^💬|  ·|^📄|^📦|^📊|^✅|Done|ERROR|Fatal\")",
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/runFullReport.ts 2>&1 | Select-String -Pattern \"^🏃|^📋|^🔬|^💬|^📄|^📦|^📊|^✅|ERROR|Fatal\")"
     ]
   }
 }

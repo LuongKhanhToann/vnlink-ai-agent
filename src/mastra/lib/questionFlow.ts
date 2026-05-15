@@ -620,12 +620,21 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         mustInclude: ["gửi xe", "không mất phí"],
       };
     }
-    if (/(tủ\s*đồ|locker|cất\s*đồ|phòng\s*tắm|tắm|thay\s*đồ|vòi\s*sen|sauna|xông\s*hơi)/.test(m)) {
+    if (/(tủ\s*đồ|locker|cất\s*đồ|phòng\s*tắm|tắm|thay\s*đồ|vòi\s*sen)/.test(m)) {
       return {
         id: "ask_facility_locker",
         template:
           `Dạ bên em có tủ đồ riêng cho hội viên cùng phòng tắm có vòi sen nước nóng sau khi tập ${h} ạ.`,
         mustInclude: ["tủ đồ", "phòng tắm"],
+      };
+    }
+    if (/(sauna|xông\s*hơi|jacuzzi)/.test(m)) {
+      return {
+        id: "ask_facility_sauna",
+        template:
+          `Dạ bên em hiện chưa có khu sauna / xông hơi riêng ${h} ạ. ` +
+          `Tuy nhiên phòng tắm có vòi sen nước nóng và bể bơi 4 mùa nước ấm, ${h} có thể thư giãn sau buổi tập.`,
+        mustInclude: ["chưa có", "vòi sen"],
       };
     }
     if (/(lọc\s*(khí|không\s*khí)|điều\s*hòa|máy\s*lạnh|wifi|wi-?fi|nhiệt\s*độ|thông\s*gió)/.test(m)) {
@@ -714,6 +723,15 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     mustInclude: ["cho con bú", "điều chỉnh", "yên tâm"],
   }),
 
+  ask_prenatal_safety: (_s, h) => ({
+    id: "ask_prenatal_safety",
+    template:
+      `Dạ ${h} đang mang bầu thì bên em rất khuyến khích Yoga bầu nhẹ + đi bộ trong bể bơi để giãn cơ ${h} ạ. ` +
+      `Tuy nhiên ${h} nên có giấy khám sức khỏe và xin ý kiến bác sĩ trước, tránh các động tác gập bụng, nằm ngửa hoặc xoắn người. ` +
+      `Bên em chưa có lớp yoga bầu riêng nhưng HLV sẽ điều chỉnh động tác phù hợp cho ${h} nha.`,
+    mustInclude: ["bầu", "yoga", "bác sĩ"],
+  }),
+
   ask_senior_safety: (_s, h) => ({
     id: "ask_senior_safety",
     template:
@@ -746,6 +764,98 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
       `${h} có muốn em tư vấn thêm gói ngắn hạn không ạ.`,
     mustInclude: ["thẻ Full", "7tr", "12 tháng"],
   }),
+
+  ask_rapid_weight_loss: (_s, h) => ({
+    id: "ask_rapid_weight_loss",
+    template:
+      `Dạ ${h} ơi, giảm cân quá nhanh (vd hơn 4-5kg/tháng) thường không an toàn vì cơ thể dễ bị mất cơ + thiếu chất ${h} ạ. ` +
+      `Bên em khuyến nghị giảm bền vững 2-4kg/tháng kết hợp Gym + Zumba + ăn uống khoa học. ` +
+      `${h} có muốn em hỗ trợ đo InBody miễn phí để HLV thiết kế lộ trình an toàn không ạ.`,
+    mustInclude: ["không an toàn", "2-4kg", "InBody"],
+  }),
+
+  ask_post_surgery: (_s, h) => ({
+    id: "ask_post_surgery",
+    template:
+      `Dạ với trường hợp vừa phẫu thuật / chấn thương, ${h} CẦN có giấy xác nhận của bác sĩ về việc đủ điều kiện vận động ${h} ạ. ` +
+      `Bên em có HLV chuyên hỗ trợ phục hồi (yoga nhẹ + bơi giảm áp lực khớp + gym phục hồi từng nhóm cơ). ` +
+      `${h} mang giấy của bác sĩ qua để HLV thiết kế lộ trình an toàn nhé.`,
+    mustInclude: ["bác sĩ", "phục hồi"],
+  }),
+
+  ask_nutrition: (_s, h) => ({
+    id: "ask_nutrition",
+    template:
+      `Dạ bên em chưa có dịch vụ tư vấn dinh dưỡng / bán thực phẩm bổ sung riêng ${h} ạ. ` +
+      `Tuy nhiên HLV bên em sẽ hỗ trợ gợi ý chế độ ăn cơ bản theo mục tiêu khi ${h} tập (giảm mỡ ăn ít tinh bột, tăng cơ tăng protein…). ` +
+      `${h} muốn em tư vấn lộ trình tập + ăn uống cơ bản không ạ.`,
+    mustInclude: ["chưa có", "gợi ý chế độ ăn"],
+  }),
+
+  ask_corporate: (_s, h) => ({
+    id: "ask_corporate",
+    template:
+      `Dạ với gói doanh nghiệp (10+ nhân viên), bên em hỗ trợ ưu đãi riêng tùy số lượng và lộ trình ${h} ạ. ` +
+      `${h} cho em xin SĐT + số lượng nhân viên cụ thể, em báo lại phòng kinh doanh để gửi báo giá chi tiết nha.`,
+    mustInclude: ["doanh nghiệp", "ưu đãi riêng", "SĐT"],
+  }),
+
+  ask_pt_pricing: (_s, h) => ({
+    id: "ask_pt_pricing",
+    template:
+      `Dạ gói PT 1-1 bên em hiện tại là 20 buổi 6tr (tương đương 2 tháng nếu tập 2-3 buổi/tuần) ${h} ạ. ` +
+      `HLV kèm sát từng buổi, xây kỹ thuật + lộ trình riêng theo mục tiêu của ${h}. ` +
+      `${h} có muốn ghé InBody miễn phí lần đầu để HLV gặp + tư vấn không ạ.`,
+    mustInclude: ["PT", "20 buổi", "6tr"],
+  }),
+
+  ask_hlv_gender: (_s, h) => ({
+    id: "ask_hlv_gender",
+    template:
+      `Dạ bên em có cả HLV nam và HLV nữ ${h} ạ, ${h} có thể yêu cầu để em sắp HLV phù hợp. ` +
+      `Với Yoga / Zumba, giáo viên chủ yếu là cô (GV Ấn Độ). Với Gym / PT, có cả nam và nữ. ` +
+      `${h} muốn tập bộ môn nào để em sắp HLV ạ.`,
+    mustInclude: ["HLV nam", "HLV nữ"],
+  }),
+
+  ask_student_pricing: (_s, h) => ({
+    id: "ask_student_pricing",
+    template:
+      `Dạ với học sinh / sinh viên, bên em có ưu đãi riêng tuỳ thời điểm ${h} ạ. ` +
+      `${h} cho em xin SĐT để em báo lại bộ phận sale gửi báo giá HS/SV cụ thể, ` +
+      `hoặc ${h} ghé trực tiếp em check thẻ HS/SV để áp ưu đãi nha.`,
+    mustInclude: ["học sinh", "ưu đãi"],
+  }),
+
+  ask_teen_safety: (_s, h) => ({
+    id: "ask_teen_safety",
+    template:
+      `Dạ tuổi này hoàn toàn có thể tập gym ${h} nha, tuy nhiên giai đoạn đang phát triển nên cần HLV hướng dẫn kỹ thuật + chọn mức tạ phù hợp (tránh tạ nặng quá sớm). ` +
+      `Bên em có gói PT 1-1 (20 buổi 6tr) sẽ phù hợp cho ${h} mới tập + đang tuổi phát triển. ` +
+      `Nếu có thể, ${h} nhờ ba mẹ qua cùng buổi đầu để HLV trao đổi nhé.`,
+    mustInclude: ["tập gym", "HLV", "kỹ thuật"],
+  }),
+
+  ask_payment_method: (_s, h, _prev, message) => {
+    const m = (message || "").toLowerCase();
+    if (/trả\s*góp|góp/.test(m)) {
+      return {
+        id: "ask_payment_traGop",
+        template:
+          `Dạ bên em hiện chưa có chương trình trả góp 0% ${h} ạ. ` +
+          `Tuy nhiên ${h} có thể thanh toán linh hoạt theo gói tháng / quý / 6 tháng / năm tuỳ ngân sách. ` +
+          `${h} đang quan tâm gói nào để em tư vấn cụ thể ạ.`,
+        mustInclude: ["chưa có", "trả góp"],
+      };
+    }
+    return {
+      id: "ask_payment_general",
+      template:
+        `Dạ bên em hỗ trợ thanh toán tiền mặt và chuyển khoản (có QR) ${h} ạ. ` +
+        `Hiện chưa nhận thanh toán bằng thẻ credit. ${h} chốt gói rồi em gửi QR liền nha.`,
+      mustInclude: ["tiền mặt", "chuyển khoản"],
+    };
+  },
 
   // ── SWITCH SERVICE ───────────────────────
   // Khi LLM classify switch_service → kết hợp với slot extraction (serviceType mới)
@@ -902,6 +1012,23 @@ export function decideFitnessQuestion(
 
   const h = resolveHonorific(state.honorific);
   const prev = prevBotReply || "";
+
+  // STUDENT/SENIOR/CORPORATE PRICING GUARD: nếu memberType=hoc-sinh/gia-dinh và KH đang hỏi
+  // chung về giá / gói (không cụ thể), tránh bot bịa giá HS/gia đình → fire ask_student_pricing.
+  if (
+    state.knownInfo.memberType === "hoc-sinh" &&
+    (state.intentTopic === "price_ask_generic" ||
+      state.intentTopic === "price_explicit_list")
+  ) {
+    return {
+      id: "ask_student_pricing_redirect",
+      template:
+        `Dạ với học sinh / sinh viên, bên em có ưu đãi riêng tuỳ thời điểm ${h} ạ. ` +
+        `${h} cho em xin SĐT để em báo lại bộ phận sale gửi báo giá HS/SV cụ thể, ` +
+        `hoặc ${h} ghé trực tiếp em check thẻ HS/SV để áp ưu đãi nha.`,
+      mustInclude: ["học sinh", "ưu đãi"],
+    };
+  }
 
   // COLD LEAD PRIORITY: khách nói "thôi" / "không cần nữa" / "tham khảo thêm" → reply LÙI.
   // Phải check TRƯỚC các priority chốt slot, vì khi state có preferredTime + intent=selecting,

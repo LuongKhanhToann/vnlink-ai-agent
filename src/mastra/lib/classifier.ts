@@ -73,9 +73,19 @@ const INTENT_TOPICS = [
   "complaint_crowded",
   "ask_kid_supervision",
   "ask_postpartum_safety",
+  "ask_prenatal_safety",
   "ask_senior_safety",
+  "ask_rapid_weight_loss",
+  "ask_post_surgery",
   "ask_renewal",
   "ask_combo_pricing",
+  "ask_nutrition",
+  "ask_corporate",
+  "ask_pt_pricing",
+  "ask_hlv_gender",
+  "ask_payment_method",
+  "ask_student_pricing",
+  "ask_teen_safety",
 ] as const satisfies readonly IntentTopic[];
 
 const classifierAgent = new Agent({
@@ -304,6 +314,14 @@ Trả JSON thuần:
 
 EMOTION: suy luận từ cách viết, dấu câu, từ ngữ.
 
+FLOW DISAMBIGUATION (rất quan trọng — tránh route sai giữa fitness và giai-co):
+  - "sauna", "xông hơi", "spa", "jacuzzi", "phòng nóng" — KHI HỎI VỀ TIỆN ÍCH/AMENITY của trung tâm (kể cả khi so sánh với phòng gym khác) → vẫn flow=fitness, KHÔNG phải giai-co.
+    Vd: "bên kia có sauna với xông hơi" → flow=fitness (đang hỏi CSVC của fitness center).
+    Chỉ route giai-co khi KH thực sự muốn ĐẶT lịch dịch vụ giải cơ (massage chuyên sâu).
+  - "phẫu thuật / mổ / đứt dây chằng / chấn thương cần phục hồi" — flow=fitness (hỏi tư vấn tập phục hồi), KHÔNG phải giai-co dù có vùng đau.
+    Vd: "anh mới phẫu thuật đứt dây chằng đầu gối 3 tháng" → flow=fitness + topic=ask_post_surgery.
+    Giai-co chỉ xử lý đau cơ thông thường — KHÔNG xử lý chấn thương vừa phẫu thuật (cần BS).
+
 INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic phù hợp NHẤT, hoặc null nếu KHÔNG có topic nào sát.
   CHỈ chọn topic khi MESSAGE THỰC SỰ khớp ý nghĩa. KHÔNG đoán bừa — null tốt hơn sai.
 
@@ -407,17 +425,42 @@ INTENT_TOPIC: phân loại NỘI DUNG khách đang hỏi/nói. Chọn 1 topic ph
   ask_kid_supervision       = "có chỗ trông trẻ con không", "có dịch vụ trông trẻ khi mẹ tập không",
                               "không có ai trông con", "mang con đi tập gửi ai"
                               (KHÁC pool_child_* — đây hỏi TRÔNG TRẺ khi MẸ tập, không phải bé đi học bơi)
-  ask_postpartum_safety     = "mới sinh tập được không", "đang cho con bú có tập được không",
-                              "sau sinh tập sao", "vừa sinh được X tháng"
+  ask_postpartum_safety     = "MỚI SINH tập được không", "đang cho con bú có tập được không",
+                              "SAU sinh tập sao", "vừa sinh được X tháng"
+                              (CHỈ khi KH đã SINH RỒI; nếu đang BẦU → dùng ask_prenatal_safety)
+  ask_prenatal_safety       = "đang BẦU X tháng có tập được không", "có thai có tập được không",
+                              "mang bầu tập yoga được không", "yoga bầu / lớp bầu"
+                              (KH ĐANG MANG THAI, chưa sinh — khác postpartum)
   ask_senior_safety         = "người 60/65/70 tuổi tập được không", "mẹ/bà tập được không",
                               "có bệnh tim mạch/huyết áp/khớp/tiểu đường tập được không",
                               "thoái hóa khớp tập được không"
+  ask_rapid_weight_loss     = mục tiêu giảm cân phi thực tế ("giảm 10kg trong 1 tháng",
+                              "giảm 5kg trong 2 tuần", "muốn gầy nhanh trong tuần này")
+  ask_post_surgery          = "vừa phẫu thuật", "mới mổ", "đứt dây chằng đang phục hồi",
+                              "bác sĩ kêu tập nhẹ", "chấn thương cần tập phục hồi"
   ask_renewal               = "hết hạn thẻ giờ muốn gia hạn", "thẻ tập cũ", "anh tập rồi giờ muốn đăng ký lại",
                               "hội viên cũ", "đã đăng ký năm ngoái"
   ask_combo_pricing         = "1 tháng combo bao nhiêu", "gym+yoga 1 tháng nhiêu", "gói combo 2 môn giá nào",
                               "kết hợp 2 môn bao nhiêu/tháng"
                               (KHÁC combo_service_ask — combo_service_ask hỏi CÓ combo không;
                                ask_combo_pricing hỏi GIÁ combo cụ thể)
+  ask_nutrition             = "tư vấn chế độ ăn", "ăn gì khi tập", "bán whey protein không",
+                              "có chế độ dinh dưỡng đi kèm không"
+  ask_corporate             = "công ty đăng ký cho X nhân viên", "gói doanh nghiệp",
+                              "tập tập thể cho công ty", "corporate package"
+  ask_pt_pricing            = "PT 1-1 bao nhiêu / tháng", "HLV riêng giá nào", "thuê HLV cá nhân giá",
+                              "PT theo buổi bao nhiêu"
+                              (KH hỏi cụ thể GIÁ PT — KHÁC ask_combo_pricing)
+  ask_hlv_gender            = "có HLV nữ không", "có HLV nam không", "muốn HLV nữ vì ngại",
+                              "có cô giáo nữ không"
+  ask_payment_method        = "có trả góp không", "thanh toán thẻ credit", "có nhận card không",
+                              "chuyển khoản được chứ", "có mã QR không"
+                              (CHỈ khi KH hỏi HÌNH THỨC thanh toán, KHÔNG phải đã đến lúc cọc)
+  ask_student_pricing       = "có gói cho học sinh không", "ưu đãi sinh viên", "giá học sinh bao nhiêu"
+                              (CHỈ khi KH hỏi giá riêng cho HS/SV; nếu chỉ nói tuổi → ask_teen_safety)
+  ask_teen_safety           = "em 13-17 tuổi có tập gym được không", "em đang học cấp 2/3 tập gym",
+                              "cháu tuổi teen muốn tăng cơ", "tuổi này tập tạ có sao không"
+                              (KH dưới 18 hỏi an toàn khi tập gym/tạ — khác ask_student_pricing chỉ hỏi giá)
 
   ── null ──
   null                      = không topic nào match, hoặc KH đang trả lời thông thường
@@ -532,12 +575,15 @@ SLOTS chung (áp dụng cả fitness và giai-co):
         Cũ="chiều",      tin mới="mai"                   → "chiều DD/MM" (ngày mai)
       Nếu tin mới KHÔNG nói gì về thời gian → giữ nguyên value cũ (trả value cũ y hệt).
 
-    E) ĐỔI Ý — khi khách CHỦ ĐỘNG đổi sang giờ khác (cue: "thôi", "đổi", "chuyển", "không", "ko"):
+    E) ĐỔI Ý — khi khách CHỦ ĐỘNG đổi sang giờ khác (cue: "thôi", "đổi", "chuyển", "dời", "không", "ko"):
       THAY THẾ HOÀN TOÀN value cũ bằng tin mới. KHÔNG gộp với cũ.
+      ⚠️ TUYỆT ĐỐI phải extract preferredTime mới — KHÔNG được để null khi message có cue đổi ý + có từ thời gian.
       Ví dụ:
         Cũ="9h sáng thứ 7 02/05",   tin mới="thôi sáng mai luôn nha"   → "sáng DD/MM" (ngày mai)
+        Cũ="sáng thứ 7 16/05",      tin mới="à mà thôi dời sang chiều mai được không" → "chiều DD/MM" (ngày mai)
         Cũ="chiều thứ 6 26/04",     tin mới="đổi sang tối được không"  → "tối DD/MM" (giữ ngày cũ)
         Cũ="thứ 7",                 tin mới="ko thứ 7, chuyển cn"      → "chủ nhật DD/MM"
+        Cũ="sáng thứ 7 16/05",      tin mới="ok 4h chiều mai nha em"   → "16h chiều DD/MM" (ngày mai)
       Cue đổi ý PHẢI rõ — không nhầm với refine. Nếu chỉ thấy "à" hay câu khác chủ đề → giữ cũ.
 
     QUY TẮC CHUNG:

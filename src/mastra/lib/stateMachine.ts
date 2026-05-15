@@ -113,9 +113,19 @@ export type IntentTopic =
   | "complaint_crowded"           // "phòng tập đông quá"
   | "ask_kid_supervision"         // "có chỗ trông trẻ con không"
   | "ask_postpartum_safety"       // "mới sinh / cho con bú tập được không"
+  | "ask_prenatal_safety"         // "đang bầu X tháng tập được không"
   | "ask_senior_safety"           // "60+ tuổi / có bệnh nền tập được không"
+  | "ask_rapid_weight_loss"       // "giảm 10kg trong 1 tháng" — mục tiêu phi thực tế
+  | "ask_post_surgery"            // "vừa phẫu thuật / chấn thương phục hồi"
   | "ask_renewal"                 // "hội viên cũ gia hạn"
-  | "ask_combo_pricing";          // "1 tháng combo bao nhiêu", "gym+yoga giá combo"
+  | "ask_combo_pricing"           // "1 tháng combo bao nhiêu", "gym+yoga giá combo"
+  | "ask_nutrition"               // "tư vấn ăn uống / chế độ ăn / whey protein"
+  | "ask_corporate"               // "công ty / 20 nhân viên / gói doanh nghiệp"
+  | "ask_pt_pricing"              // "PT 1-1 bao nhiêu / HLV riêng tháng nào"
+  | "ask_hlv_gender"              // "có HLV nữ/nam không"
+  | "ask_payment_method"          // "trả góp / thẻ credit / chuyển khoản"
+  | "ask_student_pricing"         // "X tuổi tập được không / có gói học sinh"
+  | "ask_teen_safety";            // "em 15/16/17 tuổi tập gym tăng cơ được không"
 
 // ─────────────────────────────────────────────
 // KNOWN INFO — khác nhau giữa 2 flows
@@ -302,8 +312,11 @@ const FITNESS_KEYWORDS = new RegExp(
   "iu",
 );
 
+// Bỏ "spa" và "xông hơi" khỏi giai-co keywords vì gym/fitness center cũng thường
+// có khu sauna/xông hơi như amenity. Khách hỏi "có sauna không" KHÔNG phải hỏi
+// dịch vụ giải cơ — sẽ được routing đến ask_facility (fitness flow).
 const GIAI_CO_KEYWORDS = new RegExp(
-  `${VI_BOUND_L}(?:giải cơ|massage|xoa bóp|đau lưng|đau vai|đau cổ|đau gáy|vật lý trị liệu|trigger|fascia|cứng cơ|đau mỏi|nhức mỏi|spa|xông hơi|ngâm bồn|regenix|hoa sen)${VI_BOUND_R}`,
+  `${VI_BOUND_L}(?:giải cơ|massage|xoa bóp|đau lưng|đau vai|đau cổ|đau gáy|vật lý trị liệu|trigger|fascia|cứng cơ|đau mỏi|nhức mỏi|ngâm bồn|regenix|hoa sen)${VI_BOUND_R}`,
   "iu",
 );
 
@@ -645,15 +658,26 @@ export function buildNextState(
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   let flow = keywordFlow ?? llm.flow ?? previous.flow;
 
-  // HEALTH-SAFETY FLOW LOCK: Nếu turn trước fire ask_senior_safety / ask_postpartum_safety
-  // (tức KH đang hỏi về tập cho người già / sau sinh), turn này dù có mention đau cơ
-  // (vd "khớp gối yếu", "cao huyết áp") thì vẫn STAY fitness flow.
-  // Lý do: đang trong context tư vấn tập, KHÔNG phải đặt giải cơ.
+  // HEALTH-SAFETY FLOW LOCK: Nếu turn trước fire safety topic (ask_senior/postpartum/prenatal/post_surgery),
+  // turn này dù có mention đau cơ (vd "khớp gối yếu", "cao huyết áp") vẫn STAY fitness flow.
+  // Lý do: đang trong context tư vấn tập an toàn, KHÔNG phải đặt giải cơ.
   const wasSafetyContext =
     previous.intentTopic === "ask_senior_safety" ||
-    previous.intentTopic === "ask_postpartum_safety";
+    previous.intentTopic === "ask_postpartum_safety" ||
+    previous.intentTopic === "ask_prenatal_safety" ||
+    previous.intentTopic === "ask_post_surgery";
   if (wasSafetyContext && flow === "giai-co") {
     console.log(`[stateMachine] safety lock: previous=${previous.intentTopic} → giữ flow=fitness`);
+    flow = "fitness";
+  }
+
+  // POST-SURGERY DETECTION: Tin nhắn có cue "phẫu thuật / mổ / đứt dây chằng / chấn thương phục hồi"
+  // → bắt buộc flow=fitness (KHÔNG phải giai-co dù keyword "đau lưng/đầu gối" hit PAIN_PRIORITY).
+  // Vì khách hỏi tư vấn TẬP phục hồi, không đặt lịch giải cơ.
+  const postSurgeryCue =
+    /(phẫu\s*thuật|mới\s*mổ|vừa\s*mổ|đứt\s*dây\s*chằng|chấn\s*thương|đang\s*phục\s*hồi|bác\s*sĩ\s*kêu\s*tập)/i;
+  if (postSurgeryCue.test(message) && flow === "giai-co") {
+    console.log(`[stateMachine] post-surgery cue → flow=fitness (override giai-co)`);
     flow = "fitness";
   }
 
