@@ -13,9 +13,11 @@
 
 const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
   // Cum đầu câu — thay bằng "Dạ vâng,"
-  [/^(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt|Rất\s+vui\s+được\s+hỗ\s+trợ)\s*[!,.]?\s*/i, "Dạ vâng, "],
-  // Cum giữa câu — bỏ luôn (nhẹ nhàng)
-  [/\s+(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt)\s*[!,.]?/gi, ""],
+  // Consume luôn "ạ" và punctuation phía sau praise (vd "Hay quá ạ!" → strip toàn cụm,
+  // tránh leak "ạ!" thành "Dạ vâng, ạ!").
+  [/^(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt|Rất\s+vui\s+được\s+hỗ\s+trợ)\s*(?:ạ|nha|nhé)?\s*[!,.]?\s*/i, "Dạ vâng, "],
+  // Cum giữa câu — bỏ luôn (nhẹ nhàng). Consume "ạ" trailing tương tự.
+  [/\s+(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt)\s*(?:ạ|nha|nhé)?\s*[!,.]?/gi, ""],
 ];
 
 // Anti-sycophancy: bot khen đáp án của khách (vd "4 buổi/tuần là tần suất rất tốt", "chọn buổi sáng thì tốt quá").
@@ -286,8 +288,10 @@ export function cleanReply(
 
   // 6b. Insert dấu "." giữa "ạ" + chữ HOA (bot hay viết "...ạ Mục tiêu..." thiếu chấm).
   //     Pattern: " ạ " (kết câu) + space + chữ in hoa tiếng Việt → " ạ. " + chữ in hoa.
+  //     Lookbehind (?<=\s) đảm bảo "ạ" phải là từ STANDALONE (đứng sau space) —
+  //     tránh match "Dạ Full" → "Dạ. Full" (sai vì "ạ" trong "Dạ" là 1 phần của từ).
   r = r.replace(
-    /\bạ(\s+)([A-ZĐĂÂÊÔƠƯÁÀẢÃẠÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴ][a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ])/g,
+    /(?<=\s)ạ(\s+)([A-ZĐĂÂÊÔƠƯÁÀẢÃẠÉÈẺẼẸÍÌỈĨỊÓÒỎÕỌÚÙỦŨỤÝỲỶỸỴ][a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ])/g,
     "ạ.$1$2",
   );
 
@@ -337,10 +341,73 @@ export function cleanReply(
   // 8b. Fix typographic "X. Y triệu" → "X.Y triệu" (LLM hay split decimal khi liền số thứ tự)
   r = r.replace(/(\b\d)\.\s+(\d)\s+(triệu|tr|k)\b/gi, "$1.$2 $3");
 
+  // 8c. Câu kết phải kết bằng "ạ" thay vì "nha"/"nhé" (style sale Việt lễ phép hơn).
+  //     Áp dụng cho TỪNG câu trong reply, không chỉ câu cuối — bot hay nhồi "nha" mỗi câu.
+  //     Chỉ replace khi đứng cuối câu (trước . ! hoặc end-of-string). Giữ "nha" nội bộ
+  //     ("nha em" / "nha anh" — vocative, không phải particle kết câu).
+  r = r.replace(/\s+(nha|nhé)(?=\s*[.!]|\s*$)/gi, " ạ");
+
+  // 8d. Câu cuối thiếu particle kết — bot hay paraphrase rồi drop luôn "ạ"/"nha".
+  //     Detect: câu cuối không kết bằng ạ/nha/nhé/dấu hỏi/dấu cảm/colon/số → thêm " ạ" trước dấu chấm.
+  //     Câu chỉ chứa info trơ (vd "Dạ trung tâm 32A Nguyễn Chí Thanh") → vẫn được thêm "ạ" để mềm.
+  //     Bỏ qua nếu câu cuối quá ngắn (<8 chars) hoặc kết bằng số (vd giá "7tr").
+  {
+    // Sentence boundary: . ! hoặc end of string. Lấy câu cuối cùng (có thể không kết thúc bằng dấu).
+    const trimmed = r.trim();
+    if (trimmed.length >= 8) {
+      // Tìm câu cuối: split theo [.!] giữ dấu, lấy phần cuối có nội dung.
+      const parts = trimmed.split(/([.!]+)/).filter(Boolean);
+      // parts dạng: ["câu 1", ".", "câu 2", ".", "câu cuối"] hoặc cuối có dấu rồi.
+      // Tìm index của text cuối (không phải dấu câu).
+      let lastTextIdx = -1;
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (!/^[.!]+$/.test(parts[i]) && parts[i].trim().length > 0) {
+          lastTextIdx = i;
+          break;
+        }
+      }
+      if (lastTextIdx >= 0) {
+        const lastSentence = parts[lastTextIdx].trim();
+        // Đã có particle kết? Kết bằng ạ / nha / nhé / dấu hỏi → skip.
+        // Dùng lookbehind Unicode-safe vì \b không hoạt động với "ạ" (không phải ASCII word char).
+        const endsWithParticle =
+          /(?:^|[\s,.!?])(ạ|nha|nhé)\s*$/i.test(lastSentence) ||
+          /\?\s*$/.test(lastSentence);
+        // Kết bằng số / unit giá tiền → skip (vd "7tr", "350k", "6tr").
+        // KHÔNG dùng "buổi/tháng/tuần/giờ/phút/ngày/năm" vì các từ này hay đứng cuối CTA
+        // ("thử 1 buổi", "tập 3 tháng") — câu vẫn cần "ạ" kết.
+        const endsWithNumber =
+          /[\d%]\s*$/.test(lastSentence) ||
+          /\d+\s*(tr|triệu|k|nghìn|ngàn|đồng|kg|m2)\s*$/i.test(lastSentence);
+        // Quá ngắn? (<8 chars) → skip.
+        if (!endsWithParticle && !endsWithNumber && lastSentence.length >= 8) {
+          parts[lastTextIdx] = parts[lastTextIdx].replace(/\s*$/, " ạ");
+          r = parts.join("");
+        }
+      }
+    }
+  }
+
+  // 8e. Strip duplicate honorific kế cận trong cùng 1 câu.
+  //     Vd: "Dạ anh/chị, anh/chị thấy hướng..." → "Dạ anh/chị, thấy hướng..."
+  //     "anh/chị, anh/chị" / "chị, chị" / "anh, anh" — pattern: <h>[,.]?\s+<h>\s+ trong cùng câu.
+  //     Bot hay sinh ra do template `Dạ ${h}, ${h} thấy...` — đọc lặp lại ngỡ ngẩn.
+  r = r.replace(
+    /\b(anh\/chị|anh|chị)([,.]?\s+)\1\s+/gi,
+    (_m, h, sep) => `${h}${sep}`,
+  );
+
   // 9. Capitalize first letter (sau khi strip "Tuyệt vời" có thể bắt đầu bằng lowercase)
   if (r && /^[a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(r)) {
     r = r[0].toUpperCase() + r.slice(1);
   }
+
+  // 9b. Capitalize sau dấu chấm câu — bot có thể đã strip subject ("Anh/chị")
+  //     hoặc paraphrase bỏ chữ in hoa. Đảm bảo chữ đầu câu mới luôn in hoa.
+  r = r.replace(
+    /([.!?])(\s+)([a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ])/g,
+    (_m, p, ws, c) => `${p}${ws}${c.toUpperCase()}`,
+  );
 
   return r;
 }

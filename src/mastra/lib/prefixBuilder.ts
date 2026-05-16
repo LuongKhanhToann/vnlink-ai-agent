@@ -1295,7 +1295,7 @@ SAI: "Tuyệt vời!", list gói/giá, list nhiều câu hỏi gộp.`;
 1 message = xác nhận lịch ngắn + pitch Inbody + câu mời. KHÔNG kèm bất cứ gì khác.
 
 SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy gói
-ĐÚNG: "Dạ, để ${goal} hiệu quả thì cần kết hợp tập luyện đúng hướng ${h}. Bên em đo InBody miễn phí lần đầu, HLV phân tích tỷ lệ mỡ cơ rồi tư vấn lộ trình chuẩn luôn. ${h} qua thử 1 buổi cho dễ chọn gói nha"`;
+ĐÚNG: "Dạ, để ${goal} hiệu quả thì cần kết hợp tập luyện đúng hướng ${h}. Bên em đo InBody miễn phí lần đầu, HLV phân tích tỷ lệ mỡ cơ rồi tư vấn lộ trình chuẩn luôn. ${h} qua thử 1 buổi để dễ chọn gói ạ"`;
   }
 
   // ── FITNESS: đang evaluation → show gói có narrative ──
@@ -1375,7 +1375,7 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
 Value cụ thể: ${specificHint}
 Gói (giá thật, thứ tự cao→vừa→nhẹ):
 ${concretePackages}
-Mẫu reply: "[1 câu value]. Bên em có mấy hướng cho ${h}: [3 gói trên]. ${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình nha"
+Mẫu reply: "[1 câu value]. Bên em có mấy hướng cho ${h}: [3 gói trên]. ${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình ạ"
 ⚠️ MỖI gói PHẢI có giá. KHÔNG hỏi lại nhu cầu/giờ đã có trong [KNOWN].`;
   }
 
@@ -1778,7 +1778,7 @@ export function buildPrefix(
       } else if (state.intentTopic === "price_objection") {
         tactic =
           "Khách phản đối giá. Reframe bằng VALUE: máy móc xịn (phòng gym 700m2, bể bơi 4 mùa duy nhất Vĩnh Yên), GV/HLV chất lượng (Yoga & Zumba GV người Ấn Độ), social proof (nhiều hội viên gắn bó nhiều năm và giới thiệu thêm bạn bè vào tập). " +
-          "Mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí nha'. " +
+          "Mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí ạ'. " +
           "KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG pitch InBody, KHÔNG hạ giá.";
       } else if (state.intentTopic === "media_request") {
         tactic =
@@ -1789,7 +1789,7 @@ export function buildPrefix(
         tactic =
           `Khách đã đủ goal=${goal} + schedule=${ki.schedule}. KHÔNG hỏi lại "muốn tập gym/yoga/zumba". ` +
           "Pitch THẲNG 3 GÓI ANCHOR đa dạng (cao→vừa→nhẹ): PT 6tr (kèm sát) | Full 7tr/12m | Gym 4.5tr/12m (tự tập tiết kiệm). " +
-          "Câu kết: 'tiện ghé InBody buổi sáng để HLV thiết kế lộ trình nha'.";
+          "Câu kết: 'tiện ghé InBody buổi sáng để HLV thiết kế lộ trình ạ'.";
       } else {
         tactic =
           "Khách compare. Trả lời thẳng nhu cầu khách (giá/dịch vụ cụ thể). " +

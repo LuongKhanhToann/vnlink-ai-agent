@@ -469,7 +469,7 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         `Dạ Zumba và Aerobic đều tập trên nền nhạc, tuy nhiên Zumba thiên về nhảy và cảm thụ âm nhạc hơn — ` +
         `đa dạng động tác, nhẹ nhàng uyển chuyển cũng có mà mạnh mẽ dứt khoát cũng có. ` +
         `Aerobic thiên về mạnh mẽ, cardio liên tục, sẽ khó theo hơn Zumba ạ. ` +
-        `${h} qua thử 1 buổi Zumba xem phòng tập và giáo viên có phù hợp không nha.`,
+        `${h} qua thử 1 buổi Zumba xem phòng tập và giáo viên có phù hợp không ạ.`,
       mustInclude: ["Aerobic", "nền nhạc", "nhảy"],
     };
   },
@@ -1099,7 +1099,7 @@ export function decideFitnessQuestion(
       id: "ask_name_phone_after_time",
       template:
         `Dạ vâng ${h}, để em giữ slot ${state.knownInfo.preferredTime} cho mình, ` +
-        `${h} cho em xin tên với SĐT để em đăng ký giúp nha.`,
+        `${h} cho em xin tên với SĐT để em đăng ký giúp ạ.`,
       mustInclude: ["tên", "SĐT"],
     };
   }

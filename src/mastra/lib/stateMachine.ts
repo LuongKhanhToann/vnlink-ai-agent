@@ -331,6 +331,125 @@ const PAIN_PRIORITY = new RegExp(
   "iu",
 );
 
+// Detect "tên + sđt cùng dòng" deterministic — backup khi LLM classifier extract sót name.
+// Vd: "toàn 0373389191" / "an 0912345678" — tên 1 từ (có thể trùng từ vựng) + sđt 9-11 số.
+// LLM classifier (gpt-4o-mini) hay miss khi tên lowercase/ambiguous → cần regex fallback.
+//
+// Pattern hỗ trợ:
+//   "<tên> <sđt>"        → "toàn 0373389191" / "Lan 0912345678"
+//   "<tên>, <sđt>"       → "Toàn, 0912345678"
+//   "<tên> sđt <sđt>"    → "An sđt 0912345678"
+//   "tên <tên> sđt <sđt>" → "tên Toàn sđt 0912345678"
+//
+// Vietnamese name chars: 1-3 từ, mỗi từ ≤ 12 chars, chỉ chứa Unicode letter (\p{L}).
+// Phone: 9-11 chữ số liên tiếp (có thể có dấu cách/gạch nhưng strip trước).
+export function detectNamePhoneInline(
+  message: string,
+): { name: string | null; phone: string | null } {
+  if (!message) return { name: null, phone: null };
+  const m = message.trim();
+  // Strip ký tự không cần (giữ space + chữ + số).
+  // Phone candidate: gom 9-11 chữ số liền (bỏ space giữa chừng).
+  const phoneNorm = m.replace(/[\s.\-()]/g, "");
+  const phoneMatch = phoneNorm.match(/(\d{9,11})/);
+  if (!phoneMatch) return { name: null, phone: null };
+  const phone = phoneMatch[1];
+
+  // Tìm phần trước số trong message gốc (giữ space để tách word).
+  // Cần locate vị trí của số đầu tiên trong message gốc (sau khi normalize space).
+  // Đơn giản: match `^([^\d]*?)(\d[\d\s.\-()]*\d)`
+  const beforeMatch = m.match(/^([^\d]*?)(?:\b|^)(\d[\d\s.\-()]*\d)/);
+  if (!beforeMatch) return { name: null, phone };
+  let beforeText = beforeMatch[1].trim();
+  // Strip prefixes: "tên", "sđt", "số", "name", "phone", "là", ":" , "-", "anh", "chị", "em"
+  beforeText = beforeText
+    .replace(/[,:\-–—]/g, " ")
+    .replace(/\b(tên|name|sđt|sdt|số|phone|là|của|anh|chị|em|mình|tôi|ok|oki|okay|alo|hi|hello|cũ|mới|mình|cho)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!beforeText) return { name: null, phone };
+  // Loại stopwords cuối nếu còn ("ơi", "ạ"...).
+  beforeText = beforeText
+    .replace(/\s+(ơi|ạ|nha|nhé|à|ừ)$/i, "")
+    .trim();
+  // Validate: chỉ Unicode letter + space, 1-4 từ, mỗi từ ≤ 12 chars, total ≤ 30 chars.
+  if (beforeText.length > 30) return { name: null, phone };
+  if (!/^[\p{L}\s]+$/u.test(beforeText)) return { name: null, phone };
+  const words = beforeText.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 4) return { name: null, phone };
+  if (words.some((w) => w.length > 12)) return { name: null, phone };
+  // Capitalize tên (đầu mỗi từ in hoa).
+  const name = words
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+  return { name, phone };
+}
+
+// Detect tên ĐỨNG MỘT MÌNH khi context cho phép (bot vừa hỏi tên, KH chỉ gửi 1 cụm ngắn).
+// Vd: "Toàn mà" / "tên là Hùng" / "chị Lan đây" — không có sđt cùng dòng.
+//
+// CHỈ fire khi:
+//   - Bot ở turn trước đã hỏi tên (lastBotReply có "tên" / "tên gì")
+//   - Hoặc state đã có phone nhưng thiếu name (high-confidence context)
+// Validate strict: 1-3 từ, mỗi từ 2-12 chars chỉ Unicode letter, không phải common words.
+// Common words filter để né "chiều mai" / "ok thôi" — tránh false positive cao.
+// ⚠️ CỐ Ý KHÔNG include time words (mai/nay/sáng/tối/chiều/trưa) vì các từ này
+// đồng âm với tên người phổ biến: "Mai", "Sáng", "Lan", "Hà"... Context check
+// (bot vừa hỏi tên) đủ để disambiguate.
+const COMMON_NON_NAME_WORDS = new Set([
+  "có","không","ko","khong","được","duoc","rồi","vâng","dạ","ok","oki","okay",
+  "thôi","thế","vậy","ừ","uh","cảm","ơn","tốt","tệ","hay","sao","gì","nào",
+  "kia","khác","đây","đó","này","đấy","ấy",
+  "đi","đến","qua","lên","xuống","ra","vào","tới","về","lại",
+  "ạ","ơi","nha","nhé","mà","à","nè","luôn","ghé","thử","tập","đăng",
+  "gym","yoga","zumba","bơi","pilates","full","pt","hlv","inbody",
+  "tiền","giá","gói","tháng","tuần","ngày","buổi","giờ","phút",
+  "muốn","cần","thích","biết","xem","cho","giúp","hỏi","là",
+  "anh","chị","em","mình","tôi","bạn","cô","chú","bác","cháu","con","ông","bà",
+]);
+
+// Honorific prefix có thể strip mà KHÔNG mất ý nghĩa (vd "chị Mai đây" → "Mai").
+const HONORIFIC_PREFIX_RE =
+  /^(?:anh|chị|em|cô|chú|bác|cháu|ông|bà|mình|tôi|tớ)\s+/i;
+
+export function detectNameStandalone(message: string): string | null {
+  if (!message) return null;
+  let m = message.trim();
+  if (!m) return null;
+  // Strip explicit "tên là X" / "tên X" / "là X" / "name is X" prefix.
+  m = m.replace(
+    /^(?:anh\s+|chị\s+|em\s+|mình\s+|tôi\s+|name\s+is\s+)?(?:tên\s+(?:là\s+)?|là\s+)/i,
+    "",
+  );
+  // Strip honorific prefix nếu còn ("chị Mai đây" → "Mai đây").
+  // Lặp 1 lần (không strip 2 honorific liên tiếp — quá rare + dễ nhầm).
+  m = m.replace(HONORIFIC_PREFIX_RE, "");
+  // Strip suffix: "mà", "đây", "nè", "đó", "này", "à", "ạ", "nha", "nhé", "thôi", "ơi"
+  m = m.replace(/\s+(mà|đây|nè|đó|này|à|ạ|nha|nhé|thôi|ơi|nhỉ|đấy|ấy)$/i, "");
+  m = m.trim();
+  if (!m) return null;
+  // Validate: ≤30 chars total, 1-3 từ, chỉ Unicode letter + space.
+  if (m.length > 30) return null;
+  if (!/^[\p{L}\s]+$/u.test(m)) return null;
+  const words = m.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 3) return null;
+  // Mỗi từ: 2-12 chars (loại tên 1 chữ cái "A" — ambiguous abbreviation).
+  if (words.some((w) => w.length < 2 || w.length > 12)) return null;
+  // Reject nếu MỌI từ đều là common (vd "ok thôi", "không gì").
+  const allCommon = words.every((w) => COMMON_NON_NAME_WORDS.has(w.toLowerCase()));
+  if (allCommon) return null;
+  // Reject time-phrase: từ đầu là time-leader VÀ có ≥2 từ → "chiều mai" / "sáng nay" / "tối thứ".
+  // Cho phép 1-từ "Mai" / "Sáng" — có thể là tên người, context check ở caller xử lý.
+  const TIME_LEADERS = new Set([
+    "sáng","chiều","tối","trưa","ngày","buổi","tuần","tháng","năm","giờ","phút","sớm","khuya","đêm",
+  ]);
+  if (words.length >= 2 && TIME_LEADERS.has(words[0].toLowerCase())) return null;
+  // Capitalize đầu mỗi từ.
+  return words
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 // Detect serviceType từ keyword — backup khi LLM classifier miss extract.
 // Vd: "à không, cho anh yoga thôi" — classifier có khi không extract được "yoga".
 export function detectServiceByKeyword(message: string): string | null {
@@ -703,7 +822,51 @@ export function buildNextState(
       ? normalizedExtracted
       : null;
 
-  let knownInfo = mergeSlots(previous.knownInfo, llm.extractedSlots);
+  // Deterministic fallback: nếu LLM classifier không extract được name/phone
+  // mà message có pattern "<tên> <sđt>" → trust regex (đặc biệt với tên lowercase
+  // hoặc trùng từ vựng như "toàn", "an", "vui"... gpt-4o-mini hay miss).
+  const inlineExtract = detectNamePhoneInline(message);
+
+  // Context-aware standalone name: nếu inline không bắt được name (vd "Toàn mà")
+  // VÀ context cho phép (bot vừa hỏi tên HOẶC state đã có phone nhưng thiếu name) →
+  // thử parse message như tên đứng riêng.
+  const llmName = llm.extractedSlots.name;
+  const llmNameValid = !!(llmName && String(llmName).trim().length > 0);
+  const inlineName = inlineExtract.name;
+  let standaloneName: string | null = null;
+  if (!llmNameValid && !inlineName) {
+    const botAskedName = /\b(tên|sđt|name)\b/i.test(previous.lastBotReply ?? "");
+    const phoneAlreadySet =
+      previous.knownInfo.phone !== null && previous.knownInfo.name === null;
+    if (botAskedName || phoneAlreadySet) {
+      standaloneName = detectNameStandalone(message);
+      if (standaloneName) {
+        console.log(
+          `[stateMachine] detectNameStandalone: "${message}" → name="${standaloneName}" (botAskedName=${botAskedName} phoneAlreadySet=${phoneAlreadySet})`,
+        );
+      }
+    }
+  }
+
+  const extractedSlotsAugmented = {
+    ...llm.extractedSlots,
+    // Chỉ override khi LLM không cho giá trị (null/undefined/empty).
+    name:
+      llmNameValid
+        ? llmName
+        : (inlineName ?? standaloneName),
+    phone:
+      llm.extractedSlots.phone && String(llm.extractedSlots.phone).trim().length > 0
+        ? llm.extractedSlots.phone
+        : inlineExtract.phone,
+  };
+  if (inlineExtract.name || inlineExtract.phone) {
+    console.log(
+      `[stateMachine] detectNamePhoneInline: name=${inlineExtract.name ?? "—"} phone=${inlineExtract.phone ?? "—"}`,
+    );
+  }
+
+  let knownInfo = mergeSlots(previous.knownInfo, extractedSlotsAugmented);
   if (switched) {
     knownInfo = {
       ...knownInfo,

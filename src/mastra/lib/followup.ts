@@ -213,28 +213,28 @@ export function buildFollowupText(state: ConversationState): string {
       const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
       const inbodyLine =
         !prevHasInBody && !ki.preferredTime
-          ? ` Bên em đo InBody miễn phí lần đầu, ${honor} ghé thử buổi nào tiện nha.`
-          : ` ${honor} thấy hợp em note giữ slot luôn nha.`;
-      return `Dạ ${honor}, ${honor} thấy hướng ${svcLabel} cho ${goalLabel} có ổn không ạ.${inbodyLine}`;
+          ? ` Bên em đo InBody miễn phí lần đầu, ${honor} ghé thử buổi nào tiện ạ.`
+          : ` Nếu thấy hợp em note giữ slot luôn cho mình ạ.`;
+      return `Dạ ${honor}, hướng ${svcLabel} cho ${goalLabel} mình thấy có ổn không ạ.${inbodyLine}`;
     }
 
     // Có service, chưa goal → hỏi mục tiêu nhẹ
     if (ki.serviceType) {
       const svcLabel = SERVICE_LABEL[ki.serviceType.toLowerCase()] ?? ki.serviceType;
-      return `Dạ ${honor}, ${honor} muốn tập ${svcLabel} cho mục tiêu cụ thể nào để em tư vấn lộ trình sát hơn ạ (giảm cân, tăng cơ hay thư giãn).`;
+      return `Dạ ${honor}, mình muốn tập ${svcLabel} cho mục tiêu cụ thể nào để em tư vấn lộ trình sát hơn ạ (giảm cân, tăng cơ hay thư giãn).`;
     }
 
     // Có goal, chưa service → gợi 1 hướng theo goal
     if (ki.fitnessGoal) {
       const goalLabel = GOAL_LABEL[ki.fitnessGoal] ?? ki.fitnessGoal;
-      return `Dạ ${honor}, ${honor} thấy hướng ${goalLabel} sao rồi ạ, có gì cần em sẵn sàng tư vấn thêm ạ.`;
+      return `Dạ ${honor}, hướng ${goalLabel} mình thấy sao rồi ạ, có gì cần em sẵn sàng tư vấn thêm.`;
     }
 
     // Chưa có gì — soft check-in. Nếu prev đã list 4 dịch vụ → KHÔNG nhắc lại.
     if (prevHasServices) {
-      return `Dạ ${honor}, ${honor} đang phân vân ở dịch vụ nào không, em sẵn sàng tư vấn thêm ạ.`;
+      return `Dạ ${honor}, mình đang phân vân ở dịch vụ nào không, em sẵn sàng tư vấn thêm ạ.`;
     }
-    return `Dạ ${honor}, ${honor} có nhu cầu cụ thể nào (giảm cân, tăng cơ, thư giãn) để em gợi gói chuẩn nha.`;
+    return `Dạ ${honor}, mình có nhu cầu cụ thể nào (giảm cân, tăng cơ, thư giãn) để em gợi gói chuẩn giúp ạ.`;
   }
 
   // ── GIẢI CƠ ──
@@ -242,11 +242,11 @@ export function buildFollowupText(state: ConversationState): string {
   if (ki.painArea) {
     const tryLine =
       !prevHasPricing
-        ? ` ${honor} thử 1 buổi để KTV đánh giá rồi mới tư vấn lộ trình nha.`
-        : ` ${honor} sắp xếp được buổi nào em note slot giúp.`;
-    return `Dạ ${honor}, vùng ${ki.painArea} ${honor} thấy sao rồi, có cần em hỗ trợ đặt lịch không ạ.${tryLine}`;
+        ? ` Mình thử 1 buổi để KTV đánh giá rồi mới tư vấn lộ trình ạ.`
+        : ` Mình sắp xếp được buổi nào em note slot giúp ạ.`;
+    return `Dạ ${honor}, vùng ${ki.painArea} mình thấy sao rồi, có cần em hỗ trợ đặt lịch không ạ.${tryLine}`;
   }
 
   // Chưa có painArea — hỏi vùng đau
-  return `Dạ ${honor}, ${honor} có vùng nào đang đau hay mỏi cần em tư vấn không ạ, em sẵn sàng hỗ trợ.`;
+  return `Dạ ${honor}, mình có vùng nào đang đau hay mỏi cần em tư vấn không ạ, em sẵn sàng hỗ trợ.`;
 }

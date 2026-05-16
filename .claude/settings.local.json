@@ -10,7 +10,16 @@
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testNaturalUser.ts 2>&1 | Select-String -Pattern \"^\\\\[T|^  KH |^  BOT|^▶ |^   vibe|^✅|^═\")",
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/testKichBanAuto.ts 2>&1 | Select-String -Pattern \"SUMMARY|^Ideas|^Failed|DETAIL FAILED|^  - |^      \" | Select-Object -Last 15)",
       "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/runFullReport.ts 2>&1 | Select-String -Pattern \"^🏃|^📋|^🔬|^💬|  ·|^📄|^📦|^📊|^✅|Done|ERROR|Fatal\")",
-      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/runFullReport.ts 2>&1 | Select-String -Pattern \"^🏃|^📋|^🔬|^💬|^📄|^📦|^📊|^✅|ERROR|Fatal\")"
+      "PowerShell($env:STORAGE_BACKEND=\"libsql\"; npx tsx src/mastra/scripts/runFullReport.ts 2>&1 | Select-String -Pattern \"^🏃|^📋|^🔬|^💬|^📄|^📦|^📊|^✅|ERROR|Fatal\")",
+      "Bash(grep -E \"\\\\.\\(md|json\\)$\")",
+      "Bash(npx -y tsc --noEmit -p .)",
+      "Bash(npx -y tsc --noEmit src/mastra/lib/cleanReply.ts src/mastra/lib/stateMachine.ts src/mastra/lib/followup.ts src/mastra/lib/questionFlow.ts src/mastra/lib/prefixBuilder.ts --target es2022 --module nodenext --moduleResolution nodenext --strict --esModuleInterop --skipLibCheck)",
+      "Bash(npx -y tsc --noEmit --allowJs --moduleResolution bundler --module esnext --target es2022 --strict --skipLibCheck --types node src/mastra/lib/cleanReply.ts src/mastra/lib/stateMachine.ts src/mastra/lib/followup.ts)",
+      "Bash(npx -y tsx ./test-fix.mjs)",
+      "Bash(npx -y tsx ./test-all.mjs)",
+      "Bash(npx -y tsx ./test-userflow.mjs)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
