@@ -58,6 +58,7 @@ export type IntentTopic =
   | "opening_greeting"            // "Quan tâm", "Hi", chào suông
   | "opening_chuong_trinh"        // "Tư vấn chương trình tập luyện", "có chương trình gì"
   | "opening_chua_biet"           // "chưa biết tập gì", "cho chị tham khảo"
+  | "indecisive_pick_for_me"      // "chị chọn giúp em", "tư vấn giúp em" (KH nhờ tư vấn, có thể đã có goal/serviceType)
   | "tham_quan"                   // "đi qua tham quan thôi"
   // Intro mục tiêu/môn (có thể fire bất kể turn)
   | "intro_trai_nghiem"           // "muốn tập trải nghiệm", "muốn thử"
@@ -162,6 +163,9 @@ export interface ConversationState {
   // Transient — chỉ dùng cho turn này, không persist semantics. State có lưu để các
   // hàm downstream (questionFlow, prefixBuilder GATE) đọc thay vì regex parse lại message.
   intentTopic: IntentTopic | null;
+  /** Intent classify 3-trục (domain/service/attribute) — Phase 1 refactor. intentTopic ở trên được derive từ đây
+   *  qua signalToLegacyTopic() trong classifier. Phase 2 sẽ port templates dùng intentSignal trực tiếp. */
+  intentSignal?: import("./intent").IntentSignal | null;
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
   /** Tổng số turn của cuộc thoại — KHÔNG reset khi flow đổi. Dùng cho greeting decision. */
@@ -175,6 +179,15 @@ export interface ConversationState {
   mediaShownKeys: string[];
   sheetsWritten: boolean;
   lastBotReply?: string;
+  /** Tin nhắn user của turn TRƯỚC. Dùng cho guard cross-turn (vd "bé 10 tuổi" ở turn 2 → tránh
+   *  hỏi lại tuổi ở turn 3). KHÁC `message` đang xử lý (current turn). */
+  lastUserMessage?: string;
+  /** Phase 6: keys của câu hỏi bot đã hỏi (vd "exp_gym", "goal", "schedule").
+   *  Anti-loop: bot không hỏi lại câu cùng key. Xem lib/tracking.ts cho QUESTION_KEY_PATTERNS. */
+  askedHistory?: string[];
+  /** Phase 6: keys của fact bot đã pitch (vd "inbody_free", "full_7tr", "be_4_mua").
+   *  Anti-repeat-pitch: bot không repeat same value. Xem lib/tracking.ts cho FACT_KEY_PATTERNS. */
+  mentionedFacts?: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -227,6 +240,9 @@ export function mergeSlots(
   // Fami chỉ có 5 service: gym/yoga/zumba/boi/pilates (+ full combo).
   // Reject mọi giá trị khác (vd "aerobic" — khách nhắc để so sánh nhưng KHÔNG phải dịch vụ
   // bên em → không được switch sang).
+  //
+  // Multi-service handling: classifier có thể trả về "gym và bơi" / "yoga, zumba" / "gym+boi"
+  // khi KH muốn 2+ dịch vụ. Trong case này map sang "full" (combo 4 dịch vụ) thay vì reject.
   function pickServiceType(
     e: string | null,
     x: string | null | undefined,
@@ -234,7 +250,20 @@ export function mergeSlots(
     if (e !== null) return e;
     if (x === null || x === undefined) return null;
     const valid = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
-    return valid.includes(x.toLowerCase()) ? x.toLowerCase() : null;
+    const lower = x.toLowerCase();
+    if (valid.includes(lower)) return lower;
+    // Comparison cue trong classifier output ("gym với yoga", "gym hay yoga", "X vs Y", "X so với Y", "cái nào")
+    // → KHÔNG treat as multi-service. Để null cho classifier prompt xử lý đúng.
+    const isCompareCue = /(với|hay|vs\.?|so\s*với|cái\s*nào)/i.test(lower);
+    if (isCompareCue) return null;
+    // Multi-service: "gym và bơi", "yoga + zumba", "gym, bơi", "gym/yoga", "cả gym lẫn bơi"
+    const services = lower.match(/(gym|yoga|zumba|bơi|boi|pilates)/g) || [];
+    if (services.length >= 2) return "full";
+    // Single matched service trong cụm dài ("đăng ký gym thôi") → lấy service đó
+    if (services.length === 1) {
+      return services[0] === "bơi" ? "boi" : services[0];
+    }
+    return null;
   }
 
   return {
@@ -603,14 +632,23 @@ export function computeNextStage(
   // Opening → Discovery (hoặc xa hơn nếu slots đã đủ điều kiện)
   // Multi-step: nếu khách cung cấp đủ info ngay tin đầu, nhảy thẳng đến stage phù hợp
   // thay vì buộc phải đi qua discovery một lượt rỗng.
+  // Slot tín hiệu rời opening: serviceType, painArea, fitnessGoal, memberType, schedule, preferredTime,
+  // hoặc intent != explore.
   if (currentStage === "opening") {
     if (
       info.serviceType !== null ||
       info.painArea !== null ||
       info.fitnessGoal !== null ||
+      info.memberType !== null ||
+      info.schedule !== null ||
+      info.preferredTime !== null ||
       intent !== "explore"
     ) {
       return computeNextStage("discovery", info, intent, flow, llmSuggestedStage, turnCount);
+    }
+    // Anti-stuck: nếu turn ≥ 3 mà vẫn opening → đẩy về discovery để bot không lặp template chào.
+    if (turnCount >= 3) {
+      return "discovery";
     }
     return "opening";
   }
@@ -758,6 +796,8 @@ export interface LLMClassification {
   emotion: Emotion;
   intent: Intent;
   intentTopic: IntentTopic | null;
+  /** Phase 1: classifier output 3-trục. Optional để backward compat. */
+  intentSignal?: import("./intent").IntentSignal | null;
   extractedSlots: Partial<KnownInfo>;
   qrShown: boolean | null;
   mediaShown: boolean | null;
@@ -915,6 +955,7 @@ export function buildNextState(
     emotion,
     intent,
     intentTopic: llm.intentTopic,
+    intentSignal: llm.intentSignal ?? null,
     honorific,
     knownInfo,
     turnCount,
@@ -924,6 +965,11 @@ export function buildNextState(
     mediaShownKeys: previous.mediaShownKeys ?? [],
     sheetsWritten: previous.sheetsWritten,
     lastBotReply: previous.lastBotReply,
+    // Track user message của turn TRƯỚC (≠ current `message`). Khi turn N+1 gọi, sẽ trở thành "previous" user message.
+    // Workflow set lastUserMessage = current message ở step lưu state, sau khi buildNextState chạy xong.
+    lastUserMessage: previous.lastUserMessage,
+    askedHistory: previous.askedHistory ?? [],
+    mentionedFacts: previous.mentionedFacts ?? [],
   };
 }
 
@@ -938,6 +984,7 @@ export const DEFAULT_STATE: ConversationState = {
   emotion: "neutral",
   intent: "explore",
   intentTopic: null,
+  intentSignal: null,
   honorific: "anh/chị",
   knownInfo: {
     name: null,
@@ -960,4 +1007,6 @@ export const DEFAULT_STATE: ConversationState = {
   mediaShown: false,
   mediaShownKeys: [],
   sheetsWritten: false,
+  askedHistory: [],
+  mentionedFacts: [],
 };

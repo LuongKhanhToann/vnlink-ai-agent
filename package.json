@@ -8,7 +8,8 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "test:scenarios": "npx -y tsx src/mastra/scripts/runTestScenarios.ts"
+    "test:scenarios": "npx -y tsx src/mastra/scripts/runTestScenarios.ts",
+    "test:routing": "npx -y tsx src/mastra/scripts/testTemplateRouting.ts"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,7 @@
     "@mastra/openai": "^1.0.1-alpha.48",
     "@mastra/pg": "^1.8.3",
     "cloudinary": "^2.9.0",
+    "dotenv": "^17.4.2",
     "googleapis": "^171.4.0",
     "zod": "^4.3.6"
   },

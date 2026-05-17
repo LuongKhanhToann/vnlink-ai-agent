@@ -15,10 +15,14 @@ import { classify } from "../lib/classifier";
 import { buildNextState, detectFlowByKeyword } from "../lib/stateMachine";
 import {
   buildPrefix,
+  buildPrefixWithMeta,
   computeSuggestedMediaKey,
   detectMentionedServiceKey,
 } from "../lib/prefixBuilder";
+import { logTurn, type PrefixMode } from "../lib/observability";
 import { cleanReply } from "../lib/cleanReply";
+import { validateReply, safeFallback, offTopicFallback } from "../lib/validator";
+import { updateTracking } from "../lib/tracking";
 
 // ─────────────────────────────────────────────
 // SCHEMAS
@@ -81,6 +85,9 @@ const processedStateSchema = z.object({
   prefix: z.string(),
   qrShown: z.boolean(),
   mediaShown: z.boolean(),
+  /** Phase 7 telemetry: prefix mode + template id để log structured. */
+  prefixMode: z.enum(["SCRIPT", "GATE", "PITCH"]),
+  templateId: z.string().nullable(),
 });
 
 // ─────────────────────────────────────────────
@@ -120,6 +127,8 @@ const processStep = createStep({
     );
 
     const nextState = buildNextState(previousState, message, llmResult);
+    // Set lastUserMessage = current message (sẽ là "user msg của turn trước" khi turn sau load state).
+    nextState.lastUserMessage = message;
     console.log(
       `[process] next: flow=${nextState.flow} stage=${nextState.stage} temp=${nextState.temperature}`
     );
@@ -127,17 +136,19 @@ const processStep = createStep({
     await saveState(mastra, threadId, resourceId, nextState);
 
     // Pass lastBotReply (từ turn trước) để buildPrefix tạo ANTI_LOOP hint
-    const prefix = buildPrefix(nextState, message, previousState.lastBotReply);
-    console.log(`[process] prefix:\n${prefix}`);
+    const prefixResult = buildPrefixWithMeta(nextState, message, previousState.lastBotReply);
+    console.log(`[process] prefix:\n${prefixResult.prefix}`);
 
     return {
       message,
       threadId,
       resourceId,
       flow: nextState.flow,
-      prefix,
+      prefix: prefixResult.prefix,
       qrShown: nextState.qrShown,
       mediaShown: nextState.mediaShown,
+      prefixMode: prefixResult.mode,
+      templateId: prefixResult.templateId,
     };
   },
 });
@@ -171,15 +182,21 @@ async function updateStateAfterReply(
       sentKey && !currentKeys.includes(sentKey)
         ? [...currentKeys, sentKey]
         : currentKeys;
+    // Phase 6: detect câu hỏi đã hỏi + fact đã pitch → cập nhật tracking sets.
+    const tracking = updateTracking(current, botReply);
     const updated = {
       ...current,
       qrShown:    needQR    ? true : current.qrShown,
       mediaShown: needMedia ? true : current.mediaShown,
       mediaShownKeys: updatedKeys,
       lastBotReply: botReply || current.lastBotReply,
+      askedHistory: tracking.askedHistory,
+      mentionedFacts: tracking.mentionedFacts,
     };
     await saveState(mastra, threadId, resourceId, updated);
-    console.log(`[flags] saved → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown} keys=[${updatedKeys.join(",")}] replyLen=${(botReply||'').length}`);
+    console.log(
+      `[flags] saved → qrShown=${updated.qrShown} mediaShown=${updated.mediaShown} keys=[${updatedKeys.join(",")}] replyLen=${(botReply||'').length} asked=[${tracking.askedHistory.join(",")}] facts=[${tracking.mentionedFacts.join(",")}]`
+    );
   } catch (e) {
     console.error("[flags] updateStateAfterReply failed:", e);
   }
@@ -211,7 +228,8 @@ function buildAgentStep(
     inputSchema: processedStateSchema,
     outputSchema,
     execute: async ({ inputData, mastra }) => {
-      const { prefix, message, threadId, resourceId, qrShown, mediaShown } =
+      const turnStart = Date.now();
+      const { prefix, message, threadId, resourceId, qrShown, mediaShown, prefixMode, templateId } =
         inputData;
       const fullMessage = [prefix, message].filter(Boolean).join("\n");
 
@@ -229,7 +247,7 @@ function buildAgentStep(
           memory: {
             thread: { id: threadId },
             resource: resourceId,
-            options: { lastMessages: 20 },
+            options: { lastMessages: 8 },
           },
           structuredOutput: {
             schema: agentReplySchema,
@@ -280,7 +298,31 @@ function buildAgentStep(
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
-      const cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply);
+      let cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply);
+
+      // ═══════════ PHASE 5 — Output validator + graceful fallback ═══════════
+      // Off-topic edge: classifier output edge/off_topic → fixed safe response, KHÔNG để bot bịa.
+      const intentSig = stateBeforeReply.intentSignal;
+      let validatorResult: "valid" | "off-topic-fallback" | string[] = "valid";
+      if (
+        intentSig &&
+        intentSig.domain === "edge" &&
+        intentSig.attribute === "off_topic"
+      ) {
+        const fallback = offTopicFallback(stateBeforeReply);
+        console.warn(`[validator] off-topic fallback fired (was: "${cleanedText.slice(0, 60)}...")`);
+        cleanedText = fallback;
+        validatorResult = "off-topic-fallback";
+      } else {
+        // Validate reply — fail thì dùng safeFallback (3-layer pattern)
+        const validation = validateReply(cleanedText, stateBeforeReply);
+        if (!validation.valid) {
+          const reasonsStr = validation.reasons.join(", ");
+          console.warn(`[validator] FAIL — reasons: ${reasonsStr} → safe fallback`);
+          cleanedText = safeFallback(stateBeforeReply);
+          validatorResult = validation.reasons;
+        }
+      }
 
       await updateStateAfterReply(
         mastra,
@@ -291,6 +333,37 @@ function buildAgentStep(
         cleanedText,
         message,
       );
+
+      // ═══════════ PHASE 7 — Per-turn structured log ═══════════
+      const stateAfterReply = await loadState(mastra, threadId, resourceId);
+      logTurn({
+        threadId,
+        turn: stateAfterReply.turnCount,
+        timestamp: new Date().toISOString(),
+        message,
+        flow: stateAfterReply.flow,
+        stage: stateAfterReply.stage,
+        classifier: {
+          domain: intentSig?.domain ?? null,
+          service: intentSig?.service ?? null,
+          attribute: intentSig?.attribute ?? null,
+          legacyTopic: stateAfterReply.intentTopic ?? null,
+          emotion: stateAfterReply.emotion,
+          intent: stateAfterReply.intent,
+        },
+        mode: prefixMode as PrefixMode,
+        templateId,
+        prefixChars: prefix.length,
+        replyChars: cleanedText.length,
+        hasMedia: hasMedia,
+        hasQR: !!obj.qrUrl,
+        validator: validatorResult,
+        trackingCounts: {
+          askedHistory: (stateAfterReply.askedHistory ?? []).length,
+          mentionedFacts: (stateAfterReply.mentionedFacts ?? []).length,
+        },
+        durationMs: Date.now() - turnStart,
+      });
 
       return {
         reply: cleanedText,
@@ -323,7 +396,7 @@ const fallbackStep = createStep({
       memory: {
         thread: { id: threadId },
         resource: resourceId,
-        options: { lastMessages: 20 },
+        options: { lastMessages: 8 },
       },
       structuredOutput: {
         schema: agentReplySchema,

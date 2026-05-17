@@ -651,6 +651,17 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
+  // ── Gia đình (compact, giá cụ thể) ──
+  if (
+    flow === "fitness" &&
+    knownInfo.memberType === "gia-dinh" &&
+    !knownInfo.preferredTime
+  ) {
+    hints.push(
+      "[GATE gia-đình: gói Full gia đình (4 dịch vụ dùng chung 1 thẻ) — 2 người 12 triệu, 3 người 17 triệu, 4 người 20 triệu. Pitch CỤ THỂ với số người, KHÔNG list 4 bộ môn chung chung. Bé < 6 tuổi miễn phí kèm bố mẹ ạ.]",
+    );
+  }
+
   // ── Khách chỉ muốn 1 dịch vụ (compact) ──
   if (
     flow === "fitness" &&
@@ -1346,9 +1357,9 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     // Concrete package examples per goal — correct anchor order: high → mid → light
     const goalPackages: Record<string, string> = {
       "giam-mo":
-        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 kèm sát, đốt mỡ nhanh + đúng kỹ thuật\n` +
-        `Full 12 tháng 7tr — Gym + Bơi/Zumba 1 thẻ, cardio + weight đa năng\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập, tiết kiệm`,
+        `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, kết hợp cardio + weight + xả stress (giải pháp giảm cân Fami)\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập, tiết kiệm\n` +
+        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 kèm sát cho ai muốn đốt mỡ nhanh + đúng kỹ thuật`,
       "tang-co":
         `PT 20 buổi (2 tháng) 6tr — HLV 1-1 xây kỹ thuật nền đúng, tránh chấn thương\n` +
         `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
@@ -1557,21 +1568,45 @@ function buildMissingSlotHint(
 // MAIN PREFIX BUILDER
 // ─────────────────────────────────────────────
 
+/** Phase 7: prefix metadata cho observability log. */
+export interface PrefixResult {
+  prefix: string;
+  mode: "SCRIPT" | "GATE" | "PITCH";
+  /** ID template fired (chỉ có ở SCRIPT mode). */
+  templateId: string | null;
+}
+
+/**
+ * Backward-compat: buildPrefix vẫn return string. Đi kèm buildPrefixWithMeta() cho caller mới.
+ */
 export function buildPrefix(
   state: ConversationState,
   message?: string,
   prevBotReply?: string,
 ): string {
+  return buildPrefixWithMeta(state, message, prevBotReply).prefix;
+}
+
+export function buildPrefixWithMeta(
+  state: ConversationState,
+  message?: string,
+  prevBotReply?: string,
+): PrefixResult {
   const h = resolveHonorific(state.honorific);
 
-  // ─── QUESTION FLOW DECISION (ưu tiên cao nhất) ───
-  // Nếu match 1 trong các pattern của TL Fami → return 1 ANSWER_LOCK duy nhất,
-  // bypass tất cả GATE / few-shot / TACTIC khác. gpt-4o-mini cần ít context để
-  // output đúng template.
+  // ═══════════ PREFIX MODE DISPATCH (Phase 3) ═══════════
+  // 3 mode tách biệt — mini chỉ đọc instruction của ĐÚNG 1 mode:
+  //   SCRIPT  = template match (decideFitnessQuestion hit) → ngắn nhất ~200 token
+  //   GATE    = hard-override logic (done-slots / cold-lead / acute-injury / deposit / objection)
+  //             → minimal prefix, GATE là single source of truth
+  //   PITCH   = no template, no GATE override → full prefix với TACTIC + KNOWLEDGE + FEW-SHOT
+  // ─────────────────────────────────────────────
+
+  // ─── MODE = SCRIPT (template match) ───
   if (state.flow === "fitness" && message) {
     const decision = decideFitnessQuestion(state, message, prevBotReply);
     if (decision) {
-      console.log(`[questionFlow] decision=${decision.id}`);
+      console.log(`[prefix] MODE=SCRIPT id=${decision.id}`);
       const lines: string[] = [
         `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
         `[TACTIC: ƯU TIÊN ANSWER_LOCK ở dưới — viết theo template, KHÔNG pitch/list/nhảy chủ đề khác.]`,
@@ -1579,7 +1614,11 @@ export function buildPrefix(
         buildKnownSummary(state.knownInfo, state.flow),
         formatDecision(decision),
       ];
-      return lines.filter(Boolean).join("\n");
+      return {
+        prefix: lines.filter(Boolean).join("\n"),
+        mode: "SCRIPT",
+        templateId: decision.id,
+      };
     }
   }
 
@@ -1816,24 +1855,57 @@ export function buildPrefix(
     antiLoopHint = `[PREV: "${trim}..."${pivotHint} Nếu khách đã trả lời câu cũ → ACK 1 câu rồi đi tiếp; tuyệt đối không lặp lại nội dung tin trước.]`;
   }
 
-  // Build GATE first — detect "override mode" (hard-return single GATE) để skip few-shot/knowledge.
-  // Override = GATE ưu tiên tuyệt đối làm bộ não bot, KHÔNG nên bị TACTIC/few-shot/knowledge gây nhiễu.
+  // Build GATE → detect mode
   const gateOutput = buildLogicGate(state, message);
-  // Các GATE topic-mapped (Zumba-vs-Aerobic, bơi-*, trial-ask, ...) ĐÃ MIGRATE sang questionFlow.
-  // Override-GATE còn lại = các GATE TRỌNG ĐIỂM khác (chấn thương cấp, phản đối giá, done-slots, ...).
   const isOverrideGate =
     /chấn thương cấp|done-slots|đang lạnh|phản đối giá|GATE deposit|cold lead/i.test(
       gateOutput,
     );
 
-  const knowledgeBlock = isOverrideGate ? "" : buildKnowledgeBlock(state, h, message, prevBotReply);
-  const fewShotBlock = isOverrideGate ? "" : (buildFewShot(state, h, prevBotReply, message) ?? "");
-
-  // Khi override-GATE bật, TACTIC mặc định (vd "pitch CỤ THỂ bể 4 mùa") sẽ mâu thuẫn với GATE.
-  // → Thay TACTIC bằng instruction trung tính "đọc GATE bên dưới".
+  // ─── MODE = GATE (override) ───
   if (isOverrideGate) {
-    tactic = "ƯU TIÊN [GATE] ở dưới — viết theo đúng GATE, KHÔNG pitch/list/nhảy chủ đề khác.";
+    console.log(`[prefix] MODE=GATE`);
+    const lines: string[] = [
+      `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
+      `[TACTIC: ƯU TIÊN [GATE] ở dưới — viết theo đúng GATE, KHÔNG pitch/list/nhảy chủ đề khác.]`,
+      `[RULES: Text thuần, KHÔNG markdown. Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết "ạ?" hoặc "?". CẤM "tuyệt vời/quá/chắc chắn rồi", "nha?", khen đáp án khách.]`,
+      antiLoopHint,
+      buildKnownSummary(state.knownInfo, state.flow),
+      gateOutput,
+    ];
+    return {
+      prefix: lines.filter(Boolean).join("\n"),
+      mode: "GATE",
+      templateId: null,
+    };
   }
+
+  // ─── MODE = PITCH (no template, no GATE override) ───
+  console.log(`[prefix] MODE=PITCH stage=${state.stage}`);
+
+  // Slim PITCH: skip Knowledge khi commitment + đủ name/phone (đang chốt slot, không cần pitch nữa).
+  const isLateCommitment =
+    state.stage === "commitment" &&
+    state.knownInfo.name !== null &&
+    state.knownInfo.phone !== null;
+  // Slim PITCH: skip Few-shot khi commitment đã có slot OR khi stage retention/recovery.
+  const skipFewShot =
+    isLateCommitment ||
+    state.stage === "retention" ||
+    state.stage === "recovery";
+
+  const knowledgeBlock = isLateCommitment
+    ? ""
+    : buildKnowledgeBlock(state, h, message, prevBotReply);
+  const fewShotBlock = skipFewShot
+    ? ""
+    : buildFewShot(state, h, prevBotReply, message) ?? "";
+  const missingSlotHint = buildMissingSlotHint(
+    state.knownInfo,
+    state.flow,
+    state.intent,
+    state.stage,
+  );
 
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
@@ -1841,17 +1913,16 @@ export function buildPrefix(
     `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng). CẤM markdown **bold**/*italic*. CẤM viết tắt giá nội bộ ra cho khách: "12m=5tr", "3b/t", dấu "|" và "=" — phải đổi sang "12 tháng 5 triệu", "3 buổi/tuần", phẩy hoặc \\n. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — đọc rồi tự viết.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
-    buildMissingSlotHint(
-      state.knownInfo,
-      state.flow,
-      state.intent,
-      state.stage,
-    ),
+    missingSlotHint,
     knowledgeBlock,
     buildMediaHint(state),
     gateOutput,
     fewShotBlock,
   ];
 
-  return lines.filter(Boolean).join("\n");
+  return {
+    prefix: lines.filter(Boolean).join("\n"),
+    mode: "PITCH",
+    templateId: null,
+  };
 }

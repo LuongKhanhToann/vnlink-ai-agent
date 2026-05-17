@@ -237,12 +237,39 @@ export function cleanReply(
         const maxSim = Math.max(
           ...prevSentences.map((p) => jaccardSim(tokens, p)),
         );
-        return maxSim < 0.55;
+        return maxSim < 0.50;
       });
       const dedup = keptCur.join(" ").trim();
       if (keptCur.length >= 1 && dedup.length >= 40) {
         r = dedup;
       }
+    }
+
+    // HARD-LOOP DETECTION: nếu toàn bộ reply gần như identical với prev
+    // (jaccard >= 0.85 trên ngôn ngữ toàn câu, hoặc char overlap >= 0.80) →
+    // bot stuck. Replace bằng safe pivot để tránh khách thấy 2 tin trùng.
+    const tokensCur = tokenize(r);
+    const tokensPrev = tokenize(prevReply);
+    const fullSim = jaccardSim(tokensCur, tokensPrev);
+    // Normalize chars: bỏ whitespace + lowercase + diacritics-insensitive (approx).
+    const normChars = (s: string) =>
+      s.toLowerCase().normalize("NFC").replace(/\s+/g, "");
+    const cn = normChars(r);
+    const pn = normChars(prevReply);
+    const charOverlap =
+      cn.length > 0 && pn.length > 0
+        ? (cn.length === pn.length && cn === pn
+            ? 1
+            : cn.includes(pn) || pn.includes(cn)
+              ? Math.min(cn.length, pn.length) / Math.max(cn.length, pn.length)
+              : 0)
+        : 0;
+    if ((fullSim >= 0.92 || charOverlap >= 0.90) && r.length >= 40) {
+      console.warn(
+        `[cleanReply] HARD-LOOP detected (jaccard=${fullSim.toFixed(2)} charOverlap=${charOverlap.toFixed(2)}) — replacing with safe pivot`,
+      );
+      r =
+        "Dạ vâng, anh/chị cho em xin thêm thông tin để em tư vấn cụ thể hơn ạ.";
     }
   }
 
@@ -275,6 +302,14 @@ export function cleanReply(
   r = r.replace(MARKDOWN_BOLD, "$1");
   r = r.replace(MARKDOWN_ITALIC, "$1");
   r = r.replace(MARKDOWN_LINK, "$1");
+
+  // 4b. Markdown bullets ở đầu line — strip "- " / "* " / "• " và đảm bảo xuống dòng.
+  //     Zalo không render markdown → list item phải dùng dấu xuống dòng natural hoặc "(1)/(2)/(3)".
+  //     Pattern: \n hoặc start-of-string + bullet char + space. Bỏ bullet, giữ \n.
+  r = r.replace(/(^|\n)[\-\*•]\s+/g, "$1");
+  // Inline bullet sau dấu chấm (vd "...giảm cân. - Gym fulltime..." — bot hay output mixed).
+  // Khi gặp "[.!] - " → đổi thành "[.!] \n" để xuống dòng rõ ràng.
+  r = r.replace(/([.!])\s+[\-\*•]\s+/g, "$1\n");
 
   // 5. URL leak (giữ fanpage facebook.com/... vì là plain text)
   r = r.replace(URL_PATTERN, (m) =>
@@ -408,6 +443,33 @@ export function cleanReply(
     /([.!?])(\s+)([a-zàáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ])/g,
     (_m, p, ws, c) => `${p}${ws}${c.toUpperCase()}`,
   );
+
+  // 10. LENGTH CAP — Zalo/Messenger 1 reply nên ≤ 320 chars để dễ đọc.
+  //     Soft cap: nếu > 320 thì truncate ở sentence boundary cuối cùng dưới 320.
+  //     Reply có pricing list (≥2 con số tiền) hoặc chứa \n list (≥2 dòng "(N)") → cap nới lên 420
+  //     để không cắt dở giữa list.
+  const MAX_CHARS_DEFAULT = 320;
+  const MAX_CHARS_LIST = 420;
+  const priceCount = (r.match(/\d+\s*(tr|triệu|k)\b/gi) || []).length;
+  const hasListMarker = /\n\s*[\(\[]?\s*\d+\s*[\)\].]?\s+\S/.test(r);
+  const cap = priceCount >= 2 || hasListMarker ? MAX_CHARS_LIST : MAX_CHARS_DEFAULT;
+  if (r.length > cap) {
+    // Tìm sentence boundary <=cap. Dùng splitSentences để giữ ngữ nghĩa.
+    const sentences = splitSentences(r);
+    let acc = "";
+    for (const s of sentences) {
+      const next = acc ? `${acc} ${s}` : s;
+      if (next.length > cap && acc.length > 0) break;
+      acc = next;
+      if (acc.length >= cap) break;
+    }
+    if (acc.length >= 40) {
+      console.warn(
+        `[cleanReply] length cap ${r.length}→${acc.length} chars (cap=${cap})`,
+      );
+      r = acc.trim();
+    }
+  }
 
   return r;
 }

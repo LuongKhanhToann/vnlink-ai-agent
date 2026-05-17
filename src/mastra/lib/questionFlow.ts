@@ -14,6 +14,8 @@
  */
 
 import { ConversationState, IntentTopic, resolveHonorific } from "./stateMachine";
+import { FITNESS_TEMPLATES } from "./templates/fitness";
+import { findTemplate, type TemplateContext } from "./templates/engine";
 
 export interface QuestionFlowDecision {
   /** Tên decision (debug log). */
@@ -41,6 +43,16 @@ type TemplateGenerator = (
 
 function askedGiamCanHistory(prev: string): boolean {
   return /biện pháp giảm cân/i.test(prev);
+}
+
+// Detect bot đã RECOMMEND solution ở turn trước → để tránh lặp template recommend.
+// Bao trùm các pitch phổ biến + cả scripted fallback ("đã gợi gói phù hợp / đã gợi combo")
+// để không loop chính fallback của mình.
+function alreadyRecommendedSolution(prev: string): boolean {
+  if (!prev) return false;
+  return /(kết\s*hợp\s+Gym\s+và\s+Zumba|Gym\s+và\s+Zumba|PT\s+1-?1|Yoga\s+GV\s+Ấn|lớp\s+1-?1\s+12\s+buổi|thẻ\s+Full\s+4\s+dịch\s+vụ|đã\s+gợi\s+(gói|combo)\s+(phù\s+hợp|Gym))/i.test(
+    prev,
+  );
 }
 
 function askedExperience(prev: string, service: string): boolean {
@@ -117,6 +129,9 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   // (tránh classifier mis-label "Quan tâm zumba" → opening_chua_biet).
   opening_greeting: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    // Guard: memberType=gia-dinh/hoc-sinh đã set → KHÔNG dùng template chào suông,
+    // để prefix builder pitch family/student gói cụ thể (có pricing block riêng).
+    if (s.knownInfo.memberType !== null) return null;
     return {
       id: "opening_greeting",
       template:
@@ -128,6 +143,7 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
 
   opening_chuong_trinh: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    if (s.knownInfo.memberType !== null) return null;
     return {
       id: "opening_chuong_trinh",
       template:
@@ -140,6 +156,10 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
 
   opening_chua_biet: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    if (s.knownInfo.memberType !== null) return null;
+    // KH đã có goal rõ ràng → KHÔNG hỏi lại "đã tập bộ môn nào",
+    // để LLM / few-shot recommend dứt khoát theo goal.
+    if (s.knownInfo.fitnessGoal !== null) return null;
     const prefix =
       s.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
@@ -150,6 +170,93 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         `hay là mình có yêu thích bộ môn nào không ạ.`,
       mustInclude: turnAwareMustInclude(s, ["đã từng tập"]),
       mustNotInclude: ["Gym, Yoga, Zumba, Bơi"],
+    };
+  },
+
+  // KH nhờ tư vấn dứt khoát ("chọn giúp em") — recommend theo goal,
+  // KHÔNG hỏi lại bộ môn / experience. Đây là tin "thay anh chốt giúp" của khách.
+  indecisive_pick_for_me: (s, h, prev, message) => {
+    // GUARD: chỉ fire khi message THỰC SỰ có cue indecisive ("chọn giúp", "tư vấn cho",
+    // "chưa biết", "gợi ý"). Classifier hay mis-label các message khác (postpartum, schedule answer)
+    // thành topic này khi state có fitnessGoal → loop hỏi/recommend sai context.
+    const hasIndecisiveCue =
+      /(chọn\s*(giúp|hộ|cho)|tư\s*vấn\s+(cho|giúp)|chưa\s+biết|không\s+biết\s+(tập|chọn|môn)|gợi\s*ý)/i.test(
+        message || "",
+      );
+    if (!hasIndecisiveCue) return null;
+    // Đã recommend rồi mà KH vẫn nhờ tư vấn → KHÔNG lặp lại "đã gợi gói" (gây fact-conflict
+    // khi prev recommend Full mà template này nói "Gym và Zumba"). Return null để LLM
+    // tự generate pivot từ TACTIC (xin SĐT, mời ghé thử...).
+    if (alreadyRecommendedSolution(prev)) {
+      // Nếu đã có preferredTime hoặc name+phone → bot xin slot. Còn lại fall-through.
+      if (s.knownInfo.name && s.knownInfo.phone) return null;
+      if (s.knownInfo.preferredTime) return null;
+      return {
+        id: "indecisive_after_recommended_invite",
+        template:
+          `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ đo InBody miễn phí và xem trực tiếp phòng tập ạ.`,
+        mustInclude: ["sáng", "chiều"],
+      };
+    }
+    const goal = s.knownInfo.fitnessGoal;
+    if (goal === "giam-mo") {
+      return {
+        id: "indecisive_recommend_giam_mo",
+        template:
+          `Dạ với mục tiêu giảm cân, em gợi ${h} kết hợp Gym và Zumba ạ. ` +
+          `Gym đốt calo + săn chắc cơ, Zumba xả stress giữ động lực dài. Nếu thích thêm Bơi cũng tốt vì bơi là cardio toàn thân. ` +
+          `Thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung cả 4 môn ${h} ạ. ${h} có muốn ghé thử 1 buổi không ạ.`,
+        mustInclude: ["Gym", "Zumba"],
+      };
+    }
+    if (goal === "tang-co") {
+      return {
+        id: "indecisive_recommend_tang_co",
+        template:
+          `Dạ với mục tiêu tăng cơ, em gợi ${h} chọn Gym kèm PT 1-1 ạ. ` +
+          `PT 20 buổi 6 triệu (2 tháng), HLV xây kỹ thuật nền đúng tránh chấn thương + tối ưu phát triển cơ. ` +
+          `Sau đó ${h} tự tập theo lịch HLV cho. ${h} muốn ghé đo InBody miễn phí buổi sáng hay chiều ạ.`,
+        mustInclude: ["PT", "Gym"],
+      };
+    }
+    if (goal === "thu-gian") {
+      return {
+        id: "indecisive_recommend_thu_gian",
+        template:
+          `Dạ với mục tiêu thư giãn giảm stress, em gợi Yoga GV Ấn Độ ạ. ` +
+          `Yoga giúp giãn cơ, hơi thở đều, ngủ ngon hơn — rất hợp người căng thẳng công việc. ` +
+          `Gói 5.8 triệu/12 tháng fulltime 4 ca/ngày linh hoạt. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+        mustInclude: ["Yoga"],
+      };
+    }
+    if (goal === "hoc-boi") {
+      return {
+        id: "indecisive_recommend_hoc_boi",
+        template:
+          `Dạ với học bơi, em gợi lớp 1-1 12 buổi 3 triệu kèm 3 tháng bể tự bơi ạ. ` +
+          `HLV riêng kèm sát, cam kết biết bơi sau khóa — chưa biết được học lại miễn phí. ` +
+          `Bể 4 mùa duy nhất Vĩnh Yên, mùa đông có nước ấm. ${h} muốn học cho người lớn hay trẻ em ạ.`,
+        mustInclude: ["bơi", "1-1"],
+      };
+    }
+    if (goal === "suc-khoe") {
+      return {
+        id: "indecisive_recommend_suc_khoe",
+        template:
+          `Dạ để duy trì sức khỏe tổng thể, em gợi thẻ Full 4 dịch vụ ạ — Gym + Bơi + Yoga + Zumba dùng chung 1 thẻ, đổi món tùy hôm tránh chán. ` +
+          `7 triệu/12 tháng, tính ra mỗi môn khoảng 146k/tháng. ` +
+          `${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+        mustInclude: ["Full", "Gym", "Yoga"],
+      };
+    }
+    // Chưa có goal hoặc goal không match → recommend Full (đa năng)
+    return {
+      id: "indecisive_recommend_full",
+      template:
+        `Dạ để em gợi cho ${h} thẻ Full đa năng ạ — Gym + Bơi + Yoga + Zumba dùng chung 1 thẻ, đổi món theo hôm cho đỡ chán. ` +
+        `7 triệu/12 tháng, tính ra mỗi môn khoảng 146k/tháng. ` +
+        `${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+      mustInclude: ["Full", "Gym", "Yoga", "Zumba"],
     };
   },
 
@@ -189,18 +296,61 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     };
   },
 
-  intro_giam_can: (s, h, prev) => {
-    // Context: KH đã ở tham_quan (bot đã list 4 dịch vụ + gói Full) — KHÔNG hỏi history nữa,
+  intro_giam_can: (s, h, prev, message) => {
+    // GUARD A: state past discovery → KHÔNG hỏi history nữa.
+    if (
+      s.knownInfo.schedule ||
+      s.knownInfo.serviceType ||
+      s.knownInfo.preferredTime ||
+      s.knownInfo.memberType ||
+      (s.flowTurnCount ?? s.turnCount) >= 3
+    ) {
+      return null;
+    }
+    // GUARD B: message có cue health context (postpartum/prenatal/senior/post-surgery) →
+    // KHÔNG fire template giảm cân (sẽ bypass discovery về safety). Để LLM handle natural.
+    const msg = message || "";
+    const isHealthContext =
+      /(mới\s*sinh|sau\s*sinh|đang\s*bầu|mang\s*thai|sinh\s*con|cho\s*con\s*bú|cao\s*tuổi|bệnh\s*nền|huyết\s*áp|tiểu\s*đường|phẫu\s*thuật|chấn\s*thương|đau\s*(lưng|gối|khớp))/i;
+    if (isHealthContext.test(msg)) return null;
+    // GUARD C: message có cue schedule (sáng/chiều/tối/buổi/tuần) → KHÔNG hỏi history,
+    // để LLM ack schedule + pitch/hỏi service kế tiếp.
+    const hasScheduleCue =
+      /(sáng|chiều|tối|trưa|\d+\s*buổi|mỗi\s*tuần|tuần\s*\d|hàng\s*ngày)/i.test(msg);
+    if (hasScheduleCue) return null;
+    // Anti-loop: đã recommend rồi → return null để LLM tự generate pivot (xin slot/giờ hoặc
+    // answer câu cụ thể), KHÔNG lặp "đã gợi combo" — gây loop khi KH hỏi tiếp về dịch vụ.
+    if (alreadyRecommendedSolution(prev)) {
+      // Có preferredTime hoặc name+phone → fall-through để LLM xin slot
+      if (s.knownInfo.preferredTime || (s.knownInfo.name && s.knownInfo.phone)) {
+        return null;
+      }
+      return {
+        id: "giam_can_after_recommended_invite",
+        template:
+          `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ đo InBody miễn phí và xem trực tiếp phòng tập ạ.`,
+        mustInclude: ["sáng", "chiều"],
+      };
+    }
+
+    const m = (message || "").toLowerCase();
+    // KH chủ động xin tư vấn / báo giá / chọn giúp → skip history, recommend NGAY.
+    // Trước đây bot luôn hỏi history khi giảm cân → bị KH phản hồi "cứng nhắc".
+    const askingRecommend =
+      /tư\s*vấn|báo\s*(giá|chi\s*phí|phí)|gợi\s*ý|chọn\s*(giúp|hộ|cho)|môn\s*nào\s*phù\s*hợp|dịch\s*vụ\s*phù\s*hợp/.test(m);
+    // Context: KH đã ở tham_quan (bot đã list 4 dịch vụ với "Tổ hợp thể thao") — KHÔNG hỏi history nữa,
     // recommend thẳng giải pháp Gym+Zumba+Bơi theo TL Fami.
-    const inThamQuanContext =
-      /Tổ hợp/i.test(prev) || /gói Full/i.test(prev);
-    if (inThamQuanContext) {
+    // Note: chỉ match "Tổ hợp" (unique tham_quan template) — KHÔNG match "gói Full" nữa vì
+    // chính template recommend cũng chứa "gói Full" → gây loop.
+    const inThamQuanContext = /Tổ\s*hợp\s*thể\s*thao/i.test(prev);
+    if (inThamQuanContext || askingRecommend) {
       return {
         id: "giam_can_recommend_solution",
         template:
-          `Dạ vâng ${h}, đối với giảm cân em khuyến khích mình kết hợp Gym và Zumba ạ. ` +
-          `Nếu ${h} thích Bơi có thể kết hợp thêm Bơi — 3 bộ môn này đều đốt calo và săn chắc cơ thể, kết hợp với nhau sẽ đạt mục tiêu nhanh hơn. ` +
-          `Zumba còn giúp xả stress để mình duy trì lâu dài ạ.`,
+          `Dạ vâng ${h}, đối với giảm cân em gợi mình kết hợp Gym và Zumba ạ. ` +
+          `Nếu ${h} thích Bơi có thể kết hợp thêm — 3 bộ môn này đều đốt calo và săn chắc cơ thể, kết hợp với nhau sẽ đạt mục tiêu nhanh hơn. ` +
+          `Zumba còn giúp xả stress để mình duy trì lâu dài. Thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung được cả 4 môn ạ. ` +
+          `${h} có muốn ghé thử 1 buổi không ạ.`,
         mustInclude: ["Gym", "Zumba", "Bơi"],
       };
     }
@@ -376,13 +526,31 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     };
   },
 
-  pool_child_no_age: (_s, h) => ({
-    id: "pool_child_no_age",
-    template:
-      `Dạ để học bơi được hiệu quả, bên em sẽ nhận học sinh từ 6 tuổi. ` +
-      `Không biết bạn nhà mình năm nay mấy tuổi rồi ${h} ạ.`,
-    mustInclude: ["6 tuổi", "mấy tuổi"],
-  }),
+  pool_child_no_age: (s, h, prev, message) => {
+    // Guard A: message chứa số tuổi → KHÔNG fire "hỏi tuổi" nữa.
+    if (/\b\d{1,2}\s*(tuổi|t)\b/i.test(message)) return null;
+    // Guard B: tuổi đã được KH cho/bot đã ack ở bất kỳ turn nào trước → KHÔNG hỏi lại.
+    // Check prev bot reply HOẶC lastUserMessage (user turn trước).
+    if (/\b\d{1,2}\s*(tuổi|t)\b/i.test(prev || "")) return null;
+    if (/\b\d{1,2}\s*(tuổi|t)\b/i.test(s.lastUserMessage || "")) return null;
+    // Guard C: prev đã hỏi tuổi mà KH vẫn không cho → chuyển sang test bạo nước.
+    if (/mấy\s*tuổi/i.test(prev || "")) {
+      return {
+        id: "pool_child_no_age_after_asked",
+        template:
+          `Dạ ${h} ơi, ở nhà bé có dám ngụp nước hay tắm vòi sen không ạ. ` +
+          `Bên em test bạo nước trước để chọn lớp phù hợp.`,
+        mustInclude: ["ngụp nước", "vòi sen"],
+      };
+    }
+    return {
+      id: "pool_child_no_age",
+      template:
+        `Dạ để học bơi được hiệu quả, bên em sẽ nhận học sinh từ 6 tuổi. ` +
+        `Không biết bạn nhà mình năm nay mấy tuổi rồi ${h} ạ.`,
+      mustInclude: ["6 tuổi", "mấy tuổi"],
+    };
+  },
 
   pool_child_with_age: (_s, h) => ({
     id: "pool_child_with_age",
@@ -508,7 +676,7 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     };
   },
 
-  price_ask_generic: (s, h) => {
+  price_ask_generic: (s, h, prev) => {
     // Yoga/Zumba lần đầu (chưa có name/phone) → báo giá ưu đãi + mời trải nghiệm
     if (
       (s.knownInfo.serviceType === "yoga" || s.knownInfo.serviceType === "zumba") &&
@@ -525,7 +693,54 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         mustInclude: [minPrice, "trải nghiệm"],
       };
     }
-    // Chưa biết bộ môn → ưu đãi chung + hỏi bộ môn
+    // Đã có goal nhưng chưa chọn service → RECOMMEND service theo goal kèm giá,
+    // KHÔNG pivot "đang quan tâm bộ môn nào" (đó là loop, vì goal đã rõ).
+    // KHÔNG anti-loop ở đây — KH hỏi giá thì pitch combo+giá là đúng phản ứng,
+    // dù bot đã recommend ở turn trước (turn trước thiếu phần giá cụ thể).
+    if (s.knownInfo.serviceType === null && s.knownInfo.fitnessGoal !== null) {
+      const goal = s.knownInfo.fitnessGoal;
+      const recMap: Record<string, { template: string; must: string[] }> = {
+        "giam-mo": {
+          template:
+            `Dạ với giảm cân, em gợi ${h} kết hợp Gym và Zumba — thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung được cả Gym, Zumba, Yoga, Bơi ạ. ` +
+            `Gói nhẹ hơn có Gym 3 buổi/tuần 12 tháng 4.5 triệu. ${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+          must: ["Gym", "Zumba", "7 triệu"],
+        },
+        "tang-co": {
+          template:
+            `Dạ với tăng cơ, em gợi Gym kèm PT 1-1 — PT 20 buổi 6 triệu (2 tháng), HLV xây kỹ thuật nền tránh chấn thương ạ. ` +
+            `Hoặc thẻ Gym tự tập fulltime 12 tháng 5 triệu nếu ${h} muốn tiết kiệm. ${h} tiện ghé InBody buổi sáng hay chiều ạ.`,
+          must: ["PT", "6 triệu"],
+        },
+        "thu-gian": {
+          template:
+            `Dạ với thư giãn giảm stress, em gợi Yoga GV Ấn Độ ạ — 5.8 triệu/12 tháng fulltime 4 ca/ngày linh hoạt, ` +
+            `hoặc 4.5 triệu/12 tháng 3 buổi/tuần nếu ${h} đi cố định. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+          must: ["Yoga", "5.8 triệu"],
+        },
+        "hoc-boi": {
+          template:
+            `Dạ với học bơi, em gợi lớp 1-1 12 buổi 3 triệu kèm 3 tháng bể, cam kết biết bơi ạ. ` +
+            `Hoặc lớp nhóm 1.2 triệu 12 buổi kèm 1 tháng bể tiết kiệm hơn. ${h} muốn học cho người lớn hay trẻ em ạ.`,
+          must: ["1-1", "3 triệu"],
+        },
+        "suc-khoe": {
+          template:
+            `Dạ để duy trì sức khỏe, em gợi thẻ Full 4 dịch vụ — 7 triệu/12 tháng dùng chung Gym + Bơi + Yoga + Zumba ạ. ` +
+            `Gói ngắn hơn có Full 6 tháng 4.5 triệu. ${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+          must: ["Full", "7 triệu"],
+        },
+      };
+      const rec = recMap[goal];
+      if (rec) {
+        return {
+          id: `price_recommend_by_goal_${goal}`,
+          template: rec.template,
+          mustInclude: rec.must,
+        };
+      }
+    }
+    // Chưa biết bộ môn + chưa có goal → ưu đãi chung + hỏi bộ môn
     if (s.knownInfo.serviceType === null) {
       return {
         id: "price_ask_no_service",
@@ -774,14 +989,22 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     mustInclude: ["không an toàn", "2-4kg", "InBody"],
   }),
 
-  ask_post_surgery: (_s, h) => ({
-    id: "ask_post_surgery",
-    template:
-      `Dạ với trường hợp vừa phẫu thuật / chấn thương, ${h} CẦN có giấy xác nhận của bác sĩ về việc đủ điều kiện vận động ${h} ạ. ` +
-      `Bên em có HLV chuyên hỗ trợ phục hồi (yoga nhẹ + bơi giảm áp lực khớp + gym phục hồi từng nhóm cơ). ` +
-      `${h} mang giấy của bác sĩ qua để HLV thiết kế lộ trình an toàn nhé.`,
-    mustInclude: ["bác sĩ", "phục hồi"],
-  }),
+  ask_post_surgery: (_s, h, _prev, message) => {
+    // GUARD: chỉ fire khi message có cue RÕ về phẫu thuật / chấn thương cần phục hồi.
+    // Tránh classifier mis-label "đau cố định 1 chỗ" / "đau lưng do ngồi VP" thành ask_post_surgery.
+    const m = (message || "").toLowerCase();
+    const hasSurgeryCue =
+      /(phẫu\s*thuật|mổ|đứt\s*dây\s*chằng|gãy\s*xương|tai\s*nạn|chấn\s*thương\s*(cần|phải|đang)|bác\s*sĩ\s*(kêu|bảo|nói|chỉ\s*định))/i.test(m);
+    if (!hasSurgeryCue) return null;
+    return {
+      id: "ask_post_surgery",
+      template:
+        `Dạ với trường hợp vừa phẫu thuật / chấn thương, ${h} CẦN có giấy xác nhận của bác sĩ về việc đủ điều kiện vận động ${h} ạ. ` +
+        `Bên em có HLV chuyên hỗ trợ phục hồi (yoga nhẹ + bơi giảm áp lực khớp + gym phục hồi từng nhóm cơ). ` +
+        `${h} mang giấy của bác sĩ qua để HLV thiết kế lộ trình an toàn nhé.`,
+      mustInclude: ["bác sĩ", "phục hồi"],
+    };
+  },
 
   ask_nutrition: (_s, h) => ({
     id: "ask_nutrition",
@@ -818,14 +1041,26 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     mustInclude: ["HLV nam", "HLV nữ"],
   }),
 
-  ask_student_pricing: (_s, h) => ({
-    id: "ask_student_pricing",
-    template:
-      `Dạ với học sinh / sinh viên, bên em có ưu đãi riêng tuỳ thời điểm ${h} ạ. ` +
-      `${h} cho em xin SĐT để em báo lại bộ phận sale gửi báo giá HS/SV cụ thể, ` +
-      `hoặc ${h} ghé trực tiếp em check thẻ HS/SV để áp ưu đãi nha.`,
-    mustInclude: ["học sinh", "ưu đãi"],
-  }),
+  ask_student_pricing: (_s, h, prev, message) => {
+    // Guard: chỉ fire khi message THỰC SỰ hỏi ưu đãi/giá HS/SV.
+    // Mini hay mis-classify mọi câu của KH sinh viên thành topic này → loop.
+    const askingPricing =
+      /(ưu\s*đãi|giá|gói|bao\s*nhiêu|báo\s*giá|chi\s*phí|sinh\s*viên|học\s*sinh)/i.test(
+        message,
+      );
+    if (!askingPricing) return null;
+    // Anti-loop: nếu prev đã là template này (có cụm "báo giá HS/SV") → KHÔNG fire lại.
+    // Để bot generate fresh response từ TACTIC/few-shot thay vì lặp.
+    if (/báo\s*giá\s*HS\/SV|check\s*thẻ\s*HS\/SV/i.test(prev || "")) return null;
+    return {
+      id: "ask_student_pricing",
+      template:
+        `Dạ với học sinh / sinh viên, bên em có ưu đãi riêng tuỳ thời điểm ${h} ạ. ` +
+        `${h} cho em xin SĐT để em báo lại bộ phận sale gửi báo giá HS/SV cụ thể, ` +
+        `hoặc ${h} ghé trực tiếp em check thẻ HS/SV để áp ưu đãi nha.`,
+      mustInclude: ["học sinh", "ưu đãi"],
+    };
+  },
 
   ask_teen_safety: (_s, h) => ({
     id: "ask_teen_safety",
@@ -1012,6 +1247,28 @@ export function decideFitnessQuestion(
 
   const h = resolveHonorific(state.honorific);
   const prev = prevBotReply || "";
+
+  // ── PHASE 2: NEW TEMPLATE ENGINE — stage-aware, anti-loop built-in.
+  // Templates đã migrate vào FITNESS_TEMPLATES dùng schema declarative `stages` + `match`
+  // thay vì `if (state.X) return null` patches. Engine ưu tiên cao hơn legacy TEMPLATES{}.
+  const tplCtx: TemplateContext = {
+    state,
+    message,
+    prevReply: prev,
+    prevUserMessage: state.lastUserMessage || "",
+    h,
+  };
+  const newEngineResult = findTemplate(FITNESS_TEMPLATES, tplCtx);
+  if (newEngineResult) {
+    console.log(`[template-engine] hit: ${newEngineResult.id}`);
+    return {
+      id: newEngineResult.id,
+      template: newEngineResult.template,
+      mustInclude: newEngineResult.mustInclude ?? [],
+      mustNotInclude: newEngineResult.mustNotInclude,
+    };
+  }
+  // ── Fallback: legacy TEMPLATES dict (chưa migrate) ──
 
   // STUDENT/SENIOR/CORPORATE PRICING GUARD: nếu memberType=hoc-sinh/gia-dinh và KH đang hỏi
   // chung về giá / gói (không cụ thể), tránh bot bịa giá HS/gia đình → fire ask_student_pricing.

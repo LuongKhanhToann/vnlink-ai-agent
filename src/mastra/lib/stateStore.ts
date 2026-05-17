@@ -76,6 +76,7 @@ export async function loadState(
        //      (vd previous=complaint_crowded → "giờ vắng" vẫn complaint_crowded).
       // Sau buildNextState, intentTopic sẽ bị overwrite bằng kết quả classifier turn HIỆN TẠI.
       intentTopic: (m.intentTopic ?? null) as any,
+      intentSignal: ((m as any).intentSignal ?? null),
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
         name: m.knownInfo?.name ?? null,
@@ -99,6 +100,9 @@ export async function loadState(
       mediaShownKeys: (m as any).mediaShownKeys ?? [],
       sheetsWritten: (m as any).sheetsWritten ?? false,
       lastBotReply: (m as any).lastBotReply,
+      lastUserMessage: (m as any).lastUserMessage,
+      askedHistory: (m as any).askedHistory ?? [],
+      mentionedFacts: (m as any).mentionedFacts ?? [],
     };
   } catch (e) {
     console.error(`[stateStore] loadState failed for ${tid}:`, e);
