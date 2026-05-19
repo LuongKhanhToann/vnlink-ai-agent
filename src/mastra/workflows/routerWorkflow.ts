@@ -98,7 +98,7 @@ const processStep = createStep({
   id: "process",
   inputSchema,
   outputSchema: processedStateSchema,
-  execute: async ({ inputData, mastra }) => {
+  execute: async ({ inputData, mastra, abortSignal }) => {
     const { message, threadId, resourceId } = inputData;
 
     const previousState = await loadState(mastra, threadId, resourceId);
@@ -116,6 +116,7 @@ const processStep = createStep({
       currentKnownInfo: previousState.knownInfo,
       needFlowClassification: needFlowLLM,
       previousIntentTopic: previousState.intentTopic,
+      abortSignal,
     });
 
     if (!needFlowLLM) {
@@ -227,7 +228,7 @@ function buildAgentStep(
     id,
     inputSchema: processedStateSchema,
     outputSchema,
-    execute: async ({ inputData, mastra }) => {
+    execute: async ({ inputData, mastra, abortSignal }) => {
       const turnStart = Date.now();
       const { prefix, message, threadId, resourceId, qrShown, mediaShown, prefixMode, templateId } =
         inputData;
@@ -244,6 +245,7 @@ function buildAgentStep(
           // Trước là 0.3 → bot output stiff như đọc script, comply nguyên văn rule.
           // cleanReply + structured schema vẫn bắt được output off-brand.
           modelSettings: { temperature: 0.85, topP: 0.95 },
+          abortSignal,
           memory: {
             thread: { id: threadId },
             resource: resourceId,
@@ -384,7 +386,7 @@ const fallbackStep = createStep({
   id: "fallback",
   inputSchema: processedStateSchema,
   outputSchema,
-  execute: async ({ inputData }) => {
+  execute: async ({ inputData, abortSignal }) => {
     console.error(
       `[router] flow không hợp lệ: "${inputData.flow}" — dùng fallback fitness`,
     );
@@ -393,6 +395,7 @@ const fallbackStep = createStep({
     const result = await fitnessAgent.generate(fullMessage, {
       maxSteps: 4,
       modelSettings: { temperature: 0.85, topP: 0.95 },
+      abortSignal,
       memory: {
         thread: { id: threadId },
         resource: resourceId,

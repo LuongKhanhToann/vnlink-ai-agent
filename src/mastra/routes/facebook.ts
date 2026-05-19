@@ -1,5 +1,12 @@
 /**
  * routes/facebook.ts
+ *
+ * Cancel-and-restart pattern:
+ *   - Tin đến → abort turn đang chạy (LLM/workflow) → re-batch + debounce → process cả cục mới.
+ *   - State + sheets-write KHÔNG committed cho turn bị abort:
+ *       • saveState trong workflow tạm thời commit slot/intent — OK vì turn replay sẽ re-overwrite.
+ *       • Sheets-write (irreversible) tách sang `tryWriteLeadIfReady`, gọi SAU KHI sendText thành công.
+ *   - Buffer preserve khi abort: consumed messages prepend lại buffer để turn sau xử lý gộp.
  */
 
 import { Hono } from "hono";
@@ -12,49 +19,41 @@ const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
 const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 
-// Debounce: gom các tin gõ liên tiếp trong DEBOUNCE_MS thành 1 turn (chỉ tiết kiệm token).
-// Race-condition triệt để KHÔNG dựa vào timer này — dựa generation counter ở dưới.
-// 2s default: đủ ôm tin gõ thật nhanh. Override qua env FB_DEBOUNCE_MS.
+// Debounce: chờ KH dừng gõ trước khi flush. Tin mới trong window này → reset timer.
+// 2s default. Override qua FB_DEBOUNCE_MS.
 const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "2000");
 
-type PendingEntry = { texts: string[]; timer: NodeJS.Timeout | null };
-const pending = new Map<string, PendingEntry>();
+type SenderState = {
+  /** Tin chưa được xử lý — append theo thứ tự, gộp = join("\n") khi flush. */
+  buffer: string[];
+  /** Timer chờ KH dừng gõ. Reset mỗi tin mới. */
+  debounceTimer: NodeJS.Timeout | null;
+  /** AbortController của turn đang chạy. null = không có turn nào. */
+  inflight: AbortController | null;
+};
 
-// Serialize: đảm bảo 1 senderId tại 1 thời điểm chỉ có 1 handleMessage chạy →
-// tránh race khi load/save state trong workflow.
-const queues = new Map<string, Promise<unknown>>();
+const senders = new Map<string, SenderState>();
 
-// Processing flag: khi bot đang xử lý turn của senderId, tin mới đến KHÔNG flush ngay
-// (tránh tạo turn parallel với state đã commit) — chỉ append vào pending, đợi xong rồi
-// re-debounce.
-const processing = new Set<string>();
-
-// ─────────────────────────────────────────────
-// GENERATION COUNTER — anti-stale-reply
-// ─────────────────────────────────────────────
-// Pattern: mỗi tin từ KH bump seq[senderId]. handleMessage capture seq lúc bắt đầu
-// chạy LLM. Trước khi sendText → check seq còn match không. Nếu không (KH đã gõ tin
-// mới khi bot đang chạy LLM) → DROP reply, KHÔNG gửi. Tin mới sẽ tự trigger turn
-// tiếp theo và trả lời với context cập nhật.
-//
-// → Đảm bảo TRIỆT ĐỂ: chỉ tin cuối cùng của khách mới nhận reply, không có reply
-//   "lạc đề" / reply trùng do race-condition.
-const seq = new Map<string, number>();
+function ensureSender(senderId: string): SenderState {
+  let state = senders.get(senderId);
+  if (!state) {
+    state = { buffer: [], debounceTimer: null, inflight: null };
+    senders.set(senderId, state);
+  }
+  return state;
+}
 
 /**
  * Reset toàn bộ session in-memory của FB — dùng cho admin /reset trên Telegram.
- * Clear timer debounce, queue, processing lock, generation counter.
- * Lưu ý: không xoá state trong DB (caller chịu trách nhiệm truncate).
+ * Abort tất cả inflight + clear timer + clear buffer. Không xoá DB.
  */
 export function resetAllFbSessionState(): void {
-  for (const entry of pending.values()) {
-    if (entry.timer) clearTimeout(entry.timer);
+  for (const state of senders.values()) {
+    state.inflight?.abort();
+    if (state.debounceTimer) clearTimeout(state.debounceTimer);
   }
-  pending.clear();
-  queues.clear();
-  processing.clear();
-  seq.clear();
-  console.log("[fb] resetAllFbSessionState: cleared pending/queues/processing/seq");
+  senders.clear();
+  console.log("[fb] resetAllFbSessionState: aborted inflight + cleared all senders");
 }
 
 export const facebookWebhook = new Hono();
@@ -168,45 +167,98 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
   }
 }
 
+// ─────────────────────────────────────────────
+// CANCEL-AND-RESTART CORE
+// ─────────────────────────────────────────────
+
 function enqueueMessage(senderId: string, text: string) {
-  // Khách vừa nhắn → cancel follow-up timer (nếu có) vì khách đang active
+  // Khách vừa nhắn → cancel follow-up timer (nếu có).
   cancelFollowup(senderId);
 
-  // Bump generation: invalidate mọi handleMessage đang chạy cho senderId này.
-  // Reply từ turn trước (nếu LLM còn đang chạy) sẽ bị stale-drop trước khi gửi.
-  seq.set(senderId, (seq.get(senderId) ?? 0) + 1);
+  const state = ensureSender(senderId);
+  state.buffer.push(text);
 
-  // Hiện "..." typing indicator để khách biết bot đang đọc → giảm cảm giác lag
-  // khi debounce wait. Typing tự tắt sau 20s hoặc khi gửi message.
+  // Có turn đang chạy → abort. Turn đó sẽ catch AbortError và prepend consumed
+  // messages về buffer. Tin mới (vừa push) ở phía sau → combined batch đúng thứ tự.
+  if (state.inflight) {
+    console.log(`[fb] aborting inflight turn for ${senderId} — new msg arrived`);
+    state.inflight.abort();
+  }
+
+  // Typing indicator để KH thấy bot "đọc" → giảm cảm giác lag khi đợi debounce.
   void sendTyping(senderId);
 
-  const isProcessing = processing.has(senderId);
-  const existing = pending.get(senderId);
+  // Debounce: reset mỗi lần có tin mới — chỉ flush khi KH dừng gõ DEBOUNCE_MS.
+  if (state.debounceTimer) clearTimeout(state.debounceTimer);
+  state.debounceTimer = setTimeout(() => {
+    state.debounceTimer = null;
+    void flush(senderId);
+  }, DEBOUNCE_MS);
+}
 
-  if (existing) {
-    existing.texts.push(text);
-    if (existing.timer) clearTimeout(existing.timer);
-    // Đang xử lý turn cũ → KHÔNG schedule timer, đợi finalize xong sẽ tự re-debounce.
-    existing.timer = isProcessing
-      ? null
-      : setTimeout(() => flush(senderId), DEBOUNCE_MS);
+async function flush(senderId: string) {
+  const state = senders.get(senderId);
+  if (!state || state.buffer.length === 0) return;
+
+  // Defensive: nếu inflight chưa cleanup xong (abort catch chưa fire) — re-schedule.
+  // Bình thường không xảy ra vì DEBOUNCE_MS đủ lâu cho abort propagate.
+  if (state.inflight) {
+    console.warn(`[fb] flush deferred for ${senderId} — inflight cleanup pending`);
+    state.debounceTimer = setTimeout(() => {
+      state.debounceTimer = null;
+      void flush(senderId);
+    }, 200);
     return;
   }
 
-  pending.set(senderId, {
-    texts: [text],
-    timer: isProcessing
-      ? null
-      : setTimeout(() => flush(senderId), DEBOUNCE_MS),
-  });
+  // Snapshot + clear buffer: tin mới đến trong lúc xử lý sẽ append vào buffer mới,
+  // tự động trigger abort flow ở enqueueMessage.
+  const consumed = state.buffer;
+  state.buffer = [];
+
+  const combined = consumed.join("\n");
+  console.log(
+    `[fb] flush sender=${senderId} count=${consumed.length} text="${combined}"`,
+  );
+
+  const ac = new AbortController();
+  state.inflight = ac;
+
+  try {
+    await handleMessage(senderId, combined, ac.signal);
+  } catch (e) {
+    if (ac.signal.aborted) {
+      // Abort: restore consumed messages về đầu buffer để turn sau gộp với tin mới.
+      state.buffer = [...consumed, ...state.buffer];
+      console.log(
+        `[fb] turn aborted for ${senderId} — re-queued ${consumed.length} msg (buffer=${state.buffer.length})`,
+      );
+      // Clean phantom assistant message nếu Mastra memory đã save ngầm trước khi abort.
+      await deleteLastAssistantMessage(senderId);
+    } else {
+      console.error(`[fb] handleMessage error for ${senderId}:`, e);
+      // Lỗi không-abort → drop consumed (không retry vô hạn) + báo KH.
+      await sendText(
+        senderId,
+        "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!",
+      );
+    }
+  } finally {
+    state.inflight = null;
+    // Có tin mới (từ abort restore hoặc tin đến trong lúc xử lý) — schedule flush tiếp.
+    if (state.buffer.length > 0 && !state.debounceTimer) {
+      state.debounceTimer = setTimeout(() => {
+        state.debounceTimer = null;
+        void flush(senderId);
+      }, DEBOUNCE_MS);
+    }
+  }
 }
 
 /**
- * Sau khi drop stale reply, xóa luôn assistant message đã save ngầm vào memory.
- * Tránh case bot nội bộ thấy "đã reply" rồi mà KH chưa thấy → nhảy bước context.
- *
- * Logic: recall 5 message gần nhất → tìm assistant msg mới nhất → delete by id.
- * Best-effort: nếu lỗi cũng KHÔNG raise (memory dirty 1 entry vẫn workable, không crash flow).
+ * Sau khi abort, Mastra memory có thể đã save assistant msg ngầm trong agent.generate.
+ * Xóa để turn replay không bị "nhớ" reply mà KH chưa thấy → tránh nhảy bước context.
+ * Best-effort.
  */
 async function deleteLastAssistantMessage(senderId: string) {
   try {
@@ -220,7 +272,7 @@ async function deleteLastAssistantMessage(senderId: string) {
     if (lastAssistant) {
       await memory.deleteMessages([lastAssistant.id]);
       console.log(
-        `[fb] deleted stale assistant msg id=${lastAssistant.id} for ${senderId}`,
+        `[fb] deleted phantom assistant msg id=${lastAssistant.id} for ${senderId}`,
       );
     }
   } catch (e) {
@@ -247,44 +299,13 @@ async function sendTyping(recipientId: string) {
   }
 }
 
-function flush(senderId: string) {
-  const entry = pending.get(senderId);
-  if (!entry) return;
-  pending.delete(senderId);
-
-  const combined = entry.texts.join("\n");
-  console.log(
-    `[fb] flush sender=${senderId} count=${entry.texts.length} text="${combined}"`,
-  );
-
-  processing.add(senderId);
-
-  const prev = queues.get(senderId) ?? Promise.resolve();
-  const next = prev
-    .then(() => handleMessage(senderId, combined))
-    .catch((e) => console.error("[fb] handleMessage error:", e))
-    .finally(() => {
-      processing.delete(senderId);
-      // Trong lúc xử lý, có tin nhắn mới đến → đã append vào pending nhưng chưa
-      // có timer (đang processing). Giờ kích hoạt debounce timer để flush turn tiếp.
-      const next = pending.get(senderId);
-      if (next && !next.timer) {
-        next.timer = setTimeout(() => flush(senderId), DEBOUNCE_MS);
-      }
-    });
-
-  queues.set(senderId, next);
-  void next.finally(() => {
-    if (queues.get(senderId) === next) queues.delete(senderId);
-  });
-}
-
-async function handleMessage(senderId: string, text: string) {
+async function handleMessage(senderId: string, text: string, abortSignal: AbortSignal) {
   // ORDER LOCK: đơn đã chốt (sheetsWritten=true) → bot im lặng cho phần còn lại của session.
-  // Khách nhắn thêm gì cũng không reply, tránh tiếp tục pitch / hỏi lại sau khi đã có lead.
+  // sheetsWritten chỉ true SAU KHI sendText thành công (xem tryWriteLeadIfReady),
+  // nên với cancel-and-restart sẽ không bị false-lock cho turn replay.
+  const { mastra } = await import("../index");
+  const { loadState, tryWriteLeadIfReady } = await import("../lib/stateStore");
   try {
-    const { mastra } = await import("../index");
-    const { loadState } = await import("../lib/stateStore");
     const lockedState = await loadState(mastra, senderId, "facebook-customer");
     if (lockedState.sheetsWritten) {
       console.log(`[fb] SKIP ${senderId} — đơn đã chốt (sheetsWritten=true), bot không reply nữa`);
@@ -294,98 +315,100 @@ async function handleMessage(senderId: string, text: string) {
     console.warn(`[fb] order-lock check failed for ${senderId} (proceed normally):`, e);
   }
 
-  // Capture seq tại thời điểm bắt đầu chạy. Nếu seq tăng (KH gõ tin mới) trong lúc
-  // workflow chạy → reply này stale, drop trước khi gửi.
-  const mySeq = seq.get(senderId) ?? 0;
-  const isStale = () => (seq.get(senderId) ?? 0) !== mySeq;
+  const run = await routerWorkflow.createRun();
 
+  // Khi external abort → cancel workflow run. Mastra propagate abortSignal vào step execute params.
+  const onAbort = () => {
+    console.log(`[fb] forwarding abort → workflow.cancel for ${senderId}`);
+    void run.cancel();
+  };
+  abortSignal.addEventListener("abort", onAbort, { once: true });
+
+  let result;
   try {
-    const run = await routerWorkflow.createRun();
-
-    const result = await run.start({
+    result = await run.start({
       inputData: {
         message:    text,
         threadId:   senderId,
         resourceId: "facebook-customer",
       },
     });
+  } finally {
+    abortSignal.removeEventListener("abort", onAbort);
+  }
 
-    // Sau khi workflow xong (LLM đã chạy, state đã save), check stale.
-    // State save vẫn OK — tin mới sẽ load state đó (slot extracted từ tin này) + extract thêm.
-    if (isStale()) {
-      console.log(
-        `[fb] DROP stale reply for ${senderId} (seq ${mySeq} → ${seq.get(senderId)}) — KH đã gõ tin mới`,
-      );
-      await deleteLastAssistantMessage(senderId);
-      return;
-    }
+  // Nếu signal aborted ngay sau khi workflow trả về (race) — coi như stale, drop.
+  if (abortSignal.aborted) {
+    const err = new Error("aborted");
+    err.name = "AbortError";
+    throw err;
+  }
 
-    if (result.status !== "success") {
-      console.error("[fb] workflow failed:", result.status);
-      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
-      return;
-    }
-
-    const steps = result.steps as any;
-    const output = steps?.["call-fitness"]?.output
-                ?? steps?.["call-giai-co"]?.output
-                ?? steps?.["fallback"]?.output;
-
-    if (!output?.reply) {
-      console.error("[fb] no output found");
-      return;
-    }
-
-    let { reply, mediaUrls, qrUrl } = output as {
-      reply:     string;
-      mediaUrls: string[] | null;
-      qrUrl:     string | null;
-    };
-
-    reply = reply
-      .replace(/!\[.*?\]\(.*?\)/g, "")              // xóa ![](url) kể cả url rỗng
-      .replace(/\d+\.\s*\[.*?\]\(.*?\)\s*/g, "")   // xóa "4. [text](url)"
-      .replace(/\[.*?\]\(.*?\)/g, "")               // xóa [text](url) còn sót
-      .replace(/https?:\/\/[^\s\)"]+/g, "")         // xóa URL thuần
-      .replace(/\n{3,}/g, "\n\n")                   // clean khoảng trắng thừa
-      .trim();
-
-    console.log(`[fb] sending reply: "${reply}"`);
-    console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
-
-    // Stale-check lần cuối ngay trước khi gửi (defense — KH có thể gõ tin mới
-    // trong khoảng vài ms giữa "workflow xong" và "sendText").
-    if (isStale()) {
-      console.log(`[fb] DROP stale reply (race lúc sendText) for ${senderId}`);
-      await deleteLastAssistantMessage(senderId);
-      return;
-    }
-
-    const sentUrls = new Set<string>();
-    if (reply) {
-      await sendText(senderId, reply);
-    }
-    if (mediaUrls?.length) {
-      for (const rawUrl of mediaUrls) {
-        const url = (rawUrl ?? "").trim();
-        if (!url || sentUrls.has(url)) continue;
-        sentUrls.add(url);
-        await sendMedia(senderId, url);
-      }
-    }
-    if (qrUrl) {
-      const q = qrUrl.trim();
-      if (q && !sentUrls.has(q)) await sendMedia(senderId, q);
-    }
-
-    // Schedule follow-up sau 10p nếu khách ghost.
-    // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)
-    if (!qrUrl) {
-      void scheduleFollowupWithMedia(senderId);
-    }
-  } catch (e) {
-    console.error("[fb] workflow error:", e);
+  if (result.status !== "success") {
+    console.error("[fb] workflow failed:", result.status);
     await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
+    return;
+  }
+
+  const steps = result.steps as any;
+  const output = steps?.["call-fitness"]?.output
+              ?? steps?.["call-giai-co"]?.output
+              ?? steps?.["fallback"]?.output;
+
+  if (!output?.reply) {
+    console.error("[fb] no output found");
+    return;
+  }
+
+  let { reply, mediaUrls, qrUrl } = output as {
+    reply:     string;
+    mediaUrls: string[] | null;
+    qrUrl:     string | null;
+  };
+
+  reply = reply
+    .replace(/!\[.*?\]\(.*?\)/g, "")              // xóa ![](url) kể cả url rỗng
+    .replace(/\d+\.\s*\[.*?\]\(.*?\)\s*/g, "")   // xóa "4. [text](url)"
+    .replace(/\[.*?\]\(.*?\)/g, "")               // xóa [text](url) còn sót
+    .replace(/https?:\/\/[^\s\)"]+/g, "")         // xóa URL thuần
+    .replace(/\n{3,}/g, "\n\n")                   // clean khoảng trắng thừa
+    .trim();
+
+  console.log(`[fb] sending reply: "${reply}"`);
+  console.log(`[fb] mediaUrls: ${JSON.stringify(mediaUrls)}`);
+
+  // Defense: abort race ngay trước khi gửi → discard.
+  if (abortSignal.aborted) {
+    const err = new Error("aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+
+  const sentUrls = new Set<string>();
+  if (reply) {
+    await sendText(senderId, reply);
+  }
+  if (mediaUrls?.length) {
+    for (const rawUrl of mediaUrls) {
+      const url = (rawUrl ?? "").trim();
+      if (!url || sentUrls.has(url)) continue;
+      sentUrls.add(url);
+      await sendMedia(senderId, url);
+    }
+  }
+  if (qrUrl) {
+    const q = qrUrl.trim();
+    if (q && !sentUrls.has(q)) await sendMedia(senderId, q);
+  }
+
+  // Sheets-write SAU sendText: đảm bảo chỉ ghi lead khi KH đã thấy reply chốt đơn.
+  // Tránh turn abort ngẫu nhiên ghi sheets cho KH chưa thấy gì → order-lock sai.
+  await tryWriteLeadIfReady(mastra, senderId, "facebook-customer");
+
+  // Schedule follow-up sau 10p nếu khách ghost.
+  // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)
+  if (!qrUrl) {
+    void scheduleFollowupWithMedia(senderId);
   }
 }
 

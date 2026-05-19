@@ -118,17 +118,11 @@ export async function saveState(
 ): Promise<void> {
   const tid = stateThreadId(threadId);
 
-  // Ghi lead vào Google Sheets lần đầu tiên khi đủ tên + SĐT + giờ
-  const leadReady = isLeadComplete(state);
-  console.log(`[stateStore] leadReady=${leadReady} sheetsWritten=${state.sheetsWritten} | name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime}`);
-  if (!state.sheetsWritten && leadReady) {
-    try {
-      await writeLeadToSheets(state);
-      state.sheetsWritten = true;
-    } catch (e) {
-      console.error("[stateStore] writeLeadToSheets failed:", e);
-    }
-  }
+  // Sheets-write side-effect đã được tách ra `tryWriteLeadIfReady` —
+  // chỉ chạy SAU KHI reply gửi thành công (xem routes/facebook.ts).
+  // Lý do: với cancel-and-restart, turn bị abort vẫn save state trong processStep;
+  // nếu sheets-write nằm trong saveState thì lead bị ghi cho turn KH chưa thấy reply
+  // → order-lock kích hoạt sớm → bot im lặng cho turn replay sau.
 
   try {
     const storage = mastra?.getStorage?.();
@@ -165,6 +159,38 @@ export async function saveState(
     });
   } catch (e) {
     console.error(`[stateStore] saveState failed for ${tid}:`, e);
+  }
+}
+
+/**
+ * Best-effort: nếu lead đủ (name + phone + preferredTime) và chưa ghi sheets →
+ * ghi sheets + set sheetsWritten=true + save state.
+ *
+ * Gọi SAU KHI reply đã sendText thành công (route handler). Tách khỏi saveState
+ * để cancel-and-restart không ghi sheets cho turn KH chưa thấy reply.
+ *
+ * Idempotent: chạy 2 lần liên tiếp với state đã sheetsWritten=true → no-op.
+ * Lỗi sheets-write KHÔNG bubble — log + tiếp tục (bot vẫn reply OK, chỉ thiếu sheets).
+ */
+export async function tryWriteLeadIfReady(
+  mastra: any,
+  threadId: string,
+  resourceId: string,
+): Promise<void> {
+  const tid = stateThreadId(threadId);
+  try {
+    const state = await loadState(mastra, threadId, resourceId);
+    if (state.sheetsWritten) return;
+    if (!isLeadComplete(state)) return;
+
+    console.log(
+      `[stateStore] writing lead → name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime}`,
+    );
+    await writeLeadToSheets(state);
+    state.sheetsWritten = true;
+    await saveState(mastra, threadId, resourceId, state);
+  } catch (e) {
+    console.error(`[stateStore] tryWriteLeadIfReady failed for ${tid}:`, e);
   }
 }
 

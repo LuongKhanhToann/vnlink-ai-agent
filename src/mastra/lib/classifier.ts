@@ -165,6 +165,8 @@ export interface ClassifyInput {
   needFlowClassification: boolean;
   /** intentTopic của turn trước — dùng cho context-aware classification (follow-up). */
   previousIntentTopic?: IntentTopic | null;
+  /** Abort signal — cắt LLM call khi tin mới đến (cancel-and-restart). */
+  abortSignal?: AbortSignal;
 }
 
 export async function classify(
@@ -177,6 +179,7 @@ export async function classify(
     currentKnownInfo,
     needFlowClassification,
     previousIntentTopic,
+    abortSignal,
   } = input;
 
   const missingSlots = nullSlots(currentKnownInfo);
@@ -261,6 +264,7 @@ export async function classify(
       // Classifier: temperature thấp để slot extraction deterministic.
       // (Khác fitness agent — agent cần variation, classifier cần ổn định.)
       modelSettings: { temperature: 0.1 },
+      abortSignal,
       structuredOutput: {
         schema: classifierSchema,
         instructions:
