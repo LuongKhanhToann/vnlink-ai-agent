@@ -166,6 +166,9 @@ export interface ConversationState {
   /** Intent classify 3-trục (domain/service/attribute) — Phase 1 refactor. intentTopic ở trên được derive từ đây
    *  qua signalToLegacyTopic() trong classifier. Phase 2 sẽ port templates dùng intentSignal trực tiếp. */
   intentSignal?: import("./intent").IntentSignal | null;
+  /** Multi-intent: nếu KH hỏi 2-3 thứ trong 1 tin, primary nằm ở intentSignal, còn lại ở đây (max 2).
+   *  prefixBuilder render hint MULTI-INTENT để agent trả lời CẢ secondary trong cùng reply. */
+  secondaryIntents?: import("./intent").IntentSignal[];
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
   /** Tổng số turn của cuộc thoại — KHÔNG reset khi flow đổi. Dùng cho greeting decision. */
@@ -798,6 +801,8 @@ export interface LLMClassification {
   intentTopic: IntentTopic | null;
   /** Phase 1: classifier output 3-trục. Optional để backward compat. */
   intentSignal?: import("./intent").IntentSignal | null;
+  /** Multi-intent: secondary intents (max 2). Empty hoặc undefined = single-intent. */
+  secondaryIntents?: import("./intent").IntentSignal[];
   extractedSlots: Partial<KnownInfo>;
   qrShown: boolean | null;
   mediaShown: boolean | null;
@@ -956,6 +961,7 @@ export function buildNextState(
     intent,
     intentTopic: llm.intentTopic,
     intentSignal: llm.intentSignal ?? null,
+    secondaryIntents: llm.secondaryIntents ?? [],
     honorific,
     knownInfo,
     turnCount,
@@ -985,6 +991,7 @@ export const DEFAULT_STATE: ConversationState = {
   intent: "explore",
   intentTopic: null,
   intentSignal: null,
+  secondaryIntents: [],
   honorific: "anh/chị",
   knownInfo: {
     name: null,

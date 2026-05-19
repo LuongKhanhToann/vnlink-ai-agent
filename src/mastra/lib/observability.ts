@@ -39,6 +39,8 @@ export interface TurnDecision {
     legacyTopic: IntentTopic | null;
     emotion: Emotion;
     intent: Intent;
+    /** Số secondary intents (multi-intent detection). 0 = single-intent. */
+    secondaryCount?: number;
   };
   /** Prefix mode + template id (nếu SCRIPT). */
   mode: PrefixMode;

@@ -77,6 +77,7 @@ export async function loadState(
       // Sau buildNextState, intentTopic sẽ bị overwrite bằng kết quả classifier turn HIỆN TẠI.
       intentTopic: (m.intentTopic ?? null) as any,
       intentSignal: ((m as any).intentSignal ?? null),
+      secondaryIntents: ((m as any).secondaryIntents ?? []) as any,
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
         name: m.knownInfo?.name ?? null,

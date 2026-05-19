@@ -18,9 +18,54 @@ import {
   Flow,
   Stage,
 } from "./stateMachine";
+import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
 import { buildDateContext } from "./dateHelper";
 import { decideFitnessQuestion, formatDecision } from "./questionFlow";
+
+// ─────────────────────────────────────────────
+// MULTI-INTENT HINT — render khi KH hỏi 2+ thứ trong 1 tin
+// ─────────────────────────────────────────────
+
+/** Convert IntentSignal sang text ngắn để hiển thị trong prefix hint. */
+function humanizeSignal(s: IntentSignal): string {
+  const domainLabel: Record<string, string> = {
+    greeting: "chào hỏi",
+    service_inquiry: "hỏi info dịch vụ",
+    pricing: "hỏi giá/gói",
+    scheduling: "hỏi lịch/giờ",
+    discovery_answer: "trả lời discovery",
+    safety_concern: "lo ngại an toàn",
+    objection: "phản đối/so sánh",
+    commitment: "muốn chốt/đăng ký",
+    media_request: "xin xem ảnh/video",
+    edge: "câu hỏi ngoài kịch bản",
+    chitchat: "filler",
+  };
+  const base = domainLabel[s.domain] ?? s.domain;
+  const parts: string[] = [base];
+  if (s.attribute) parts.push(`(${s.attribute})`);
+  if (s.service) parts.push(`về ${s.service}`);
+  return parts.join(" ");
+}
+
+/**
+ * Build hint hướng dẫn agent cover SECONDARY intents trong cùng 1 reply.
+ * Return "" nếu không có secondary intent.
+ *
+ * Đặt ở CUỐI prefix (sau GATE) để agent đọc cuối cùng, dễ tích hợp vào reply.
+ */
+function buildMultiIntentHint(state: ConversationState): string {
+  const secondaries = state.secondaryIntents ?? [];
+  if (secondaries.length === 0) return "";
+  const list = secondaries.map(humanizeSignal).join(" + ");
+  return (
+    `[MULTI-INTENT: ngoài câu trả lời chính, KH còn hỏi: ${list}. ` +
+    `Thêm 1-2 câu ngắn để cover các điểm này trong CÙNG 1 reply (đừng tách turn). ` +
+    `Nếu GATE/TACTIC ở trên bảo "DỪNG / KHÔNG pitch giá", BỎ secondary nào trùng nội dung bị cấm; ` +
+    `chỉ thêm secondary informational (giờ, địa chỉ, có HLV nữ không, có ảnh không, ...).]`
+  );
+}
 
 // ─────────────────────────────────────────────
 // DIGRESSION CLASSIFIER
@@ -1602,6 +1647,9 @@ export function buildPrefixWithMeta(
   //   PITCH   = no template, no GATE override → full prefix với TACTIC + KNOWLEDGE + FEW-SHOT
   // ─────────────────────────────────────────────
 
+  // Multi-intent hint — render 1 lần, append vào cả 3 mode.
+  const multiIntentHint = buildMultiIntentHint(state);
+
   // ─── MODE = SCRIPT (template match) ───
   if (state.flow === "fitness" && message) {
     const decision = decideFitnessQuestion(state, message, prevBotReply);
@@ -1613,6 +1661,7 @@ export function buildPrefixWithMeta(
         `[RULES: Text thuần, KHÔNG markdown, KHÔNG link [text](url). Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết bằng "ạ?" hoặc "?". 2 câu kết "ạ" liên tiếp PHẢI có dấu "." giữa. CẤM khen đáp án khách. CẤM "tuyệt vời/quá/chắc chắn rồi". CẤM "nha?".]`,
         buildKnownSummary(state.knownInfo, state.flow),
         formatDecision(decision),
+        multiIntentHint,
       ];
       return {
         prefix: lines.filter(Boolean).join("\n"),
@@ -1872,6 +1921,7 @@ export function buildPrefixWithMeta(
       antiLoopHint,
       buildKnownSummary(state.knownInfo, state.flow),
       gateOutput,
+      multiIntentHint,
     ];
     return {
       prefix: lines.filter(Boolean).join("\n"),
@@ -1918,6 +1968,7 @@ export function buildPrefixWithMeta(
     buildMediaHint(state),
     gateOutput,
     fewShotBlock,
+    multiIntentHint,
   ];
 
   return {

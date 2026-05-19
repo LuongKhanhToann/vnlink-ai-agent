@@ -123,9 +123,18 @@ const processStep = createStep({
       llmResult.flow = keywordFlow;
     }
 
+    const secondaryCount = (llmResult.secondaryIntents ?? []).length;
     console.log(
-      `[process] llm: flow=${llmResult.flow ?? "unchanged"} emotion=${llmResult.emotion} intent=${llmResult.intent} topic=${llmResult.intentTopic ?? "null"}`
+      `[process] llm: flow=${llmResult.flow ?? "unchanged"} emotion=${llmResult.emotion} intent=${llmResult.intent} topic=${llmResult.intentTopic ?? "null"} secondary=${secondaryCount}`
     );
+    if (secondaryCount > 0) {
+      console.log(
+        `[process] multi-intent secondary:`,
+        (llmResult.secondaryIntents ?? []).map(
+          (s) => `${s.domain}/${s.attribute ?? "—"}`,
+        ),
+      );
+    }
 
     const nextState = buildNextState(previousState, message, llmResult);
     // Set lastUserMessage = current message (sẽ là "user msg của turn trước" khi turn sau load state).
@@ -352,6 +361,7 @@ function buildAgentStep(
           legacyTopic: stateAfterReply.intentTopic ?? null,
           emotion: stateAfterReply.emotion,
           intent: stateAfterReply.intent,
+          secondaryCount: (stateAfterReply.secondaryIntents ?? []).length,
         },
         mode: prefixMode as PrefixMode,
         templateId,

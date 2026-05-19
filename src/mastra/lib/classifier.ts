@@ -133,6 +133,25 @@ const classifierSchema = z.object({
     })
     .nullable()
     .optional(),
+  // Multi-intent: KH hỏi 2-3 thứ trong 1 tin nhắn → primary = intentSignal,
+  // còn lại nằm trong secondaryIntents. Max 2 entry. Null/empty = single-intent.
+  secondaryIntents: z
+    .array(
+      z.object({
+        domain: z.enum([
+          "greeting", "service_inquiry", "pricing", "scheduling",
+          "discovery_answer", "safety_concern", "objection",
+          "commitment", "media_request", "edge", "chitchat",
+        ]),
+        service: z
+          .enum(["gym", "yoga", "zumba", "boi", "pilates", "full"])
+          .nullable()
+          .optional(),
+        attribute: z.string().nullable().optional(),
+      }),
+    )
+    .nullable()
+    .optional(),
   slots: z
     .object({
       name:           z.string().nullable().optional(),
@@ -347,6 +366,7 @@ Trả JSON thuần:
     "service": "gym"|"yoga"|"zumba"|"boi"|"pilates"|"full"|null,
     "attribute": "<attribute key trong domain — xem mục ATTRIBUTE>"
   },
+  "secondaryIntents": [ /* OPTIONAL — xem MULTI-INTENT bên dưới. Null hoặc [] nếu KH chỉ hỏi 1 thứ. */ ],
   ${missingSlots.length > 0 ? `"slots": {${slotExtractionFields}}` : `// slots đã đủ`}
 }
 
@@ -517,6 +537,27 @@ INTENT_SIGNAL: classify message theo 3 trục độc lập. Pick 1 giá trị m�
   ⚠️ NẾU không chắc attribute → để null. Domain bắt buộc.
   ⚠️ Chỉ pick attribute từ list TƯƠNG ỨNG domain đã chọn (vd domain=pricing thì attribute phải là ask_price_*).
 
+  ─────────────────────────────────────────────
+  MULTI-INTENT — KH hỏi NHIỀU thứ trong 1 tin nhắn:
+  ─────────────────────────────────────────────
+  Vd: "giá bao nhiêu? có ảnh phòng tập không?" → 2 intent (pricing + media_request).
+  Vd: "đăng ký gym, mà chiều mở mấy giờ?" → 2 intent (commitment + scheduling).
+  Vd: "có gói cho sinh viên không, tập sáng có đông không?" → 2 intent (pricing + service_inquiry).
+
+  Quy tắc:
+  - intentSignal = PRIMARY (intent quan trọng nhất theo priority bên dưới).
+  - secondaryIntents = ARRAY các intent còn lại (tối đa 2 entry), mỗi entry cùng schema (domain/service/attribute).
+  - Nếu KH chỉ hỏi 1 thứ → secondaryIntents = null hoặc [].
+
+  Priority pick PRIMARY (cao → thấp):
+    commitment > scheduling > pricing > safety_concern > media_request >
+    service_inquiry > discovery_answer > objection > edge > greeting > chitchat
+
+  TUYỆT ĐỐI KHÔNG:
+  - Đặt cùng 1 (domain, attribute) ở cả primary và secondary — duplicate.
+  - Đẩy chitchat / greeting filler vào secondary nếu intent chính đã rõ.
+  - Vượt 2 entry secondary (chọn 2 quan trọng nhất, bỏ phần còn lại).
+
 INTENT:
   explore   = hỏi chung chung, khai báo mục tiêu, hoặc trả lời đơn giản chưa rõ ý định mua
             ("cho hỏi", "bên mình có gì", "tôi muốn tăng cơ", "giảm mỡ nhé", "cảm ơn", "ừ", "ok" - KHI CHƯA CÓ NGỮ CẢNH CHỌN GÓI)
@@ -670,18 +711,35 @@ function mapToClassification(
     : "explore";
 
   // Parse intentSignal (3-axis output) + validate. Domain bắt buộc; service/attribute optional.
-  let intentSignal: IntentSignal | null = null;
-  if (parsed.intentSignal && isValidDomain(parsed.intentSignal.domain)) {
-    const rawService = parsed.intentSignal.service ?? null;
+  const parseSignal = (raw: any): IntentSignal | null => {
+    if (!raw || !isValidDomain(raw.domain)) return null;
+    const rawService = raw.service ?? null;
     const service: Service = isValidService(rawService) ? (rawService as Service) : null;
-    const attribute = typeof parsed.intentSignal.attribute === "string"
-      ? (parsed.intentSignal.attribute as Attribute)
+    const attribute = typeof raw.attribute === "string"
+      ? (raw.attribute as Attribute)
       : null;
-    intentSignal = {
-      domain: parsed.intentSignal.domain as Domain,
-      service,
-      attribute,
-    };
+    return { domain: raw.domain as Domain, service, attribute };
+  };
+
+  const intentSignal: IntentSignal | null = parseSignal(parsed.intentSignal);
+
+  // Parse secondaryIntents (multi-intent). Dedupe duplicate với primary.
+  // Cap 2 entry để tránh prompt overflow downstream.
+  let secondaryIntents: IntentSignal[] = [];
+  if (Array.isArray(parsed.secondaryIntents)) {
+    const primaryKey = intentSignal
+      ? `${intentSignal.domain}|${intentSignal.attribute ?? ""}`
+      : "";
+    const seen = new Set<string>([primaryKey]);
+    for (const raw of parsed.secondaryIntents) {
+      const sig = parseSignal(raw);
+      if (!sig) continue;
+      const key = `${sig.domain}|${sig.attribute ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      secondaryIntents.push(sig);
+      if (secondaryIntents.length >= 2) break;
+    }
   }
 
   // Derive legacy IntentTopic từ intentSignal qua mapping bridge (intent.ts).
@@ -721,6 +779,7 @@ function mapToClassification(
     intent,
     intentTopic,
     intentSignal,
+    secondaryIntents,
     extractedSlots,
     qrShown: null,
     mediaShown: null,
@@ -738,6 +797,7 @@ function getDefaultClassification(
     intent: "explore",
     intentTopic: null,
     intentSignal: null,
+    secondaryIntents: [],
     extractedSlots: {},
     qrShown: null,
     mediaShown: null,
