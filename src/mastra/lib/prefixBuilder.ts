@@ -60,10 +60,11 @@ function buildMultiIntentHint(state: ConversationState): string {
   if (secondaries.length === 0) return "";
   const list = secondaries.map(humanizeSignal).join(" + ");
   return (
-    `[MULTI-INTENT: ngoài câu trả lời chính, KH còn hỏi: ${list}. ` +
-    `Thêm 1-2 câu ngắn để cover các điểm này trong CÙNG 1 reply (đừng tách turn). ` +
-    `Nếu GATE/TACTIC ở trên bảo "DỪNG / KHÔNG pitch giá", BỎ secondary nào trùng nội dung bị cấm; ` +
-    `chỉ thêm secondary informational (giờ, địa chỉ, có HLV nữ không, có ảnh không, ...).]`
+    `[MULTI-INTENT: KH còn hỏi: ${list}. ` +
+    `→ Điền 1-2 câu NGẮN cover các điểm này vào FIELD 'secondaryAnswers' (mảng string), ` +
+    `KHÔNG nhét vào 'text'. Post-process sẽ tự append vào cuối reply. ` +
+    `Nếu GATE/TACTIC ở trên bảo "DỪNG / KHÔNG pitch giá" → BỎ secondary nào trùng nội dung bị cấm; ` +
+    `chỉ giữ secondary informational (giờ, địa chỉ, có HLV nữ không, có ảnh không, ...).]`
   );
 }
 

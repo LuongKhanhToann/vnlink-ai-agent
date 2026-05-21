@@ -1,12 +1,13 @@
 /**
  * routes/facebook.ts
  *
- * Cancel-and-restart pattern:
- *   - Tin đến → abort turn đang chạy (LLM/workflow) → re-batch + debounce → process cả cục mới.
- *   - State + sheets-write KHÔNG committed cho turn bị abort:
- *       • saveState trong workflow tạm thời commit slot/intent — OK vì turn replay sẽ re-overwrite.
- *       • Sheets-write (irreversible) tách sang `tryWriteLeadIfReady`, gọi SAU KHI sendText thành công.
+ * Cancel-and-restart pattern (commit-aware):
+ *   - Tin đến → abort turn đang chạy CHỈ KHI chưa pass commit-point.
+ *   - Commit-point = ngay TRƯỚC khi sendText reply 1 đầu tiên ra ngoài.
+ *     Trước commit: msg mới → abort LLM + re-batch (gộp [msg1, msg2] thành 1 turn).
+ *     Sau commit:  msg mới → chỉ buffer + đợi flush kế tiếp (reply 1 đã hiển thị → coi như follow-up).
  *   - Buffer preserve khi abort: consumed messages prepend lại buffer để turn sau xử lý gộp.
+ *   - Sheets-write (irreversible) tách sang `tryWriteLeadIfReady`, gọi SAU KHI sendText thành công.
  */
 
 import { Hono } from "hono";
@@ -30,6 +31,12 @@ type SenderState = {
   debounceTimer: NodeJS.Timeout | null;
   /** AbortController của turn đang chạy. null = không có turn nào. */
   inflight: AbortController | null;
+  /**
+   * True khi turn đã pass commit-point (reply 1 sắp/đã gửi cho KH).
+   * Tin mới đến SAU committed → KHÔNG abort (tránh hủy nửa chừng commit phase).
+   * Reset về false ở đầu mỗi flush.
+   */
+  committed: boolean;
 };
 
 const senders = new Map<string, SenderState>();
@@ -37,7 +44,7 @@ const senders = new Map<string, SenderState>();
 function ensureSender(senderId: string): SenderState {
   let state = senders.get(senderId);
   if (!state) {
-    state = { buffer: [], debounceTimer: null, inflight: null };
+    state = { buffer: [], debounceTimer: null, inflight: null, committed: false };
     senders.set(senderId, state);
   }
   return state;
@@ -178,11 +185,15 @@ function enqueueMessage(senderId: string, text: string) {
   const state = ensureSender(senderId);
   state.buffer.push(text);
 
-  // Có turn đang chạy → abort. Turn đó sẽ catch AbortError và prepend consumed
-  // messages về buffer. Tin mới (vừa push) ở phía sau → combined batch đúng thứ tự.
-  if (state.inflight) {
-    console.log(`[fb] aborting inflight turn for ${senderId} — new msg arrived`);
+  // Có turn đang chạy + CHƯA commit → abort. Turn đó sẽ catch AbortError và prepend
+  // consumed messages về buffer. Tin mới (vừa push) ở phía sau → combined batch đúng thứ tự.
+  // Đã committed (reply 1 đã ra ngoài) → KHÔNG abort, chỉ buffer + đợi flush kế tiếp.
+  // Lý do: hủy commit phase = reply 1 lộ ra nhưng state/sheets dở dang → corrupt context.
+  if (state.inflight && !state.committed) {
+    console.log(`[fb] aborting inflight turn for ${senderId} — new msg arrived (pre-commit)`);
     state.inflight.abort();
+  } else if (state.inflight && state.committed) {
+    console.log(`[fb] buffering for ${senderId} — turn already committed, will flush next`);
   }
 
   // Typing indicator để KH thấy bot "đọc" → giảm cảm giác lag khi đợi debounce.
@@ -223,18 +234,30 @@ async function flush(senderId: string) {
 
   const ac = new AbortController();
   state.inflight = ac;
+  state.committed = false;
 
   try {
-    await handleMessage(senderId, combined, ac.signal);
+    await handleMessage(senderId, combined, ac.signal, () => {
+      // onCommit: gọi NGAY trước sendText reply 1 đầu tiên.
+      // Sau đây, tin mới đến → KHÔNG abort (xem enqueueMessage).
+      state.committed = true;
+      console.log(`[fb] commit-point reached for ${senderId} — abort disabled for rest of turn`);
+    });
   } catch (e) {
-    if (ac.signal.aborted) {
-      // Abort: restore consumed messages về đầu buffer để turn sau gộp với tin mới.
+    if (ac.signal.aborted && !state.committed) {
+      // Abort pre-commit: restore consumed messages về đầu buffer để turn sau gộp với tin mới.
       state.buffer = [...consumed, ...state.buffer];
       console.log(
-        `[fb] turn aborted for ${senderId} — re-queued ${consumed.length} msg (buffer=${state.buffer.length})`,
+        `[fb] turn aborted (pre-commit) for ${senderId} — re-queued ${consumed.length} msg (buffer=${state.buffer.length})`,
       );
       // Clean phantom assistant message nếu Mastra memory đã save ngầm trước khi abort.
       await deleteLastAssistantMessage(senderId);
+    } else if (ac.signal.aborted && state.committed) {
+      // Abort sau commit (rare race): reply 1 đã/đang gửi → KHÔNG restore consumed,
+      // tin mới đã có trong buffer sẽ được flush turn sau như follow-up bình thường.
+      console.warn(
+        `[fb] turn aborted (post-commit) for ${senderId} — keeping committed reply, msg2 buffered for next turn`,
+      );
     } else {
       console.error(`[fb] handleMessage error for ${senderId}:`, e);
       // Lỗi không-abort → drop consumed (không retry vô hạn) + báo KH.
@@ -245,6 +268,7 @@ async function flush(senderId: string) {
     }
   } finally {
     state.inflight = null;
+    state.committed = false;
     // Có tin mới (từ abort restore hoặc tin đến trong lúc xử lý) — schedule flush tiếp.
     if (state.buffer.length > 0 && !state.debounceTimer) {
       state.debounceTimer = setTimeout(() => {
@@ -299,7 +323,12 @@ async function sendTyping(recipientId: string) {
   }
 }
 
-async function handleMessage(senderId: string, text: string, abortSignal: AbortSignal) {
+async function handleMessage(
+  senderId: string,
+  text: string,
+  abortSignal: AbortSignal,
+  onCommit: () => void,
+) {
   // ORDER LOCK: đơn đã chốt (sheetsWritten=true) → bot im lặng cho phần còn lại của session.
   // sheetsWritten chỉ true SAU KHI sendText thành công (xem tryWriteLeadIfReady),
   // nên với cancel-and-restart sẽ không bị false-lock cho turn replay.
@@ -383,6 +412,11 @@ async function handleMessage(senderId: string, text: string, abortSignal: AbortS
     err.name = "AbortError";
     throw err;
   }
+
+  // ═══════ COMMIT-POINT ═══════
+  // Từ đây trở đi, mọi tin mới đến → KHÔNG abort turn này (xem enqueueMessage).
+  // Lý do: reply 1 đã/đang ra ngoài, hủy nửa chừng = corrupt context.
+  onCommit();
 
   const sentUrls = new Set<string>();
   if (reply) {

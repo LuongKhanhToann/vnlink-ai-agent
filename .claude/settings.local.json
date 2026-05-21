@@ -19,7 +19,24 @@
       "Bash(npx -y tsx ./test-all.mjs)",
       "Bash(npx -y tsx ./test-userflow.mjs)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(env)",
+      "Bash(SCENARIOS=real_indecisive_recommend,real_giam_can_open_vague,giaico_happy_path,cold_lead_drop npm run test:scenarios)",
+      "Bash(npm install *)",
+      "Bash(node *)",
+      "Bash(npx tsc *)",
+      "Bash(SCENARIOS=fitness_happy_path,fitness_compare_first,fitness_objection_price,fitness_student,fitness_family,fitness_yoga_only,giaico_acute,giaico_disc_concern,flow_switch,real_tang_co_bao_gia_ngay,real_so_sanh_2_dich_vu,real_boi_cho_con_hoc npm run test:scenarios)",
+      "Bash(python3 -c ' *)",
+      "Bash(npx -y tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --strict false --skipLibCheck --allowImportingTsExtensions false --esModuleInterop --jsx preserve --allowJs src/mastra/lib/cleanReply.ts src/mastra/lib/stateMachine.ts src/mastra/lib/questionFlow.ts src/mastra/lib/classifier.ts)",
+      "Bash(SCENARIOS=fitness_student,real_boi_cho_con_hoc npm run test:scenarios)",
+      "Bash(SCENARIOS=real_boi_cho_con_hoc,fitness_family,real_so_sanh_2_dich_vu,real_indecisive_recommend npm run test:scenarios)",
+      "Bash(npx -y tsx --no-install -e \"console.log\\('imports OK'\\)\")",
+      "Bash(npx -y tsx --no-install -e ' *)",
+      "Bash(npx tsx -e ' *)",
+      "Bash(npm run *)",
+      "Bash(SCENARIOS=giaico_direct_booking,real_zumba_giam_can_vui,real_so_sanh_2_dich_vu,fitness_objection_price npm run test:scenarios)",
+      "Bash(ps -p 3570 -o pid,etime,command)",
+      "Bash(awk '{print $2, $9, $10}')"
     ]
   }
 }

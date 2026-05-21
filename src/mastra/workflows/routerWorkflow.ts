@@ -75,6 +75,15 @@ const agentReplySchema = z.object({
       "'confirm' khi tóm tắt đơn hàng, " +
       "'close' khi hoàn tất."
     ),
+  secondaryAnswers: z
+    .array(z.string())
+    .nullable()
+    .describe(
+      "Mảng 1-2 câu NGẮN cover các SECONDARY intent khi prefix có hint [MULTI-INTENT]. " +
+      "Mỗi entry là 1 câu hoàn chỉnh (vd: 'Phòng tập em mở 5h–22h ạ.'), KHÔNG trùng nội dung 'text' chính. " +
+      "Null hoặc [] khi prefix KHÔNG có [MULTI-INTENT] hint (KH chỉ hỏi 1 thứ). " +
+      "Post-process sẽ tự append vào cuối text — đừng tự nhét vào text."
+    ),
 });
 
 const processedStateSchema = z.object({
@@ -221,7 +230,10 @@ const STRUCTURED_OUTPUT_INSTRUCTIONS =
   "- 'text': văn bản thuần túy gửi cho khách. TUYỆT ĐỐI KHÔNG chứa URL, markdown ![](url), hay link ảnh dưới bất kỳ hình thức nào.\n" +
   "- 'mediaUrls': nếu vừa gọi tool get-media thì copy TOÀN BỘ URL từ kết quả tool vào đây dưới dạng mảng string. Null nếu không gọi get-media. TUYỆT ĐỐI KHÔNG duplicate URL.\n" +
   "- 'qrUrl': nếu vừa gọi tool get-qr thì copy URL qrUrl từ kết quả tool vào đây. Null nếu không gọi get-qr.\n" +
-  "- 'nextStep': 'show_media' khi mediaUrls có dữ liệu, 'show_qr' khi qrUrl có dữ liệu, 'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.";
+  "- 'nextStep': 'show_media' khi mediaUrls có dữ liệu, 'show_qr' khi qrUrl có dữ liệu, 'ask_info' khi hỏi tên/SĐT, 'confirm' khi tóm đơn, 'close' khi xong.\n" +
+  "- 'secondaryAnswers': chỉ điền KHI prefix có hint [MULTI-INTENT: KH còn hỏi: X + Y]. " +
+  "Mỗi entry 1 câu NGẮN cover 1 secondary intent (vd ['Phòng em mở 5h–22h ạ.', 'Có HLV nữ nha anh/chị.']). " +
+  "KHÔNG nhét vào text — post-process sẽ append giúp. Null/[] khi không có hint MULTI-INTENT.";
 
 // ─────────────────────────────────────────────
 // STEP 2: gọi agent (fitness hoặc giai-co) — DRY chung
@@ -275,6 +287,7 @@ function buildAgentStep(
         mediaUrls: null,
         qrUrl: null,
         nextStep: "close" as const,
+        secondaryAnswers: null,
       };
 
       // Dedupe mediaUrls (defensive — bot có thể gọi tool 2 lần trả URLs duplicate).
@@ -310,6 +323,29 @@ function buildAgentStep(
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
       let cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply);
+
+      // ═══════ MULTI-INTENT — append secondaryAnswers (Fix #3) ═══════
+      // Agent fill secondaryAnswers khi prefix có [MULTI-INTENT] hint.
+      // Append vào cuối text để cover hết câu hỏi của KH trong CÙNG 1 reply,
+      // dedup nếu trùng nội dung primary, bỏ entry rỗng. Max 2 entry để giữ ngắn.
+      const rawSecondary = (obj as { secondaryAnswers?: string[] | null }).secondaryAnswers;
+      if (Array.isArray(rawSecondary) && rawSecondary.length > 0) {
+        const lowerText = cleanedText.toLowerCase();
+        const extras = rawSecondary
+          .map((s) => (typeof s === "string" ? s.trim() : ""))
+          .filter((s) => s.length > 0)
+          .filter((s) => !lowerText.includes(s.toLowerCase().slice(0, 20)))
+          .slice(0, 2);
+        if (extras.length > 0) {
+          const sep = cleanedText.endsWith(".") || cleanedText.endsWith("?") || cleanedText.endsWith("ạ")
+            ? " "
+            : ". ";
+          cleanedText = (cleanedText + sep + extras.join(" ")).trim();
+          console.log(
+            `[multi-intent] appended ${extras.length} secondary answer(s) → reply len=${cleanedText.length}`,
+          );
+        }
+      }
 
       // ═══════════ PHASE 5 — Output validator + graceful fallback ═══════════
       // Off-topic edge: classifier output edge/off_topic → fixed safe response, KHÔNG để bot bịa.
