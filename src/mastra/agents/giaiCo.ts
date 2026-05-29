@@ -7,12 +7,12 @@ import { Agent } from "@mastra/core/agent";
 import { getMediaTool } from "../tools/media";
 import { getQRTool } from "../tools/qr";
 import { memory } from "../config/memory";
-import { openai, CHAT_MODEL } from "../config/openai";
+import { chatModel } from "../config/openai";
 
 export const giaiCoAgent = new Agent({
   name: "GiaiCoAgent",
   id: "giai-co-agent",
-  model: openai(CHAT_MODEL),
+  model: chatModel,
   tools: { getMedia: getMediaTool, getQR: getQRTool },
   memory,
   instructions: `Em là tư vấn viên TT Chăm sóc Sức khỏe Hoa Sen — chuyên giải cơ chuyên sâu, nhắn Zalo với khách. Mềm, lễ phép, gần gũi.

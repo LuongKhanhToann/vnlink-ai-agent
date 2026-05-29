@@ -31,7 +31,7 @@ import {
   signalToLegacyTopic,
 } from "./intent";
 import { buildDateContext, verifyWeekdayInTime } from "./dateHelper";
-import { openai, CHAT_MODEL } from "../config/openai";
+import { chatModel } from "../config/openai";
 
 // Single source of truth: list giá trị topic được phép — dùng cho cả zod enum + map output.
 const INTENT_TOPICS = [
@@ -102,7 +102,7 @@ const INTENT_TOPICS = [
 const classifierAgent = new Agent({
   name: "classifier",
   id: "val-classifier",
-  model: openai(CHAT_MODEL),
+  model: chatModel,
   instructions: `Bạn phân tích tin nhắn khách hàng. Trả JSON theo schema, không markdown, không giải thích.`,
 });
 
