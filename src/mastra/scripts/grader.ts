@@ -256,6 +256,7 @@ Trả JSON với điểm và list issues.`;
     const result = await judgeAgent.generate(prompt, {
       structuredOutput: {
         schema: judgeSchema,
+        jsonPromptInjection: true, // DeepSeek: không json_schema (xem config/openai.ts)
         instructions: "Trả đúng schema, điểm số phải nằm trong khoảng quy định.",
       },
     });

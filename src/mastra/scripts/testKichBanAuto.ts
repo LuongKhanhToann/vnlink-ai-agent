@@ -814,6 +814,7 @@ async function judgeIdea(reply: string, idea: KeyIdea): Promise<{ match: boolean
       {
         structuredOutput: {
           schema: judgeSchema,
+          jsonPromptInjection: true, // DeepSeek: không json_schema (xem config/openai.ts)
           instructions: "Trả đúng schema.",
         },
       },

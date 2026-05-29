@@ -274,6 +274,9 @@ function buildAgentStep(
           },
           structuredOutput: {
             schema: agentReplySchema,
+            // DeepSeek không hỗ trợ response_format json_schema → inject schema vào
+            // prompt + parse text (xem config/openai.ts). Bỏ dòng này = lỗi 'em gặp sự cố'.
+            jsonPromptInjection: true,
             instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
           },
         });
@@ -449,6 +452,7 @@ const fallbackStep = createStep({
       },
       structuredOutput: {
         schema: agentReplySchema,
+        jsonPromptInjection: true, // DeepSeek: không json_schema (xem config/openai.ts)
         instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
       },
     });
