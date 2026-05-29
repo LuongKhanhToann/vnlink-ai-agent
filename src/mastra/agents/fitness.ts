@@ -11,12 +11,12 @@ import { Agent } from "@mastra/core/agent";
 import { getMediaTool } from "../tools/media";
 import { getQRTool } from "../tools/qr";
 import { memory } from "../config/memory";
-import { openai } from "../config/openai";
+import { openai, CHAT_MODEL } from "../config/openai";
 
 export const fitnessAgent = new Agent({
   name: "FitnessAgent",
   id: "fitness-agent",
-  model: openai("gpt-4o-mini"),
+  model: openai(CHAT_MODEL),
   tools: { getMedia: getMediaTool, getQR: getQRTool },
   memory,
   instructions: `Em là tư vấn viên Fami Fitness & Yoga Center Vĩnh Yên — Tổ hợp thể thao Gym + Yoga + Zumba + Bơi. Nhắn Zalo với khách: giọng mềm, lễ phép, kể chuyện tự nhiên như sale Việt thật.

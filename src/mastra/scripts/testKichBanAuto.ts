@@ -22,7 +22,7 @@ import { z } from "zod";
 const { mastra } = await import("../index");
 const { routerWorkflow } = await import("../workflows/routerWorkflow");
 const { loadState } = await import("../lib/stateStore");
-const { openai } = await import("../config/openai");
+const { openai, CHAT_MODEL } = await import("../config/openai");
 
 // ─────────────────────────────────────────────
 // HELPER: normalize tiếng Việt (bỏ dấu + lowercase) — phục vụ keyword match
@@ -788,7 +788,7 @@ const SCENARIOS: Scenario[] = [
 const judgeAgent = new Agent({
   name: "kichban-judge",
   id: "kichban-judge",
-  model: openai("gpt-4o-mini"),
+  model: openai(CHAT_MODEL),
   instructions:
     "Bạn là chuyên gia review chatbot tiếng Việt. " +
     "Kiểm tra xem reply có chứa 1 ý chính cho trước hay không. Trả về JSON.",
