@@ -16,7 +16,7 @@
 
 import { Agent } from "@mastra/core/agent";
 import { z } from "zod";
-import { chatModel } from "../config/openai";
+import { classifierModel } from "../config/openai";
 
 // ─────────────────────────────────────────────
 // TYPES
@@ -160,7 +160,7 @@ function deterministicChecks(turn: TurnSnapshot, prevReply?: string): string[] {
 const judgeAgent = new Agent({
   name: "scenario-judge",
   id: "scenario-judge",
-  model: chatModel,
+  model: classifierModel,
   instructions:
     "Bạn là chuyên gia review hội thoại sale chatbot tiếng Việt. " +
     "Bạn đánh giá độ tự nhiên, đúng intent khách, sale tactic. Trả JSON theo schema.",

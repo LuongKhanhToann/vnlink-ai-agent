@@ -7,11 +7,16 @@ export const openai = createOpenAI({
   baseURL: "https://api.deepseek.com",
 });
 
-// Model id tập trung 1 chỗ. id chính thức (lowercase) theo docs api.deepseek.com.
-// Override qua env DEEPSEEK_MODEL nếu cần (vd "deepseek-v4-flash" cho phản hồi nhanh hơn).
-export const CHAT_MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-pro";
+// Tách model theo vai trò:
+//  - REPLY_MODEL: câu tư vấn khách đọc → ưu tiên chất lượng → pro mặc định (chậm hơn).
+//  - CLASSIFIER_MODEL: phân loại/extract slot mỗi lượt (JSON, ẩn với khách) → ưu tiên
+//    tốc độ + ổn định → flash mặc định (pro ở đây chỉ tổ chậm ~30s vô ích).
+// Override bằng env REPLY_MODEL / CLASSIFIER_MODEL nếu cần đổi không phải sửa code.
+export const REPLY_MODEL = process.env.REPLY_MODEL ?? "deepseek-v4-pro";
+export const CLASSIFIER_MODEL = process.env.CLASSIFIER_MODEL ?? "deepseek-v4-flash";
 
 // QUAN TRỌNG: @ai-sdk/openai v3 mặc định openai(id) → Responses API (/responses),
 // mà DeepSeek CHỈ có Chat Completions (/chat/completions) → openai(id) sẽ 404.
 // Phải dùng .chat() để ép sang endpoint /chat/completions.
-export const chatModel = openai.chat(CHAT_MODEL);
+export const replyModel = openai.chat(REPLY_MODEL);
+export const classifierModel = openai.chat(CLASSIFIER_MODEL);

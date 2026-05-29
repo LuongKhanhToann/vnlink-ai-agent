@@ -31,7 +31,7 @@ import {
   signalToLegacyTopic,
 } from "./intent";
 import { buildDateContext, verifyWeekdayInTime } from "./dateHelper";
-import { chatModel } from "../config/openai";
+import { classifierModel } from "../config/openai";
 
 // Single source of truth: list giá trị topic được phép — dùng cho cả zod enum + map output.
 const INTENT_TOPICS = [
@@ -102,7 +102,7 @@ const INTENT_TOPICS = [
 const classifierAgent = new Agent({
   name: "classifier",
   id: "val-classifier",
-  model: chatModel,
+  model: classifierModel,
   instructions: `Bạn phân tích tin nhắn khách hàng. Trả JSON theo schema, không markdown, không giải thích.`,
 });
 
@@ -286,6 +286,10 @@ export async function classify(
       abortSignal,
       structuredOutput: {
         schema: classifierSchema,
+        // DeepSeek-V4 KHÔNG hỗ trợ response_format json_schema ("type unavailable").
+        // jsonPromptInjection:true → Mastra inject schema vào prompt + parse text,
+        // KHÔNG gửi response_format json_schema lên API → tương thích DeepSeek.
+        jsonPromptInjection: true,
         instructions:
           "Trả đúng schema JSON. Slot nào không có trong tin → để null. " +
           "Không bao gồm slot không nằm trong yêu cầu extract.",
