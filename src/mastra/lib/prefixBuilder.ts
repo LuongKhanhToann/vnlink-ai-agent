@@ -1427,13 +1427,24 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
       goalPackages[goal] ??
       `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
 
-    // Pitch 3 gói anchor đa dạng (cao→vừa→nhẹ) — khách thấy nhiều choice dễ chọn theo budget
-    return `[EXAMPLE — Reply ≤ 320 ký tự. Value 1 câu + 3 GÓI ANCHOR + câu hỏi chốt]
-Value cụ thể: ${specificHint}
-Gói (giá thật, thứ tự cao→vừa→nhẹ):
+    // NHỊP TƯ VẤN: chỉ bung bảng giá KHI khách chủ động hỏi giá. Khách mới cho 1 chi tiết
+    // ấm (lịch/buổi/kinh nghiệm) mà CHƯA hỏi giá → trial-first, gợi 1 hướng + mời InBody.
+    // Đổ cả 3 gói lúc khách chưa hỏi = "tờ rơi", mất tự nhiên (user feedback 2026-05).
+    const askedPriceNow = message ? detectPriceQuestion(message) : false;
+    if (askedPriceNow) {
+      return `[EXAMPLE — KHÁCH HỎI GIÁ ở evaluation: bung DẦN, KHÔNG đổ cả 3 gói thành bảng. Reply ≤ 260 ký tự]
+Value 1 câu: ${specificHint}
+Gói tham chiếu (anchor cao→nhẹ — CHỌN 1 gói anchor + 1 gói nhẹ hơn để nói, KHÔNG đọc cả 3):
 ${concretePackages}
-Mẫu reply: "[1 câu value]. Bên em có mấy hướng cho ${h}: [3 gói trên]. ${h} tiện ghé InBody buổi sáng hay chiều để HLV thiết kế lộ trình ạ"
-⚠️ MỖI gói PHẢI có giá. KHÔNG hỏi lại nhu cầu/giờ đã có trong [KNOWN].`;
+Mẫu: "[1 câu value]. Phù hợp nhất với ${h} là [gói anchor + giá] ạ. Nếu muốn nhẹ hơn thì có [1 gói tiết kiệm + giá]. ${h} ghé đo InBody miễn phí 1 buổi rồi HLV tư vấn lộ trình chuẩn nha?"
+SAI: liệt kê cả 3 gói thành danh sách khô; lặp giá đã pitch tin trước.`;
+    }
+    return `[EXAMPLE — TRIAL-FIRST, KHÔNG dump bảng giá. Reply ≤ 220 ký tự, giọng trò chuyện, 1-MOVE]
+Khách vừa cho 1 chi tiết ấm (lịch/buổi/kinh nghiệm) và CHƯA hỏi giá → ĐỪNG đổ 3 gói (nghe như tờ rơi). Soi độ dài: khách nhắn cụt → reply NGẮN ấm.
+Value theo mục tiêu: ${specificHint}
+Cấu trúc: (1) ACK ấm chi tiết khách vừa nói (KHÔNG khen "tốt/hợp lý"). (2) Gợi 1 HƯỚNG phù hợp nhất + lý do ngắn, KHÔNG kèm số giá. (3) Mời đo InBody/thử 1 buổi miễn phí + hỏi nhẹ buổi nào (sáng/chiều).
+Mẫu: "Dạ chiều ${h} ghé sau giờ làm cũng tiện ạ. Người mới muốn giảm mỡ thì em gợi bắt đầu Gym kết hợp Zumba cho đỡ chán mà đốt mỡ tốt. ${h} ghé đo InBody miễn phí 1 buổi để HLV xem mỡ cơ rồi lên lộ trình chuẩn nha, ${h} tiện chiều nào ạ?"
+SAI: ACK + value + 3 gói + câu hỏi dồn 1 tin; bung giá khi khách chưa hỏi.`;
   }
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
@@ -1797,24 +1808,19 @@ export function buildPrefixWithMeta(
       const goal = state.knownInfo.fitnessGoal;
       let pitch: string;
       if (goal === "giam-mo") {
-        pitch =
-          "RECOMMEND: 'Gym + Cardio đốt mỡ nhanh nhất, kết hợp Yoga để hồi phục — thẻ Full 4 dịch vụ 7tr/12 tháng là phù hợp nhất ạ'";
+        pitch = "RECOMMEND dứt khoát: Gym kết hợp Zumba (đốt mỡ + vui nên dễ theo lâu)";
       } else if (goal === "tang-co") {
-        pitch =
-          "RECOMMEND: 'Gym + PT 1-1 (20 buổi 6tr) sẽ hiệu quả nhất, HLV xây kỹ thuật nền tránh sai tư thế'";
+        pitch = "RECOMMEND dứt khoát: Gym kèm PT 1-1 (HLV xây kỹ thuật nền, tránh sai tư thế)";
       } else if (goal === "thu-gian") {
-        pitch =
-          "RECOMMEND: 'Yoga GV người Ấn Độ là tối ưu cho thư giãn, giảm stress, ngủ ngon — 5.8tr/12 tháng fulltime'";
+        pitch = "RECOMMEND dứt khoát: Yoga GV người Ấn Độ (giãn cơ, ngủ ngon, hợp người căng thẳng)";
       } else if (goal === "hoc-boi") {
-        pitch =
-          "RECOMMEND: 'Học bơi 1-1 12 buổi 3tr+3 tháng bể, cam kết biết bơi — bể 4 mùa duy nhất Vĩnh Yên'";
+        pitch = "RECOMMEND dứt khoát: lớp học bơi 1-1, cam kết biết bơi (bể 4 mùa duy nhất Vĩnh Yên)";
       } else {
-        pitch =
-          "RECOMMEND: 'Thẻ Full 4 dịch vụ là phù hợp nhất — vừa Gym, Bơi, Yoga, Zumba luân phiên tránh chán, 7tr/12 tháng'";
+        pitch = "RECOMMEND dứt khoát: thẻ Full 4 dịch vụ (Gym + Bơi + Yoga + Zumba luân phiên cho đỡ chán)";
       }
       tactic =
-        `Khách compare/indecisive. ❌ TUYỆT ĐỐI KHÔNG trả lời neutral kiểu 'cả 2 đều tốt'. ${pitch}. ` +
-        `Lý do 1 câu ngắn + 1 câu hỏi schedule (sáng/chiều/tối) HOẶC xin tên/SĐT để giữ slot. KHÔNG hỏi lại 'muốn tập gym/yoga/zumba'.`;
+        `Khách compare/indecisive. ❌ TUYỆT ĐỐI KHÔNG trả lời neutral 'cả 2 đều tốt'; ❌ KHÔNG bung giá/gói khi khách CHƯA hỏi giá. ${pitch}. ` +
+        `Cấu trúc: 1 câu recommend + lý do ngắn, rồi MỜI thử 1 buổi / đo InBody miễn phí + hỏi nhẹ sáng hay chiều. KHÔNG hỏi lại 'muốn tập gym/yoga/zumba'.`;
     }
   }
 
@@ -1873,12 +1879,12 @@ export function buildPrefixWithMeta(
         tactic =
           "Khách xin xem ảnh. GỌI tool get-media NGAY. Reply text 1 câu ngắn dẫn dắt.";
       } else if (hasGoalAndSchedule) {
-        // ĐÃ ĐỦ goal+schedule → KHÔNG hỏi lại, pitch THẲNG 3 gói anchor đa dạng
+        // ĐÃ ĐỦ goal+schedule nhưng khách CHƯA hỏi giá → TRIAL-FIRST, KHÔNG dump 3 gói.
         const goal = ki.fitnessGoal ?? "tổng thể";
         tactic =
-          `Khách đã đủ goal=${goal} + schedule=${ki.schedule}. KHÔNG hỏi lại "muốn tập gym/yoga/zumba". ` +
-          "Pitch THẲNG 3 GÓI ANCHOR đa dạng (cao→vừa→nhẹ): PT 6tr (kèm sát) | Full 7tr/12m | Gym 4.5tr/12m (tự tập tiết kiệm). " +
-          "Câu kết: 'tiện ghé InBody buổi sáng để HLV thiết kế lộ trình ạ'.";
+          `Khách đã đủ goal=${goal} + schedule=${ki.schedule}, CHƯA hỏi giá. KHÔNG hỏi lại "muốn tập gym/yoga/zumba", KHÔNG đổ 3 gói (nghe như tờ rơi). ` +
+          "1 reply = ACK lịch ấm (KHÔNG khen) + gợi 1 HƯỚNG phù hợp goal (1 câu, KHÔNG kèm số giá) + mời đo InBody/thử 1 buổi miễn phí. " +
+          "Câu kết hỏi nhẹ buổi nào (sáng/chiều). CHỈ bung gói+giá khi khách hỏi giá.";
       } else {
         tactic =
           "Khách compare. Trả lời thẳng nhu cầu khách (giá/dịch vụ cụ thể). " +

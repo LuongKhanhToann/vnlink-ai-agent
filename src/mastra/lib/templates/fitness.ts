@@ -111,9 +111,8 @@ export const FITNESS_TEMPLATES: Template[] = [
         return {
           id: "indecisive_recommend_giam_mo",
           template:
-            `Dạ với mục tiêu giảm cân, em gợi ${h} kết hợp Gym và Zumba ạ. ` +
-            `Gym đốt calo + săn chắc cơ, Zumba xả stress giữ động lực dài. Nếu thích thêm Bơi cũng tốt vì bơi là cardio toàn thân. ` +
-            `Thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung cả 4 môn ${h} ạ. ${h} có muốn ghé thử 1 buổi không ạ.`,
+            `Dạ với mục tiêu giảm cân, em gợi ${h} bắt đầu với Gym kết hợp Zumba ạ — Gym đốt calo săn chắc cơ, Zumba thì vui nên dễ theo lâu dài, thích thì thêm Bơi cũng tốt. ` +
+            `${h} ghé thử 1 buổi cảm nhận phòng tập với giáo viên rồi mình tính gói sau cũng được, ${h} tiện sáng hay chiều ạ?`,
           mustInclude: ["Gym", "Zumba"],
         };
       }
@@ -121,9 +120,8 @@ export const FITNESS_TEMPLATES: Template[] = [
         return {
           id: "indecisive_recommend_tang_co",
           template:
-            `Dạ với mục tiêu tăng cơ, em gợi ${h} chọn Gym kèm PT 1-1 ạ. ` +
-            `PT 20 buổi 6 triệu (2 tháng), HLV xây kỹ thuật nền đúng tránh chấn thương + tối ưu phát triển cơ. ` +
-            `Sau đó ${h} tự tập theo lịch HLV cho. ${h} muốn ghé đo InBody miễn phí buổi sáng hay chiều ạ.`,
+            `Dạ với mục tiêu tăng cơ, em gợi ${h} tập Gym kèm PT 1-1 giai đoạn đầu ạ — HLV xây kỹ thuật nền chuẩn, tránh sai tư thế rồi quen tay ${h} tự tập sau. ` +
+            `${h} ghé đo InBody miễn phí 1 buổi để HLV xem thể trạng rồi tư vấn lộ trình nha, ${h} tiện sáng hay chiều ạ?`,
           mustInclude: ["PT", "Gym"],
         };
       }
@@ -131,9 +129,8 @@ export const FITNESS_TEMPLATES: Template[] = [
         return {
           id: "indecisive_recommend_thu_gian",
           template:
-            `Dạ với mục tiêu thư giãn giảm stress, em gợi Yoga GV Ấn Độ ạ. ` +
-            `Yoga giúp giãn cơ, hơi thở đều, ngủ ngon hơn — rất hợp người căng thẳng công việc. ` +
-            `Gói 5.8 triệu/12 tháng fulltime 4 ca/ngày linh hoạt. ${h} tiện đi tập buổi sáng hay chiều ạ.`,
+            `Dạ với mục tiêu thư giãn giảm stress, em gợi ${h} tập Yoga với GV người Ấn Độ ạ — động tác chậm theo hơi thở, giãn cơ, ngủ ngon hơn, rất hợp người hay căng thẳng công việc. ` +
+            `${h} tiện đi tập buổi sáng hay chiều để em xếp lớp cho mình ạ?`,
           mustInclude: ["Yoga"],
         };
       }
@@ -141,9 +138,8 @@ export const FITNESS_TEMPLATES: Template[] = [
         return {
           id: "indecisive_recommend_hoc_boi",
           template:
-            `Dạ với học bơi, em gợi lớp 1-1 12 buổi 3 triệu kèm 3 tháng bể tự bơi ạ. ` +
-            `HLV riêng kèm sát, cam kết biết bơi sau khóa — chưa biết được học lại miễn phí. ` +
-            `Bể 4 mùa duy nhất Vĩnh Yên, mùa đông có nước ấm. ${h} muốn học cho người lớn hay trẻ em ạ.`,
+            `Dạ với học bơi, em gợi ${h} lớp 1-1 để HLV kèm sát, cam kết biết bơi sau khóa ạ — bể 4 mùa duy nhất Vĩnh Yên, mùa đông vẫn có nước ấm nên bơi quanh năm được. ` +
+            `${h} muốn học cho người lớn hay trẻ em để em tư vấn đúng lớp ạ?`,
           mustInclude: ["bơi", "1-1"],
         };
       }
@@ -151,9 +147,8 @@ export const FITNESS_TEMPLATES: Template[] = [
       return {
         id: "indecisive_recommend_full",
         template:
-          `Dạ để em gợi cho ${h} thẻ Full đa năng ạ — Gym + Bơi + Yoga + Zumba dùng chung 1 thẻ, đổi món theo hôm cho đỡ chán. ` +
-          `7 triệu/12 tháng, tính ra mỗi môn khoảng 146k/tháng. ` +
-          `${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+          `Dạ để em gợi cho ${h} thẻ Full đa năng ạ — Gym, Bơi, Yoga, Zumba dùng chung 1 thẻ, hôm nào thích môn nào thì tập môn đó cho đỡ chán. ` +
+          `${h} ghé thử 1 buổi cảm nhận trước rồi mình tính gói sau nha, ${h} tiện sáng hay chiều ạ?`,
         mustInclude: ["Full", "Gym"],
       };
     },
@@ -296,10 +291,8 @@ export const FITNESS_TEMPLATES: Template[] = [
         return {
           id: "giam_can_recommend_solution",
           template:
-            `Dạ vâng ${h}, đối với giảm cân em gợi mình kết hợp Gym và Zumba ạ. ` +
-            `Nếu ${h} thích Bơi có thể kết hợp thêm — 3 bộ môn này đều đốt calo và săn chắc cơ thể, kết hợp với nhau sẽ đạt mục tiêu nhanh hơn. ` +
-            `Zumba còn giúp xả stress để mình duy trì lâu dài. Thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung được cả 4 môn ạ. ` +
-            `${h} có muốn ghé thử 1 buổi không ạ.`,
+            `Dạ vâng ${h}, để giảm cân em gợi mình kết hợp Gym và Zumba ạ — cả hai đều đốt calo, săn chắc cơ thể, Zumba còn vui giúp mình giữ động lực lâu dài. ` +
+            `Thích thì thêm Bơi cũng tốt vì bơi là cardio toàn thân. ${h} ghé thử 1 buổi cảm nhận trước rồi mình tính gói sau nha, ${h} tiện sáng hay chiều ạ?`,
           mustInclude: ["Gym", "Zumba", "Bơi"],
         };
       }
@@ -318,9 +311,8 @@ export const FITNESS_TEMPLATES: Template[] = [
       return {
         id: "giam_can_recommend_solution",
         template:
-          `Dạ vâng ${h}, đối với giảm cân em gợi mình kết hợp Gym và Zumba ạ. ` +
-          `Nếu ${h} thích Bơi có thể kết hợp thêm. Thẻ Full 4 dịch vụ 7 triệu/12 tháng dùng chung được cả 4 môn ạ. ` +
-          `${h} có muốn ghé thử 1 buổi không ạ.`,
+          `Dạ vâng ${h}, để giảm cân em gợi mình kết hợp Gym và Zumba cho đốt mỡ tốt mà đỡ chán ạ. ` +
+          `${h} ghé thử 1 buổi cảm nhận phòng tập rồi mình tính tiếp nha, ${h} tiện sáng hay chiều ạ?`,
         mustInclude: ["Gym", "Zumba"],
       };
     },
@@ -578,7 +570,7 @@ export const FITNESS_TEMPLATES: Template[] = [
     render: (ctx) => ({
       id: "pool_hours",
       template:
-        `Dạ chào ${ctx.h}, bể bơi bên em mở cửa từ 6h sáng đến 20h hàng ngày ạ. ${ctx.h} có thể đi bơi khung giờ nào ạ.`,
+        `${ctx.state.turnCount <= 1 ? `Dạ em chào ${ctx.h}, ` : "Dạ "}bể bơi bên em mở cửa từ 6h sáng đến 20h hàng ngày ạ. ${ctx.h} có thể đi bơi khung giờ nào ạ.`,
       mustInclude: ["6h", "20h"],
     }),
   },
@@ -1375,8 +1367,8 @@ export const FITNESS_TEMPLATES: Template[] = [
       return {
         id: "full_package_confirm",
         template:
-          `Dạ vâng ${ctx.h}, em thấy gói Full phù hợp với ${ctx.h} ạ — vì hiện tại mình cũng chưa biết nên tập gì cụ thể, nên cứ tập tất, mỗi thời điểm mình sẽ có một mục tiêu khác nhau. ` +
-          `${ctx.h} cho em xin tên và SĐT để em giữ slot ạ.`,
+          `Dạ vâng ${ctx.h}, gói Full rất phù hợp với mình ạ — mỗi thời điểm mình sẽ có một mục tiêu khác nhau, có đủ 4 dịch vụ thì luân phiên cho linh động, đỡ chán. ` +
+          `${ctx.h} cho em xin tên với SĐT để em giữ slot ạ.`,
         mustInclude: ["gói Full"],
       };
     },
