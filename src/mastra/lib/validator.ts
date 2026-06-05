@@ -41,8 +41,12 @@ export function safeFallback(state: ConversationState): string {
   if (state.stage === "evaluation" || state.stage === "negotiation") {
     return `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ tư vấn trực tiếp ạ.`;
   }
-  // Default: discovery / opening / fallback chung
-  return `Dạ vâng ${h}, ${h} cho em xin thêm chi tiết để tư vấn cụ thể hơn ạ.`;
+  // Default: discovery / opening — câu DỨT KHOÁT, KHÔNG mơ hồ "xin thêm chi tiết".
+  // Đã biết bộ môn → hỏi lịch (bước kế); chưa biết → hỏi bộ môn.
+  if (state.knownInfo.serviceType) {
+    return `Dạ vâng ${h}, ${h} tiện tập buổi sáng hay chiều để em tư vấn lịch phù hợp ạ.`;
+  }
+  return `Dạ vâng ${h}, ${h} đang quan tâm bộ môn nào để em tư vấn giúp ạ.`;
 }
 
 /**

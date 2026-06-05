@@ -32,6 +32,22 @@ export function buildDateContext(): string {
   const now = getNowVN();
   const today = formatDate(now);
 
+  // Mốc Thứ 2 của TUẦN HIỆN TẠI (lịch Thứ 2–Chủ nhật) để gán nhãn tuần CHÍNH XÁC,
+  // KHỚP với suggestDatePair / nextWeekMonday. KHÔNG dùng cửa sổ trượt 7 ngày — vì
+  // nếu hôm nay là Thứ 6 thì Thứ 2 (sau 3 ngày) phải là "tuần sau", không phải "tuần này".
+  const dayMon = now.getDay() === 0 ? 7 : now.getDay(); // T2=1..CN=7
+  const mondayThisWeek = new Date(now);
+  mondayThisWeek.setDate(now.getDate() - (dayMon - 1));
+  mondayThisWeek.setHours(0, 0, 0, 0);
+
+  const weekLabel = (d: Date): string => {
+    const wk = Math.floor((d.getTime() - mondayThisWeek.getTime()) / (7 * 86400000));
+    if (wk <= 0) return "tuần này";
+    if (wk === 1) return "tuần sau";
+    if (wk === 2) return "tuần sau nữa";
+    return `${wk} tuần nữa`;
+  };
+
   // Tạo map thứ → ngày trong 14 ngày tới để LLM tham chiếu.
   // Mỗi dòng đều có thứ rõ ràng để classifier không nhầm khi resolve "ngày mai" / "thứ 7".
   const upcoming: string[] = [];
@@ -39,11 +55,10 @@ export function buildDateContext(): string {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
     const dow = DAY_NAMES[d.getDay()];
-    const week = i <= 7 ? "tuần này" : "tuần sau";
     const prefix =
       i === 1
         ? `Ngày mai (${dow})`
-        : `${dow} ${week}`;
+        : `${dow} ${weekLabel(d)}`;
     upcoming.push(`  ${prefix}: ${dd(d)}/${mm(d)}/${d.getFullYear()}`);
   }
 

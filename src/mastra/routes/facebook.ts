@@ -119,7 +119,7 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
     const { loadState } = await import("../lib/stateStore");
     const { getMediaTool } = await import("../tools/media");
 
-    const state = await loadState(mastra, senderId, "facebook-customer");
+    const state = await loadState(mastra, senderId, senderId);
 
     // Skip followup khi lead đã chốt — đủ tên + SĐT + giờ. Followup khi đã đặt lịch xong
     // làm khách bối rối ("đã chốt rồi mà bot vẫn nhắn check lại").
@@ -288,7 +288,7 @@ async function deleteLastAssistantMessage(senderId: string) {
   try {
     const result = await memory.recall({
       threadId: senderId,
-      resourceId: "facebook-customer",
+      resourceId: senderId,
       perPage: 5,
       orderBy: { field: "createdAt", direction: "DESC" },
     });
@@ -350,7 +350,7 @@ async function handleMessage(
       inputData: {
         message:    text,
         threadId:   senderId,
-        resourceId: "facebook-customer",
+        resourceId: senderId,
       },
     });
   } finally {
@@ -428,7 +428,7 @@ async function handleMessage(
 
   // Sheets-write SAU sendText: đảm bảo chỉ ghi lead khi KH đã thấy reply chốt đơn.
   // Tránh turn abort ngẫu nhiên ghi sheets cho KH chưa thấy gì → order-lock sai.
-  await tryWriteLeadIfReady(mastra, senderId, "facebook-customer");
+  await tryWriteLeadIfReady(mastra, senderId, senderId);
 
   // Schedule follow-up sau 10p nếu khách ghost.
   // Skip nếu vừa gửi QR (= đã chốt đơn xong, không cần spam)

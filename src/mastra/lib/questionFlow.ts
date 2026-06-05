@@ -1172,10 +1172,29 @@ function fallbackDiscoveryAfterServiceMention(
 ): QuestionFlowDecision | null {
   if (state.stage !== "discovery") return null;
   if (state.knownInfo.serviceType === null) return null;
-  if (state.knownInfo.fitnessGoal !== null) return null;
   // Đã thu được tên hoặc SĐT → không quay lại hỏi discovery (đang chốt slot).
   if (state.knownInfo.name || state.knownInfo.phone) return null;
   const svc = state.knownInfo.serviceType;
+
+  // ── ĐÃ BIẾT bộ môn + MỤC TIÊU nhưng CHƯA có lịch/giờ → hỏi LỊCH (bước discovery kế).
+  // Trước đây goal set là return null → không có template → LLM tự generate, dễ drift
+  // rồi rớt safeFallback mơ hồ ("xin thêm chi tiết"). Giờ ack goal + hỏi buổi dứt khoát.
+  if (
+    state.knownInfo.fitnessGoal !== null &&
+    !state.knownInfo.schedule &&
+    !state.knownInfo.preferredTime &&
+    !state.knownInfo.memberType
+  ) {
+    return {
+      id: "ask_schedule_after_goal",
+      template:
+        `Dạ vâng ${h}, mục tiêu này em nắm rồi ạ. ` +
+        `${h} tiện tập buổi sáng hay chiều để em sắp xếp lịch phù hợp ạ.`,
+      mustInclude: ["sáng", "chiều"],
+    };
+  }
+  // Các trường hợp goal đã set khác (đã có lịch/giờ/memberType) → để flow khác xử lý.
+  if (state.knownInfo.fitnessGoal !== null) return null;
 
   // ── BƯỚC 2: prev đã hỏi experience, KH đã trả lời (classifier không bắt
   // được no_experience / has_experience topic vì câu trả lời mơ hồ). Fire
