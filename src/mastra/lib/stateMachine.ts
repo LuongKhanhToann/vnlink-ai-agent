@@ -180,7 +180,20 @@ export interface ConversationState {
   // Track riêng từng key media đã gửi — cho phép gửi media khi khách hỏi DỊCH VỤ MỚI.
   // Vd: đã gửi fitness-pool, khách hỏi zumba → gửi fitness-zumba (key chưa có trong list).
   mediaShownKeys: string[];
+  /** ≥1 đơn đã ghi Sheets thành công. KHÔNG còn khóa chat — chỉ dùng để chuyển sang
+   *  chế độ retention (concierge sau chốt). Xem [[bookingsWritten]] cho dedup ghi đơn. */
   sheetsWritten: boolean;
+  /** Chữ ký các đơn ĐÃ ghi Sheets — dedup cho multi-order. Mỗi entry = `tên|SĐT|dịch vụ|giờ`
+   *  (xem bookingSignature() = flow|tên|SĐT|giờ). Đặt buổi GIỜ khác / người khác → chữ ký mới → ghi dòng tiếp.
+   *  Thay cho cơ chế khóa boolean cũ (chỉ ghi 1 lần rồi im lặng). */
+  bookingsWritten?: string[];
+  /** Multi-service far-context: TẤT CẢ bộ môn KH đã quan tâm xuyên các turn (gym/yoga/zumba/boi/pilates).
+   *  Khác serviceType (= focus hiện tại). Dùng để bot nhớ & tư vấn song song từng môn,
+   *  KHÔNG tự gộp về thẻ Full trừ khi KH hỏi combo. */
+  servicesInterested?: string[];
+  /** Transient (per-turn): khi KH ĐỔI LỊCH 1 đơn ĐÃ ghi → giữ giờ CŨ để tryWriteLeadIfReady
+   *  UPDATE đúng dòng Sheets thay vì append dòng mới. buildNextState set lại mỗi turn (null nếu không đổi). */
+  rescheduleFromTime?: string | null;
   lastBotReply?: string;
   /** Tin nhắn user của turn TRƯỚC. Dùng cho guard cross-turn (vd "bé 10 tuổi" ở turn 2 → tránh
    *  hỏi lại tuổi ở turn 3). KHÁC `message` đang xử lý (current turn). */
@@ -226,7 +239,7 @@ export function mergeSlots(
     if (e === null) return x;
     if (x === e) return e;
     const hasTimeSignal =
-      /(sáng|chiều|tối|trưa|thứ|chủ\s?nhật|\bcn\b|\d{1,2}h|\d{1,2}\/\d{1,2}|mai|hôm nay|hôm qua|cuối tuần|ngày kia)/i.test(
+      /(sáng|chiều|tối|trưa|thứ|chủ\s?nhật|\bcn\b|\d{1,2}h|\d{1,2}\/\d{1,2}|mai|hôm nay|hôm qua|đầu tuần|giữa tuần|cuối tuần|tuần sau|tuần tới|đầu tháng|giữa tháng|cuối tháng|tháng sau|vài hôm|mấy hôm|ngày kia)/i.test(
         x,
       );
     return hasTimeSignal ? x : e;
@@ -244,8 +257,11 @@ export function mergeSlots(
   // Reject mọi giá trị khác (vd "aerobic" — khách nhắc để so sánh nhưng KHÔNG phải dịch vụ
   // bên em → không được switch sang).
   //
-  // Multi-service handling: classifier có thể trả về "gym và bơi" / "yoga, zumba" / "gym+boi"
-  // khi KH muốn 2+ dịch vụ. Trong case này map sang "full" (combo 4 dịch vụ) thay vì reject.
+  // serviceType = FOCUS hiện tại (1 môn KH đang bàn). KHÔNG gộp multi về "full" nữa
+  // (yêu cầu: tư vấn song song từng môn, để KH tự quyết lẻ hay combo).
+  // Khi classifier trả "gym và bơi" → lấy môn PRIMARY (đầu tiên) làm focus;
+  // các môn còn lại được tích lũy vào servicesInterested (xem collectServices + buildNextState).
+  // "full"/"combo" CHỈ set khi KH chủ động nói (vd "thẻ full", "gói combo 4") — đã nằm trong valid list.
   function pickServiceType(
     e: string | null,
     x: string | null | undefined,
@@ -259,12 +275,11 @@ export function mergeSlots(
     // → KHÔNG treat as multi-service. Để null cho classifier prompt xử lý đúng.
     const isCompareCue = /(với|hay|vs\.?|so\s*với|cái\s*nào)/i.test(lower);
     if (isCompareCue) return null;
-    // Multi-service: "gym và bơi", "yoga + zumba", "gym, bơi", "gym/yoga", "cả gym lẫn bơi"
+    // Multi-service: "gym và bơi", "yoga + zumba" → lấy môn ĐẦU TIÊN làm focus (KHÔNG gộp Full).
     const services = lower.match(/(gym|yoga|zumba|bơi|boi|pilates)/g) || [];
-    if (services.length >= 2) return "full";
-    // Single matched service trong cụm dài ("đăng ký gym thôi") → lấy service đó
-    if (services.length === 1) {
-      return services[0] === "bơi" ? "boi" : services[0];
+    const first = services[0];
+    if (first) {
+      return first === "bơi" ? "boi" : first;
     }
     return null;
   }
@@ -496,6 +511,69 @@ export function detectServiceByKeyword(message: string): string | null {
   if (/(học\s*bơi|tập\s*bơi|bộ\s*môn\s*bơi|gói\s*bơi|đi\s*bơi|biết\s*bơi)/.test(m)) return "boi";
   if (/(gói\s*full|thẻ\s*full|combo\s*4|đa\s*dịch\s*vụ)/.test(m)) return "full";
   return null;
+}
+
+// Quét TẤT CẢ bộ môn Fami được nhắc trong 1 tin (gym/yoga/zumba/boi/pilates).
+// Dùng cho servicesInterested (far-context multi-service). KHÁC detectServiceByKeyword
+// (chỉ trả 1 focus). "bơi" cần context để tránh false-positive ("bơi trong tiền" ...).
+export function collectServices(message: string): string[] {
+  if (!message) return [];
+  const m = message.toLowerCase();
+  const found = new Set<string>();
+  if (/\bpilates?\b/.test(m)) found.add("pilates");
+  if (/\byoga\b/.test(m)) found.add("yoga");
+  if (/\bzumba\b/.test(m)) found.add("zumba");
+  if (/(\bgym\b|tập\s*gym|đăng\s*kí?\s*gym|phòng\s*gym)/.test(m)) found.add("gym");
+  // "bơi" trong tiếng Việt gần như luôn = bơi lội → bắt cả khi đứng trần (boundary VI-safe),
+  // không cần ép context. (detectServiceByKeyword cho FOCUS vẫn giữ context để né false-focus.)
+  if (/(?<!\p{L})bơi(?!\p{L})/u.test(m)) found.add("boi");
+  return [...found];
+}
+
+// Chữ ký 1 đơn đã chốt = KHÓA ĐẶT CHỖ: flow|tên|SĐT|giờ.
+// CỐ Ý KHÔNG gồm service — vì slot đặt chỗ là (người + giờ), service chỉ là cột dữ liệu.
+// Nếu gồm service thì khi khách chỉ HỎI về môn khác (đổi service, GIỮ giờ cũ) sẽ tạo chữ ký
+// "đủ" mới → ghi 1 dòng MA dù khách chưa đặt. Dùng (người+giờ) → hỏi-đổi-môn không sinh đơn mới;
+// chỉ khi đổi GIỜ (đặt buổi khác) hoặc đổi NGƯỜI mới ra chữ ký mới.
+// flow để phân biệt đơn fitness vs giai-co (2 business khác nhau).
+// Chỉ trả non-null khi đủ tên + SĐT + giờ (lead complete).
+export function bookingSignature(info: KnownInfo, flow: Flow): string | null {
+  if (!info.name || !info.phone || !info.preferredTime) return null;
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  return [flow, norm(info.name), norm(info.phone), norm(info.preferredTime)].join("|");
+}
+
+// KH (sau khi đã chốt) muốn ĐẶT THÊM: môn khác / buổi khác / cho người thân.
+// Cue rõ ràng để re-open funnel thu thập đơn mới thay vì ở lì retention.
+const ADD_BOOKING_CUE =
+  /(đặt|đăng\s*kí?|book|lấy|mua|cho\s*em|thêm)\s*(thêm|nữa|1\s*(buổi|gói|thẻ|suất)|cho\s*(con|bé|vợ|chồng|mẹ|bố|ba|người\s*thân|bạn|anh|chị|em))|thêm\s*(1\s*)?(buổi|gói|môn|thẻ|suất|người|dịch\s*vụ)|còn\s*(môn|dịch\s*vụ|gói)\s*(khác|nào)|đăng\s*kí?\s*(luôn\s*)?(cho|thêm)/i;
+
+export function detectAddBookingIntent(message: string): boolean {
+  if (!message) return false;
+  return ADD_BOOKING_CUE.test(message);
+}
+
+// KH ĐỔI LỊCH (reschedule) đơn đã đặt: dời/đổi/chuyển sang giờ khác. KHÁC "đặt thêm" (add).
+// Dùng để UPDATE dòng Sheets cũ thay vì tạo dòng mới.
+// BẮT BUỘC danh từ lịch/giờ theo sau verb để né false-positive ("chuyển khoản", "đổi gói", "đổi ý").
+const RESCHEDULE_CUE =
+  /(đổi|dời|chuyển|lùi|hoãn)\s+(lịch|giờ|buổi|ngày|sang|qua|lại|thành|đến)|thay\s*vì|(hôm|bữa)\s*khác|sang\s+(hôm|ngày|thứ)|không\s+(đến|đi|qua|tới)\s+(được|nữa)|bận\s+(rồi|mất|quá)/i;
+
+export function detectRescheduleIntent(message: string): boolean {
+  if (!message) return false;
+  return RESCHEDULE_CUE.test(message);
+}
+
+// KH đặt hộ NGƯỜI KHÁC (con/vợ/chồng/người thân/bạn...). Dùng để cho phép override
+// name/phone của đơn mới (vốn store-first) khi sau chốt khách đăng ký cho người thân.
+// CỐ Ý KHÔNG gồm anh/chị/em — đó là honorific KH tự xưng ("cho chị xem", "cho em hỏi"),
+// không phải người thứ ba. Chỉ match quan hệ rõ ràng là NGƯỜI KHÁC.
+const BENEFICIARY_CUE =
+  /(cho|của)\s+(con|bé|cháu|vợ|chồng|mẹ|bố|ba\b|má|ông|bà|người\s*thân|bạn|đồng\s*nghiệp|gấu|người\s*yêu|2\s*(vợ\s*chồng|mẹ\s*con|bố\s*con))/i;
+
+export function detectBeneficiaryCue(message: string): boolean {
+  if (!message) return false;
+  return BENEFICIARY_CUE.test(message);
 }
 
 export function detectFlowByKeyword(
@@ -924,10 +1002,122 @@ export function buildNextState(
     };
   }
 
+  // ── FLOW-CHANGE RESET (limitation 3): đổi domain (fitness↔giai-co) là 1 đơn HOÀN TOÀN
+  // khác (2 business, lịch hẹn riêng). GIỮ name/phone (cùng người), RESET mọi slot booking
+  // còn lại — kể cả preferredTime (giờ hẹn fitness ≠ giờ hẹn giai-co). Tránh carry-over giờ cũ
+  // làm isLeadComplete=true → ghi "đơn ma" ở flow mới + để funnel flow mới thu thập sạch.
+  if (flow !== previous.flow) {
+    knownInfo = {
+      ...knownInfo,
+      serviceType: flow === "fitness" ? knownInfo.serviceType : null,
+      fitnessGoal: flow === "fitness" ? knownInfo.fitnessGoal : null,
+      memberType: flow === "fitness" ? knownInfo.memberType : null,
+      schedule: flow === "fitness" ? knownInfo.schedule : null,
+      durationMonths: flow === "fitness" ? knownInfo.durationMonths : null,
+      painArea: flow === "giai-co" ? knownInfo.painArea : null,
+      painSpread: flow === "giai-co" ? knownInfo.painSpread : null,
+      painDuration: flow === "giai-co" ? knownInfo.painDuration : null,
+      pastMethod: flow === "giai-co" ? knownInfo.pastMethod : null,
+      sessionPackage: flow === "giai-co" ? knownInfo.sessionPackage : null,
+      // Reset giờ hẹn khi đổi flow — TRỪ khi turn này có tín hiệu thời gian rõ (khách
+      // chủ động cho giờ cho dịch vụ mới ngay trong tin đổi flow).
+      preferredTime: isPreferredTimeSpecific(extractedSlotsAugmented.preferredTime ?? null)
+        ? knownInfo.preferredTime
+        : null,
+    };
+  }
+
+  // ── ĐẶT THÊM / ĐẶT HỘ (limitation 1) — sau chốt, KH mở 1 đơn MỚI ──
+  // Vấn đề: name/phone/preferredTime của đơn 1 vẫn còn (store-first) → đơn mới "tưởng" đã đủ
+  // → ghi dòng Sheets với DỮ LIỆU CŨ LẪN LỘN (tên người cũ + giờ cũ). Smoke test thật bắt được.
+  // Nguyên tắc: đơn mới KHÔNG kế thừa slot đặt-chỗ của đơn cũ. Chỉ giữ slot NẾU classifier trích
+  // được MỚI ngay turn này; còn lại = null → isLeadComplete=false → bot thu thập thêm rồi mới ghi
+  // (thà chờ 1 turn còn hơn ghi sai). Đặt hộ người khác → reset cả name/phone (người mới).
+  const isBeneficiary = previous.sheetsWritten === true && detectBeneficiaryCue(message);
+  const isSelfAdd =
+    previous.sheetsWritten === true && !isBeneficiary && detectAddBookingIntent(message);
+  if (isBeneficiary || isSelfAdd) {
+    // Per-slot: 1 slot CHỈ bị reset nếu giá trị hiện tại CHÍNH LÀ của 1 đơn ĐÃ ghi
+    // (tức đang kế thừa nhầm từ đơn cũ). Nếu là giá trị MỚI (đang gom dần cho đơn mới qua
+    // nhiều turn) → GIỮ. Nhờ vậy đơn người-thân tích lũy được name/phone/time qua các turn
+    // mà không bị ghi nhầm dữ liệu người cũ. KHÔNG cần thêm state field.
+    const normV = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    const writtenSigs = previous.bookingsWritten ?? [];
+    const slotUsedInWritten = (val: string | null, idx: number) =>
+      val !== null && writtenSigs.some((sig) => sig.split("|")[idx] === normV(val));
+    const exFresh = (v: unknown): string | null =>
+      typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+
+    // sig = flow|name|phone|time → idx 1=name, 2=phone, 3=time
+    if (slotUsedInWritten(knownInfo.preferredTime, 3)) {
+      knownInfo = { ...knownInfo, preferredTime: exFresh(extractedSlotsAugmented.preferredTime) };
+    }
+    if (isBeneficiary) {
+      const name = slotUsedInWritten(knownInfo.name, 1)
+        ? exFresh(extractedSlotsAugmented.name)
+        : knownInfo.name;
+      const phone = slotUsedInWritten(knownInfo.phone, 2)
+        ? exFresh(extractedSlotsAugmented.phone)
+        : knownInfo.phone;
+      knownInfo = { ...knownInfo, name, phone };
+      console.log(
+        `[stateMachine] đặt hộ người khác → đơn mới gom: name=${name ?? "(chờ)"} phone=${phone ?? "(chờ)"} time=${knownInfo.preferredTime ?? "(chờ)"}`,
+      );
+    } else {
+      console.log(`[stateMachine] đặt thêm (cùng người) → giờ đơn mới: ${knownInfo.preferredTime ?? "(chờ)"}`);
+    }
+  }
+
+  // ── Multi-service far-context: tích lũy MỌI bộ môn KH từng quan tâm ──
+  // Gộp: services trước đó + môn quét từ message + focus serviceType hiện tại.
+  // Khi switch service → KHÔNG xóa lịch sử (vẫn nhớ các môn cũ để tư vấn song song).
+  const servicesInterested = (() => {
+    const set = new Set(previous.servicesInterested ?? []);
+    for (const s of collectServices(message)) set.add(s);
+    const focus = knownInfo.serviceType;
+    if (focus && focus !== "full") set.add(focus);
+    return [...set];
+  })();
+
+  // ── POST-CLOSE STAGE (retention vs đơn thứ 2) ──
+  // Sau khi ≥1 đơn đã ghi (sheetsWritten), MẶC ĐỊNH vào retention (concierge). Ghi Sheets
+  // KHÔNG phụ thuộc stage — tryWriteLeadIfReady chạy mỗi turn, dedup theo bookingSignature,
+  // nên đơn 2 (đổi giờ/môn/người) vẫn được ghi dù đang ở retention. Concierge GATE tự thu thập
+  // info đơn mới + xác nhận tự nhiên (xem prefixBuilder retention branch).
+  //
+  // CỐ Ý KHÔNG re-open funnel (discovery) khi "đặt thêm": vì slot đơn 1 còn đầy
+  // (name+phone+preferredTime) → computeNextStage sẽ nhảy thẳng commitment và xác nhận lại
+  // ĐƠN CŨ thay vì hỏi đơn mới. Để retention concierge xử lý mượt hơn (giống sale thật).
+  //
+  // inFunnel2 = turn NGAY SAU chốt mà KH còn sửa/bổ sung đơn (vd đổi giờ) → giữ funnel để
+  // chốt lại + ghi bản cập nhật, rồi mới rơi về retention.
+  const closedBefore = previous.sheetsWritten === true;
+  const bookingsWritten = previous.bookingsWritten ?? [];
+  const curSig = bookingSignature(knownInfo, flow);
+  const curBookingWritten = curSig !== null && bookingsWritten.includes(curSig);
+  const FUNNEL_STAGES: Stage[] = ["discovery", "inbody", "evaluation", "negotiation", "commitment"];
+  const inFunnel2 = closedBefore && FUNNEL_STAGES.includes(previous.stage);
+
+  // ── RESCHEDULE (limitation 2): sau chốt, KH ĐỔI giờ (không phải đặt thêm) → giữ giờ CŨ
+  // để tryWriteLeadIfReady UPDATE đúng dòng Sheets thay vì append dòng trùng.
+  // Điều kiện: đã chốt + giờ thay đổi + cue "đổi/dời" + KHÔNG phải "đặt thêm".
+  const oldTime = previous.knownInfo.preferredTime;
+  const timeChanged =
+    oldTime !== null && knownInfo.preferredTime !== null && knownInfo.preferredTime !== oldTime;
+  const rescheduleFromTime =
+    closedBefore &&
+    timeChanged &&
+    detectRescheduleIntent(message) &&
+    !detectAddBookingIntent(message) &&
+    flow === previous.flow
+      ? oldTime
+      : null;
+
   const baseStage: Stage =
-    flow !== previous.flow ? "opening"
-      : switched ? "opening"
-      : previous.stage;
+    flow !== previous.flow ? "opening"               // đổi domain (fitness↔giai-co) → funnel mới
+      : !closedBefore ? (switched ? "opening" : previous.stage) // trước chốt: hành vi cũ
+      : inFunnel2 && !curBookingWritten ? previous.stage // ngay sau chốt, KH còn sửa đơn → funnel chốt lại + ghi
+      : "retention";                                 // mặc định sau chốt: concierge (nhận đặt thêm tự nhiên)
 
   const intent = llm.intent;
 
@@ -970,6 +1160,9 @@ export function buildNextState(
     mediaShown,
     mediaShownKeys: previous.mediaShownKeys ?? [],
     sheetsWritten: previous.sheetsWritten,
+    bookingsWritten,
+    servicesInterested,
+    rescheduleFromTime,
     lastBotReply: previous.lastBotReply,
     // Track user message của turn TRƯỚC (≠ current `message`). Khi turn N+1 gọi, sẽ trở thành "previous" user message.
     // Workflow set lastUserMessage = current message ở step lưu state, sau khi buildNextState chạy xong.
@@ -1014,6 +1207,9 @@ export const DEFAULT_STATE: ConversationState = {
   mediaShown: false,
   mediaShownKeys: [],
   sheetsWritten: false,
+  bookingsWritten: [],
+  servicesInterested: [],
+  rescheduleFromTime: null,
   askedHistory: [],
   mentionedFacts: [],
 };

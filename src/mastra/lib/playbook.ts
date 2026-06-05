@@ -59,7 +59,10 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Lắng nghe. Thừa nhận. Cam kết giải quyết cụ thể có timeline.",
 
   retention_neutral:
-    "Chào thân. Hỏi dịch vụ tiếp theo. Nhắc ưu đãi hội viên cũ.",
+    "SAU CHỐT (concierge): đơn đã đặt xong, slot đã giữ. Trả lời answer-first câu khách hỏi, ấm áp như khách quen — " +
+    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ slot... DỪNG', KHÔNG pitch lại gói đã chốt. " +
+    "Upsell NHẸ chỉ khi khách lộ tín hiệu (hỏi môn khác/giá/rảnh thêm) — gợi 1 ý liên quan, không chèo kéo. " +
+    "Khách muốn đặt thêm (môn/buổi/người khác) → vui vẻ hỏi gọn info còn thiếu cho đơn mới.",
 };
 
 // ─────────────────────────────────────────────
@@ -94,7 +97,9 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "Lắng nghe. Thừa nhận. Cam kết cụ thể có timeline. Không push.",
 
   retention_neutral:
-    "Chào thân. Hỏi cảm giác lần trước. Gợi buổi tiếp theo hoặc lộ trình.",
+    "SAU CHỐT (concierge): lịch đã đặt xong. Trả lời answer-first, ấm áp, hỏi cảm giác/dặn dò nếu hợp ngữ cảnh — " +
+    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ slot... DỪNG'. Gợi lộ trình/buổi tiếp CHỈ khi khách quan tâm. " +
+    "Khách muốn đặt thêm buổi/người khác → vui vẻ hỏi gọn info còn thiếu.",
 };
 
 // ─────────────────────────────────────────────

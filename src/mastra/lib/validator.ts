@@ -28,6 +28,10 @@ export function safeFallback(state: ConversationState): string {
   const h =
     state.honorific === "anh/chị" ? "anh/chị" : state.honorific;
   // Stage-specific fallback — context-aware nhưng vẫn safe
+  // Retention (sau chốt): KHÔNG xin lại info — chỉ mời hỏi thêm.
+  if (state.stage === "retention") {
+    return `Dạ vâng ${h}, còn điều gì em hỗ trợ thêm cho ${h} không ạ.`;
+  }
   if (state.stage === "commitment" && state.knownInfo.preferredTime) {
     return `Dạ vâng ${h}, ${h} cho em xin tên với SĐT để em giữ slot ạ.`;
   }
@@ -94,8 +98,24 @@ export function validateReply(
     reasons.push("question ends with 'nha?'/'nhé?'");
   }
 
-  // 7. Bot khen đáp án khách
-  if (/\b(rất\s+tốt|tốt\s+quá|chuẩn\s+rồi|hợp\s+lý\s+(?:quá|lắm)|tuyệt\s+vời|quá\s+hợp)/i.test(reply)) {
+  // 7. Bot khen — CHỈ chặn sycophancy THẬT (khen đáp án/lựa chọn của KHÁCH, hoặc khen TRỐNG),
+  //    KHÔNG chặn claim DỊCH VỤ hợp lệ ("yoga rất tốt cho stress", "phương pháp này phù hợp").
+  //    Trước đây fail mọi "rất tốt" → nuke cả câu trả lời tốt thành fallback cụt. Nay phân biệt theo ngữ cảnh.
+  const PRAISE =
+    "(?:rất\\s+tốt|tốt\\s+quá|tốt\\s+rồi|ổn\\s+lắm|ổn\\s+rồi|chuẩn\\s+rồi|hợp\\s+lý(?:\\s+(?:quá|lắm))?|tuyệt\\s+vời|quá\\s+hợp|lý\\s+tưởng|phù\\s+hợp\\s+lắm)";
+  // 7a. Khen GẮN với đáp án/lựa chọn/lịch của khách → sycophancy.
+  //     (vd "lựa chọn rất tốt", "4 buổi/tuần tốt quá", "tần suất hợp lý lắm", "khung giờ đó lý tưởng")
+  const customerDirectedPraise = new RegExp(
+    `(lựa\\s+chọn|quyết\\s+định|mục\\s+tiêu|tần\\s+suất|\\d+\\s*buổi|khung\\s+giờ|giờ\\s+(?:đó|này|đấy)|đáp\\s+án|câu\\s+hỏi)[^.!?]{0,15}(?:là|thì)?\\s*${PRAISE}`,
+    "i",
+  );
+  // 7b. Khen TRỐNG đứng đầu ACK (không gắn dịch vụ nào) → khen khách. (vd "Dạ rất tốt ạ.", "Tốt quá,")
+  //     "Dạ yoga rất tốt cho stress ạ" KHÔNG match vì "rất tốt" đứng sau "yoga", không phải đầu clause.
+  const barePraiseAck = new RegExp(
+    `(?:^|[.!?]\\s*)(?:dạ\\s+|vâng\\s+)?${PRAISE}\\s*(?:ạ|nha|đấy)?\\s*[.!,]`,
+    "i",
+  );
+  if (customerDirectedPraise.test(reply) || barePraiseAck.test(reply)) {
     reasons.push("sycophantic praise leak");
   }
 

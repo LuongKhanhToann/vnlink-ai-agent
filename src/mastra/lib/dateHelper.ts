@@ -104,3 +104,117 @@ export function verifyWeekdayInTime(s: string | null): string | null {
   if (statedNorm === correct) return s; // đã khớp
   return s.replace(weekdayRegex, correct);
 }
+
+// ─────────────────────────────────────────────
+// CHỐT NGÀY — đề xuất 2 NGÀY cụ thể (đòn bán hàng "chọn 1 trong 2")
+//
+// Sale cần ngày chuẩn để biết khách đến lúc nào / gọi xác nhận. Khi khách nói
+// mơ hồ ("đầu tuần sau", "đầu tháng", "tầm chiều") → tính ra cửa sổ ngày dựa
+// vào hôm nay rồi đưa khách 2 lựa chọn ngày cụ thể. Bị buộc chọn → khách dễ chốt.
+// ─────────────────────────────────────────────
+
+/** preferredTime đã có ngày cụ thể (DD/MM) chưa. */
+export function hasConcreteDate(s: string | null | undefined): boolean {
+  return !!s && /\d{1,2}\/\d{1,2}/.test(s);
+}
+
+function addDays(base: Date, n: number): Date {
+  const d = new Date(base);
+  d.setDate(base.getDate() + n);
+  return d;
+}
+
+/** Ngày kế tiếp có thứ = targetDow (0=CN..6=T7), luôn ở TƯƠNG LAI (>= mai). */
+function upcomingDow(from: Date, targetDow: number): Date {
+  let diff = (targetDow - from.getDay() + 7) % 7;
+  if (diff === 0) diff = 7;
+  return addDays(from, diff);
+}
+
+/** Thứ 2 của TUẦN SAU (tuần kế tiếp tuần hiện tại). */
+function nextWeekMonday(from: Date): Date {
+  const dayMon = from.getDay() === 0 ? 7 : from.getDay(); // T2=1..CN=7
+  return addDays(from, 8 - dayMon);
+}
+
+/** Format 1 lựa chọn ngày: "thứ 2 (8/7)". */
+function fmtDayOption(d: Date): string {
+  const dow = DAY_NAMES[d.getDay()].toLowerCase();
+  return `${dow} (${d.getDate()}/${d.getMonth() + 1})`;
+}
+
+export interface DatePair {
+  /** 2 chuỗi ngày cụ thể, vd ["thứ 2 (8/7)", "thứ 3 (9/7)"]. */
+  options: [string, string];
+}
+
+/**
+ * Từ cụm thời gian (mơ hồ hoặc null) của khách → đề xuất 2 NGÀY cụ thể để khách
+ * chọn 1-trong-2. Mốc là getNowVN(). KHÔNG bao giờ trả null — nếu không nhận
+ * diện được cụm thì fallback "ngày mai" & "ngày kia".
+ *
+ * Quy ước cửa sổ: đầu tuần=T2&T3, giữa tuần=T4&T5, cuối tuần=T7&CN,
+ *   đầu tháng=ngày 1-5, giữa tháng=13-17, cuối tháng=25-28.
+ *   Có "sau"/"tới" → dịch sang tuần kế tiếp.
+ */
+export function suggestDatePair(phrase: string | null | undefined): DatePair {
+  const now = getNowVN();
+  const p = (phrase ?? "").toLowerCase();
+  const mk = (a: Date, b: Date): DatePair => ({
+    options: [fmtDayOption(a), fmtDayOption(b)],
+  });
+
+  // 2 ngày gần nhất chưa qua trong khoảng ngày-trong-tháng [lo, hi];
+  // ưu tiên tháng này, hết thì sang tháng sau.
+  const monthRange = (lo: number, hi: number): DatePair => {
+    const picks: Date[] = [];
+    for (let mOff = 0; mOff <= 1 && picks.length < 2; mOff++) {
+      for (let day = lo; day <= hi && picks.length < 2; day++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + mOff, day);
+        if (d.getTime() > now.getTime()) picks.push(d);
+      }
+    }
+    return picks.length >= 2
+      ? mk(picks[0], picks[1])
+      : mk(addDays(now, 1), addDays(now, 2));
+  };
+
+  const nextWeek = /tuần\s*(sau|tới)/.test(p);
+
+  // ── Cửa sổ theo TUẦN ──
+  if (/cuối\s*tuần/.test(p)) {
+    const sat = nextWeek ? addDays(nextWeekMonday(now), 5) : upcomingDow(now, 6);
+    return mk(sat, addDays(sat, 1)); // T7 & CN
+  }
+  if (/giữa\s*tuần/.test(p)) {
+    const wed = nextWeek ? addDays(nextWeekMonday(now), 2) : upcomingDow(now, 3);
+    return mk(wed, addDays(wed, 1)); // T4 & T5
+  }
+  if (/đầu\s*tuần/.test(p)) {
+    const mon = nextWeek ? nextWeekMonday(now) : upcomingDow(now, 1);
+    return mk(mon, addDays(mon, 1)); // T2 & T3
+  }
+  if (nextWeek) {
+    const mon = nextWeekMonday(now);
+    return mk(mon, addDays(mon, 2)); // T2 & T4
+  }
+
+  // ── Cửa sổ theo THÁNG ──
+  if (/tháng\s*(sau|tới)/.test(p)) {
+    return mk(
+      new Date(now.getFullYear(), now.getMonth() + 1, 1),
+      new Date(now.getFullYear(), now.getMonth() + 1, 2),
+    );
+  }
+  if (/đầu\s*tháng/.test(p)) return monthRange(1, 5);
+  if (/giữa\s*tháng/.test(p)) return monthRange(13, 17);
+  if (/cuối\s*tháng/.test(p)) return monthRange(25, 28);
+
+  // ── "vài hôm nữa" / "mấy hôm nữa" / "hôm nào đó" ──
+  if (/(vài|mấy)\s*hôm|hôm\s*nào/.test(p)) {
+    return mk(addDays(now, 2), addDays(now, 3));
+  }
+
+  // ── Mặc định: ngày mai & ngày kia ──
+  return mk(addDays(now, 1), addDays(now, 2));
+}

@@ -18,6 +18,8 @@ import {
   buildPrefixWithMeta,
   computeSuggestedMediaKey,
   detectMentionedServiceKey,
+  detectMediaRequest,
+  isTerseMessage,
 } from "../lib/prefixBuilder";
 import { logTurn, type PrefixMode } from "../lib/observability";
 import { cleanReply } from "../lib/cleanReply";
@@ -281,8 +283,26 @@ function buildAgentStep(
           },
         });
       } catch (e) {
-        console.error(`[${id}] agent.generate failed:`, e);
-        throw e;
+        // DeepSeek đôi khi trả JSON sai schema (STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED)
+        // → structuredOutput throw, mất nguyên lượt. Fallback: generate PLAIN (không structured)
+        // để vẫn có 1 câu trả lời tự nhiên (mất media/qr lượt đó, nhưng hội thoại không đứt).
+        const eid = (e as any)?.id ?? (e as any)?.message ?? String(e);
+        console.error(`[${id}] structured generate failed (${eid}) → fallback plain-text`);
+        try {
+          result = await agent.generate(fullMessage, {
+            maxSteps: 1,
+            modelSettings: { temperature: 0.7, topP: 0.95 },
+            abortSignal,
+            memory: {
+              thread: { id: threadId },
+              resource: resourceId,
+              options: { lastMessages: 8 },
+            },
+          });
+        } catch (e2) {
+          console.error(`[${id}] plain-text fallback cũng fail:`, e2);
+          throw e2;
+        }
       }
 
       const obj = result.object ?? {
@@ -322,6 +342,24 @@ function buildAgentStep(
       const stateBeforeReply = await loadState(mastra, threadId, resourceId);
       const prevReply = stateBeforeReply.lastBotReply ?? "";
 
+      // ═══════ NHỊP CỤT — chặn media chủ động (deterministic) ═══════
+      // KH nhắn cụt (1-4 từ) mà KHÔNG xin xem ảnh → drop media dù agent lỡ gọi get-media.
+      // Prefix đã bỏ [MEDIA] hint nhưng v4-pro đôi khi vẫn tự gọi tool → cần chặn cứng ở đây.
+      // Set null TRƯỚC khi tính hasMedia → cleanReply tự strip luôn câu "em gửi hình" dangling.
+      const customerWantsMedia =
+        stateBeforeReply.intentTopic === "media_request" ||
+        detectMediaRequest(message);
+      if (
+        dedupedMediaUrls &&
+        isTerseMessage(message) &&
+        !customerWantsMedia
+      ) {
+        console.log(
+          `[nhịp] KH nhắn cụt ("${message.trim().slice(0, 20)}") → drop ${dedupedMediaUrls.length} media chủ động`,
+        );
+        dedupedMediaUrls = null;
+      }
+
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
@@ -340,9 +378,10 @@ function buildAgentStep(
           .filter((s) => !lowerText.includes(s.toLowerCase().slice(0, 20)))
           .slice(0, 2);
         if (extras.length > 0) {
-          const sep = cleanedText.endsWith(".") || cleanedText.endsWith("?") || cleanedText.endsWith("ạ")
-            ? " "
-            : ". ";
+          // Chỉ dùng space trơn khi text ĐÃ kết bằng dấu câu (. !). "ạ"/"nhé" là tiểu từ
+          // kết câu nhưng KHÔNG phải dấu câu → vẫn cần ". " để tách câu, nếu không sẽ ra
+          // run-on "...không ạ Buổi đầu..." (đúng pattern fitness.ts cấm). "?" đã bị cleanReply strip.
+          const sep = /[.!]$/.test(cleanedText) ? " " : ". ";
           cleanedText = (cleanedText + sep + extras.join(" ")).trim();
           console.log(
             `[multi-intent] appended ${extras.length} secondary answer(s) → reply len=${cleanedText.length}`,

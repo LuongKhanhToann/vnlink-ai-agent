@@ -16,6 +16,7 @@
 import { ConversationState, IntentTopic, resolveHonorific } from "./stateMachine";
 import { FITNESS_TEMPLATES } from "./templates/fitness";
 import { findTemplate, type TemplateContext } from "./templates/engine";
+import { suggestDatePair, hasConcreteDate } from "./dateHelper";
 
 export interface QuestionFlowDecision {
   /** Tên decision (debug log). */
@@ -374,9 +375,9 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
       id: "uu_dai_ask_service",
       template:
         greetingPrefix(s, h) +
-        `Hiện tại trung tâm mở cửa từ 5h00 đến 20h30 tất cả các ngày, giá ưu đãi chỉ từ 333k/tháng. ` +
+        `giá ưu đãi chỉ từ 333k/tháng. ` +
         `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn ưu đãi phù hợp ạ.`,
-      mustInclude: ["333k", "20h30", "bộ môn nào"],
+      mustInclude: ["333k", "bộ môn nào"],
     };
   },
 
@@ -676,7 +677,18 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
     };
   },
 
-  price_ask_generic: (s, h, prev) => {
+  price_ask_generic: (s, h, prev, message) => {
+    // COMBO/ĐA MÔN: khách hỏi giá "cả gói / combo / cả gym bơi yoga" → KHÔNG dùng template
+    // giá đơn-môn. Return null để fall through GATE/PITCH (có Full pricing + GATE multi-service).
+    const msg = message || "";
+    const comboCue =
+      /(combo|trọn\s*gói|cả\s*(gói|hai|2|ba|3|mấy)|tất\s*cả\s*(các\s*)?môn|chung\s*1\s*thẻ|dùng\s*chung|nhiều\s*môn|đa\s*(năng|dịch\s*vụ))/i.test(
+        msg,
+      );
+    const multiServiceMention =
+      (msg.toLowerCase().match(/(gym|yoga|zumba|bơi|pilates)/g) || []).length >= 2;
+    if (comboCue || multiServiceMention) return null;
+
     // Yoga/Zumba lần đầu (chưa có name/phone) → báo giá ưu đãi + mời trải nghiệm
     if (
       (s.knownInfo.serviceType === "yoga" || s.knownInfo.serviceType === "zumba") &&
@@ -746,7 +758,7 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         id: "price_ask_no_service",
         template:
           greetingPrefix(s, h) +
-          `Hiện tại trung tâm mở cửa từ 5h00 đến 20h30 tất cả các ngày, giá ưu đãi chỉ từ 333k/tháng. ` +
+          `giá ưu đãi chỉ từ 333k/tháng. ` +
           `Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn ưu đãi phù hợp ạ.`,
         mustInclude: ["333k", "bộ môn nào"],
       };
@@ -1315,11 +1327,11 @@ export function decideFitnessQuestion(
     };
   }
 
-  // Ưu tiên cao nhất: đã đủ tên + SĐT + giờ → CHỐT SLOT, KHÔNG hỏi gì nữa.
+  // Ưu tiên cao nhất: đã đủ tên + SĐT + NGÀY CỤ THỂ → CHỐT SLOT, KHÔNG hỏi gì nữa.
   if (
     state.knownInfo.name &&
     state.knownInfo.phone &&
-    state.knownInfo.preferredTime
+    hasConcreteDate(state.knownInfo.preferredTime)
   ) {
     return {
       id: "close_slot_confirm",
@@ -1329,22 +1341,36 @@ export function decideFitnessQuestion(
     };
   }
 
-  // Đã có tên + SĐT nhưng thiếu giờ → hỏi khung giờ, KHÔNG hỏi gì khác.
+  // Đã có tên + SĐT nhưng CHƯA chốt NGÀY cụ thể (null, hoặc mới có buổi / cửa sổ mơ
+  // hồ như "đầu tuần sau") → ÉP CHỌN 1-TRONG-2 ngày cụ thể. Sale cần ngày chuẩn để
+  // biết khách đến lúc nào / gọi xác nhận. Bị buộc chọn → khách có xu hướng chốt.
   if (
     state.knownInfo.name &&
     state.knownInfo.phone &&
-    !state.knownInfo.preferredTime
+    !hasConcreteDate(state.knownInfo.preferredTime)
   ) {
+    // Đã đưa 2 ngày turn trước mà khách vẫn chưa chốt → giữ slot mềm, hẹn gọi xác nhận.
+    const prevAskedDate = /tiện hơn ạ|\d{1,2}\/\d{1,2}.*\d{1,2}\/\d{1,2}/i.test(prev);
+    if (prevAskedDate) {
+      return {
+        id: "soft_hold_confirm_date",
+        template:
+          `Dạ vâng ${h} ${state.knownInfo.name}, em giữ slot cho mình trước nha, ` +
+          `lát em gọi xác nhận lại ngày giờ cụ thể với mình ạ.`,
+        mustInclude: ["giữ slot", "xác nhận"],
+      };
+    }
+    const { options } = suggestDatePair(state.knownInfo.preferredTime);
     return {
-      id: "ask_time_after_name_phone",
+      id: "ask_pick_date",
       template:
-        `Dạ vâng ${h} ${state.knownInfo.name}, ${h} tiện đến buổi sáng, chiều hay tối để em giữ slot ạ.`,
-      mustInclude: ["sáng", "chiều", "tối"],
+        `Dạ vâng ${h} ${state.knownInfo.name}, ${h} qua ${options[0]} hay ${options[1]} tiện hơn ạ.`,
+      mustInclude: ["tiện hơn"],
     };
   }
 
-  // KH đã commit giờ ("mai chị qua thử") VÀ chọn gói (intent=selecting/ready)
-  // nhưng CHƯA có tên/SĐT → xin tên/SĐT ngay (bypass topic templates).
+  // KH đã ngỏ giờ ("mai chị qua thử") VÀ chọn gói (intent=selecting/ready) nhưng CHƯA
+  // có tên/SĐT → xin info ngay (bypass topic templates).
   // Bug đã thấy: KH nói "ok chị lấy gói 6 tháng, mai chị qua thử" → classifier hit price_explicit_list
   // → bot lặp pitch gói thay vì xin info để chốt slot.
   if (
@@ -1352,11 +1378,23 @@ export function decideFitnessQuestion(
     (state.intent === "selecting" || state.intent === "ready") &&
     (!state.knownInfo.name || !state.knownInfo.phone)
   ) {
+    // Đã có NGÀY cụ thể → giữ slot theo ngày đó, chỉ xin tên/SĐT.
+    if (hasConcreteDate(state.knownInfo.preferredTime)) {
+      return {
+        id: "ask_name_phone_after_time",
+        template:
+          `Dạ vâng ${h}, để em giữ slot ${state.knownInfo.preferredTime} cho mình, ` +
+          `${h} cho em xin tên với SĐT để em đăng ký giúp ạ.`,
+        mustInclude: ["tên", "SĐT"],
+      };
+    }
+    // Mới có buổi / cửa sổ mơ hồ → GỘP: xin tên/SĐT + ÉP CHỌN 1-trong-2 ngày.
+    const { options } = suggestDatePair(state.knownInfo.preferredTime);
     return {
-      id: "ask_name_phone_after_time",
+      id: "ask_name_phone_pick_date",
       template:
-        `Dạ vâng ${h}, để em giữ slot ${state.knownInfo.preferredTime} cho mình, ` +
-        `${h} cho em xin tên với SĐT để em đăng ký giúp ạ.`,
+        `Dạ vâng ${h}, ${h} cho em xin tên với SĐT, với qua ${options[0]} hay ${options[1]} ` +
+        `tiện hơn để em giữ slot giúp mình ạ.`,
       mustInclude: ["tên", "SĐT"],
     };
   }

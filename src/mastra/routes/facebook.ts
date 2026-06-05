@@ -329,20 +329,11 @@ async function handleMessage(
   abortSignal: AbortSignal,
   onCommit: () => void,
 ) {
-  // ORDER LOCK: đơn đã chốt (sheetsWritten=true) → bot im lặng cho phần còn lại của session.
-  // sheetsWritten chỉ true SAU KHI sendText thành công (xem tryWriteLeadIfReady),
-  // nên với cancel-and-restart sẽ không bị false-lock cho turn replay.
+  // SAU CHỐT: KHÔNG còn khóa chat. Đơn đã chốt (sheetsWritten=true) → workflow tự chuyển
+  // sang stage "retention" (concierge sau chốt) để bot vẫn trả lời tự nhiên, nhận đặt thêm.
+  // Việc ghi Sheets dedup theo bookingSignature nên chat tiếp KHÔNG ghi trùng đơn.
   const { mastra } = await import("../index");
-  const { loadState, tryWriteLeadIfReady } = await import("../lib/stateStore");
-  try {
-    const lockedState = await loadState(mastra, senderId, "facebook-customer");
-    if (lockedState.sheetsWritten) {
-      console.log(`[fb] SKIP ${senderId} — đơn đã chốt (sheetsWritten=true), bot không reply nữa`);
-      return;
-    }
-  } catch (e) {
-    console.warn(`[fb] order-lock check failed for ${senderId} (proceed normally):`, e);
-  }
+  const { tryWriteLeadIfReady } = await import("../lib/stateStore");
 
   const run = await routerWorkflow.createRun();
 

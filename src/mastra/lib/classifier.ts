@@ -642,10 +642,20 @@ SLOTS chung (áp dụng cả fitness và giai-co):
       "3h chiều cn"       → "15h chiều chủ nhật DD/MM"
       "tối nay"           → "tối DD/MM"          (= hôm nay)
       "chiều mai"         → "chiều DD/MM"
-      "thứ 4 tuần sau"    → "thứ 4 DD/MM"
-      "cuối tuần"         → "thứ 7 DD/MM"        (chọn thứ 7 gần nhất — nếu khách bổ sung "chủ nhật" sau thì đổi sang CN)
-      "sáng cuối tuần"    → "sáng thứ 7 DD/MM"
+      "thứ 4 tuần sau"    → "thứ 4 DD/MM"        (1 thứ CỤ THỂ → gán DD/MM luôn)
       "ngày kia"          → "DD/MM"              (hôm nay + 2)
+
+    A2) CỬA SỔ NHIỀU NGÀY (khách nói KHOẢNG, không 1 ngày rõ) → GIỮ NGUYÊN cụm, KHÔNG tự ép 1 ngày.
+        (Bot reply sẽ tự tính & đề xuất 2 ngày cụ thể cho khách chọn — ở đây chỉ cần giữ đúng cụm.)
+      "đầu tuần" / "đầu tuần sau"   → "đầu tuần" | "đầu tuần sau"
+      "giữa tuần (sau)"             → "giữa tuần" | "giữa tuần sau"
+      "cuối tuần"                   → "cuối tuần"   (⚠️ KHÔNG đổi thành "thứ 7 DD/MM")
+      "cuối tuần sau"               → "cuối tuần sau"
+      "tuần sau" / "tuần tới"       → "tuần sau"
+      "đầu/giữa/cuối tháng"         → "đầu tháng" | "giữa tháng" | "cuối tháng"
+      "tháng sau"                   → "tháng sau"
+      "vài hôm nữa" / "mấy hôm nữa" → "vài hôm nữa"
+      Kèm buổi nếu khách cho: "sáng đầu tuần sau" → "sáng đầu tuần sau".
 
     B) CHỈ CÓ GIỜ (không kèm ngày):
       "9h"              → "9h sáng DD/MM"        — nếu giờ hiện tại < 9h hôm nay thì lấy hôm nay, không thì ngày mai
@@ -663,7 +673,7 @@ SLOTS chung (áp dụng cả fitness và giai-co):
       Nếu tin mới của khách BỔ SUNG thông tin (buổi mới, ngày mới, giờ mới) →
       GỘP với value cũ thành value mới CỤ THỂ HƠN.
       Ví dụ:
-        Cũ="cuối tuần",  tin mới="sáng nha"              → "sáng thứ 7 DD/MM"
+        Cũ="cuối tuần",  tin mới="sáng nha"              → "sáng cuối tuần"   (vẫn là cửa sổ, chỉ thêm buổi)
         Cũ="sáng",       tin mới="chủ nhật"              → "sáng chủ nhật DD/MM"
         Cũ="thứ 7 25/04", tin mới="9h nha"               → "9h sáng thứ 7 25/04"
         Cũ="chiều",      tin mới="mai"                   → "chiều DD/MM" (ngày mai)
@@ -683,6 +693,7 @@ SLOTS chung (áp dụng cả fitness và giai-co):
     QUY TẮC CHUNG:
       - Ưu tiên gom đủ {giờ + buổi + thứ/ngày} khi khách cho đủ tín hiệu.
       - Có cue mơ hồ (tầm/khoảng/chắc/cỡ) → CHỈ ghi buổi, KHÔNG tự thêm ngày.
+      - Cửa sổ nhiều ngày (đầu/giữa/cuối tuần|tháng, tuần/tháng sau, vài hôm nữa) → GIỮ NGUYÊN cụm (xem A2), KHÔNG tự chọn 1 ngày thay khách.
       - KHÔNG suy đoán vượt info khách cho — thà generic còn hơn gán sai.
       - KHÔNG slugify, viết đầy đủ có dấu tiếng Việt.
 

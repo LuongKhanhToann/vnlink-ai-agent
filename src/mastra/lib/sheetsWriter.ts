@@ -72,22 +72,27 @@ export function isLeadComplete(state: ConversationState): boolean {
   return !!(knownInfo.name && knownInfo.phone && knownInfo.preferredTime);
 }
 
-export async function writeLeadToSheets(state: ConversationState): Promise<void> {
+// Khởi tạo Sheets client từ service account (dùng chung cho write + update).
+function getSheetsClient(): { sheets: any; spreadsheetId: string } {
+  const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!saJson) throw new Error("[sheetsWriter] GOOGLE_SERVICE_ACCOUNT_JSON chưa được set");
+  const credentials = JSON.parse(
+    saJson.startsWith("{") ? saJson : Buffer.from(saJson, "base64").toString("utf8"),
+  );
+  const auth = new google.auth.GoogleAuth({ credentials, scopes: SCOPES });
+  const sheets = google.sheets({ version: "v4", auth });
+  return { sheets, spreadsheetId: requireSheetId() };
+}
+
+// Build 1 row A:G từ state (đồng nhất giữa append & update).
+function buildLeadRow(state: ConversationState): any[] {
   const { knownInfo, flow } = state;
-
   const serviceOrArea =
-    flow === "fitness"
-      ? (knownInfo.serviceType ?? "")
-      : (knownInfo.painArea ?? "");
-
+    flow === "fitness" ? knownInfo.serviceType ?? "" : knownInfo.painArea ?? "";
   const goalOrMethod =
-    flow === "fitness"
-      ? (knownInfo.fitnessGoal ?? "")
-      : (knownInfo.pastMethod ?? "");
-
+    flow === "fitness" ? knownInfo.fitnessGoal ?? "" : knownInfo.pastMethod ?? "";
   const now = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
-
-  const row = [
+  return [
     now,
     flow === "fitness" ? "Fitness" : "Giải cơ",
     knownInfo.name,
@@ -96,22 +101,67 @@ export async function writeLeadToSheets(state: ConversationState): Promise<void>
     serviceOrArea,
     goalOrMethod,
   ];
+}
 
-  const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!saJson) throw new Error("[sheetsWriter] GOOGLE_SERVICE_ACCOUNT_JSON chưa được set");
-  const credentials = JSON.parse(
-    saJson.startsWith("{") ? saJson : Buffer.from(saJson, "base64").toString("utf8")
-  );
+const normPhone = (s: any): string => String(s ?? "").replace(/[\s.\-()]/g, "").trim();
+const normCell = (s: any): string => String(s ?? "").trim().toLowerCase();
 
-  const auth = new google.auth.GoogleAuth({ credentials, scopes: SCOPES });
-  const sheets = google.sheets({ version: "v4", auth });
-  const spreadsheetId = requireSheetId();
+export async function writeLeadToSheets(state: ConversationState): Promise<void> {
+  const { knownInfo, flow } = state;
+  const row = buildLeadRow(state);
+  const { sheets, spreadsheetId } = getSheetsClient();
 
   await ensureHeaders(sheets, spreadsheetId);
-
   await appendIntoTable(sheets, spreadsheetId, row);
 
   console.log(`[sheetsWriter] ✓ ${knownInfo.name} — ${knownInfo.phone} — ${knownInfo.preferredTime} — ${flow}`);
+}
+
+/**
+ * ĐỔI LỊCH (reschedule): tìm dòng đơn cũ theo (Tên + SĐT + Thời gian đến CŨ) và CẬP NHẬT
+ * tại chỗ — thay vì thêm dòng mới (tránh trùng đơn khi khách chỉ dời giờ).
+ * Match dòng GẦN NHẤT (cuối cùng) khớp. Trả về true nếu update được, false nếu không tìm thấy
+ * (caller sẽ fallback sang append).
+ */
+export async function updateLeadRow(
+  state: ConversationState,
+  oldTime: string,
+): Promise<boolean> {
+  const { knownInfo } = state;
+  if (!knownInfo.name || !knownInfo.phone || !oldTime) return false;
+
+  const { sheets, spreadsheetId } = getSheetsClient();
+  const resp = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A:G`,
+  });
+  const rows: any[][] = resp.data.values ?? [];
+
+  // Cột: C(2)=Tên, D(3)=SĐT, E(4)=Thời gian đến. Tìm dòng cuối cùng khớp.
+  let target = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] ?? [];
+    if (
+      normCell(r[2]) === normCell(knownInfo.name) &&
+      normPhone(r[3]) === normPhone(knownInfo.phone) &&
+      normCell(r[4]) === normCell(oldTime)
+    ) {
+      target = i;
+    }
+  }
+  if (target < 0) return false;
+
+  const rowNum = target + 1; // values bắt đầu từ A1 → index 0 = dòng 1
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [buildLeadRow(state)] },
+  });
+  console.log(
+    `[sheetsWriter] ✎ UPDATE dòng ${rowNum}: ${knownInfo.name} đổi "${oldTime}" → "${knownInfo.preferredTime}"`,
+  );
+  return true;
 }
 
 /**

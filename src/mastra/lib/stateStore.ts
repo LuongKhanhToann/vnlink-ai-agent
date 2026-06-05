@@ -5,8 +5,8 @@
  * Store-first pattern.
  */
 
-import { ConversationState, DEFAULT_STATE } from "./stateMachine";
-import { isLeadComplete, writeLeadToSheets } from "./sheetsWriter";
+import { ConversationState, DEFAULT_STATE, bookingSignature, detectAddBookingIntent } from "./stateMachine";
+import { isLeadComplete, writeLeadToSheets, updateLeadRow } from "./sheetsWriter";
 
 const STORE_NAME = "memory";
 const STATE_SUFFIX = "-fsm-state";
@@ -62,7 +62,7 @@ export async function loadState(
       );
     }
 
-    return {
+    const loaded: ConversationState = {
       flow,
       stage: m.stage ?? DEFAULT_STATE.stage,
       temperature: m.temperature ?? DEFAULT_STATE.temperature,
@@ -100,11 +100,26 @@ export async function loadState(
       mediaShown: m.mediaShown ?? false,
       mediaShownKeys: (m as any).mediaShownKeys ?? [],
       sheetsWritten: (m as any).sheetsWritten ?? false,
+      bookingsWritten: (m as any).bookingsWritten ?? [],
+      servicesInterested: (m as any).servicesInterested ?? [],
+      rescheduleFromTime: (m as any).rescheduleFromTime ?? null,
       lastBotReply: (m as any).lastBotReply,
       lastUserMessage: (m as any).lastUserMessage,
       askedHistory: (m as any).askedHistory ?? [],
       mentionedFacts: (m as any).mentionedFacts ?? [],
     };
+
+    // MIGRATION: lead cũ đã chốt dưới code cũ (sheetsWritten=true) nhưng chưa có
+    // bookingsWritten → seed chữ ký đơn hiện tại để (1) tránh ghi trùng dòng,
+    // (2) vào thẳng retention thay vì re-confirm. Idempotent: lần load sau đã có sẵn.
+    if (loaded.sheetsWritten && (loaded.bookingsWritten?.length ?? 0) === 0) {
+      const sig = bookingSignature(loaded.knownInfo, loaded.flow);
+      if (sig) {
+        loaded.bookingsWritten = [sig];
+        console.log(`[stateStore] migrate: seed bookingsWritten=[${sig}] cho lead cũ ${tid}`);
+      }
+    }
+    return loaded;
   } catch (e) {
     console.error(`[stateStore] loadState failed for ${tid}:`, e);
     return { ...DEFAULT_STATE };
@@ -164,13 +179,18 @@ export async function saveState(
 }
 
 /**
- * Best-effort: nếu lead đủ (name + phone + preferredTime) và chưa ghi sheets →
- * ghi sheets + set sheetsWritten=true + save state.
+ * Best-effort: nếu lead đủ (name + phone + preferredTime) VÀ chữ ký đơn này CHƯA được ghi →
+ * ghi sheets + push chữ ký vào bookingsWritten + set sheetsWritten=true + save state.
  *
  * Gọi SAU KHI reply đã sendText thành công (route handler). Tách khỏi saveState
  * để cancel-and-restart không ghi sheets cho turn KH chưa thấy reply.
  *
- * Idempotent: chạy 2 lần liên tiếp với state đã sheetsWritten=true → no-op.
+ * MULTI-ORDER: dedup theo bookingSignature (`flow|tên|SĐT|giờ`) thay vì khóa boolean.
+ *   - Đơn 1 chốt → ghi dòng 1, lưu chữ ký.
+ *   - KH chat tiếp / chỉ HỎI môn khác (giữ giờ cũ) → chữ ký trùng → no-op (không ghi lại).
+ *   - KH đặt thêm buổi GIỜ KHÁC (hoặc người khác) + có tín hiệu cam kết → chữ ký mới → ghi dòng tiếp.
+ *   - KH ĐỔI lịch (reschedule, rescheduleFromTime set) → UPDATE dòng cũ (updateLeadRow) thay vì append.
+ *   - KH đặt hộ NGƯỜI THÂN → beneficiary override ở buildNextState đã đổi name/phone → dòng mới đúng liên hệ.
  * Lỗi sheets-write KHÔNG bubble — log + tiếp tục (bot vẫn reply OK, chỉ thiếu sheets).
  */
 export async function tryWriteLeadIfReady(
@@ -181,14 +201,57 @@ export async function tryWriteLeadIfReady(
   const tid = stateThreadId(threadId);
   try {
     const state = await loadState(mastra, threadId, resourceId);
-    if (state.sheetsWritten) return;
     if (!isLeadComplete(state)) return;
 
+    const sig = bookingSignature(state.knownInfo, state.flow);
+    if (sig === null) return;
+    const written = state.bookingsWritten ?? [];
+
+    // ── RESCHEDULE: KH đổi giờ 1 đơn ĐÃ ghi → UPDATE dòng cũ thay vì append dòng trùng.
+    const rf = state.rescheduleFromTime;
+    if (rf) {
+      const oldSig = bookingSignature({ ...state.knownInfo, preferredTime: rf }, state.flow);
+      if (oldSig && oldSig !== sig && written.includes(oldSig)) {
+        const updated = await updateLeadRow(state, rf);
+        if (updated) {
+          state.bookingsWritten = written.map((s) => (s === oldSig ? sig : s));
+          state.rescheduleFromTime = null;
+          await saveState(mastra, threadId, resourceId, state);
+          return;
+        }
+        // Không tìm thấy dòng cũ trên sheet → fall through append (best-effort).
+        console.warn(`[stateStore] reschedule: không thấy dòng cũ (oldTime=${rf}) → append mới`);
+      }
+    }
+
+    if (written.includes(sig)) return; // đơn này đã ghi rồi → bỏ qua
+
+    // Đơn THỨ 2+: chỉ ghi khi có tín hiệu CAM KẾT thật trong turn này — tránh ghi "đơn ma".
+    // Sau chốt, name/phone/giờ vẫn còn nên isLeadComplete luôn true; nếu khách chỉ HỎI vu vơ
+    // hoặc đổi flow (đau lưng → giai-co) thì chữ ký có thể "mới" nhưng KHÔNG phải đặt thêm.
+    // Đơn ĐẦU TIÊN (written rỗng) đã được funnel đảm bảo commitment → ghi như cũ.
+    if (written.length > 0) {
+      const msg = state.lastUserMessage ?? "";
+      const committed =
+        state.intent === "ready" ||
+        state.intent === "selecting" ||
+        state.stage === "commitment" ||
+        detectAddBookingIntent(msg);
+      if (!committed) {
+        console.log(
+          `[stateStore] skip write đơn #${written.length + 1}: chưa có tín hiệu cam kết (intent=${state.intent}, stage=${state.stage}, sig=${sig})`,
+        );
+        return;
+      }
+    }
+
     console.log(
-      `[stateStore] writing lead → name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime}`,
+      `[stateStore] writing lead → name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime} sig=${sig} (order #${written.length + 1})`,
     );
     await writeLeadToSheets(state);
+    state.bookingsWritten = [...written, sig];
     state.sheetsWritten = true;
+    state.rescheduleFromTime = null;
     await saveState(mastra, threadId, resourceId, state);
   } catch (e) {
     console.error(`[stateStore] tryWriteLeadIfReady failed for ${tid}:`, e);

@@ -17,10 +17,12 @@ import {
   Intent,
   Flow,
   Stage,
+  detectAddBookingIntent,
+  detectRescheduleIntent,
 } from "./stateMachine";
 import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
-import { buildDateContext } from "./dateHelper";
+import { buildDateContext, suggestDatePair, hasConcreteDate } from "./dateHelper";
 import { decideFitnessQuestion, formatDecision } from "./questionFlow";
 
 // ─────────────────────────────────────────────
@@ -65,6 +67,72 @@ function buildMultiIntentHint(state: ConversationState): string {
     `KHÔNG nhét vào 'text'. Post-process sẽ tự append vào cuối reply. ` +
     `Nếu GATE/TACTIC ở trên bảo "DỪNG / KHÔNG pitch giá" → BỎ secondary nào trùng nội dung bị cấm; ` +
     `chỉ giữ secondary informational (giờ, địa chỉ, có HLV nữ không, có ảnh không, ...).]`
+  );
+}
+
+/**
+ * Far-context multi-service: khi KH đã quan tâm 2+ bộ môn xuyên các turn,
+ * render hint nhắc bot NHỚ tất cả & tư vấn SONG SONG từng môn (không quên môn ở xa).
+ * Theo yêu cầu: KHÔNG tự gộp về thẻ Full — chỉ gợi combo khi KH hỏi giá-cả-2/combo.
+ * Return "" khi < 2 môn (không cần nhắc).
+ */
+function buildServicesContextHint(state: ConversationState): string {
+  const svcLabelMap: Record<string, string> = {
+    gym: "Gym",
+    yoga: "Yoga",
+    zumba: "Zumba",
+    boi: "Bơi",
+    pilates: "Pilates",
+  };
+  const list = (state.servicesInterested ?? [])
+    .map((s) => svcLabelMap[s] ?? s)
+    .filter(Boolean);
+  if (list.length < 2) return "";
+  const focus = state.knownInfo.serviceType;
+  const focusLabel = focus ? svcLabelMap[focus] ?? focus : null;
+  return (
+    `[CONTEXT đa môn: KH đang quan tâm ${list.join(", ")}` +
+    (focusLabel ? ` (đang bàn: ${focusLabel})` : "") +
+    `. NHỚ & trả lời ĐÚNG từng môn khách hỏi, đừng bỏ sót môn đã nhắc ở turn trước. ` +
+    `Mỗi môn có lợi ích/giá riêng — ĐỪNG MẶC ĐỊNH gộp hết về thẻ Full chỉ vì khách nhắc nhiều môn. ` +
+    `Gợi combo Full khi thật sự hợp mục tiêu khách HOẶC khi khách hỏi giá cả gói / muốn tập nhiều môn — để khách tự chọn lẻ hay combo.]`
+  );
+}
+
+/**
+ * KH nhắn CỤT (1-4 từ, ≤30 ký tự) — tín hiệu khách lười gõ / dò chừng, KHÔNG phải tín hiệu
+ * muốn nghe pitch dài. Vd "gym", "giảm cân", "tối", "bao nhiêu", "có gì".
+ * Dùng để bơm [NHỊP] hint giữ reply ngắn + chặn media chủ động (đúng rule fitness.ts:
+ * "khách nhắn cụt 2-4 chữ → reply NGẮN, ấm, KHÔNG bung 1 đoạn dài").
+ */
+export function isTerseMessage(message?: string): boolean {
+  if (!message) return false;
+  const m = message.trim();
+  if (m.length === 0 || m.length > 30) return false;
+  const words = m
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return words.length >= 1 && words.length <= 4;
+}
+
+/**
+ * Hint nhắc agent SOI độ ngắn tin khách → reply ngắn, 1 bước, không bung pitch/media.
+ * Return "" khi tin không cụt. Đặt CUỐI prefix để model đọc cuối, ưu tiên cao cho ràng buộc độ dài.
+ */
+function buildTerseHint(state: ConversationState, message?: string): string {
+  if (!isTerseMessage(message)) return "";
+  // Đang chốt (đủ tên+SĐT) thì câu xác nhận vốn đã ngắn — không cần hint, tránh nhiễu.
+  if (
+    state.stage === "commitment" &&
+    state.knownInfo.name &&
+    state.knownInfo.phone
+  )
+    return "";
+  const preview = (message ?? "").trim().slice(0, 24);
+  return (
+    `[NHỊP: KH vừa nhắn rất ngắn ("${preview}") → trả NGẮN 1-2 câu ấm, làm ĐÚNG 1 bước, ` +
+    `tối đa 1 câu hỏi. ❌ KHÔNG bung InBody/bảng gói/list dài. ❌ KHÔNG chủ động gửi ảnh trừ khi khách xin xem.]`
   );
 }
 
@@ -525,13 +593,62 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN TUYỆT ĐỐI: ĐỦ tên+SĐT+giờ → chỉ confirm rồi DỪNG ──
+  // ── RETENTION (SAU CHỐT): concierge + upsell nhẹ ──
+  // Đơn đã chốt & ghi Sheets → bot KHÔNG xin lại tên/SĐT/giờ, KHÔNG pitch lại gói đã chốt.
+  // Trả lời answer-first, ấm như đã thân. Chỉ gợi mở thêm khi khách lộ tín hiệu quan tâm.
+  // Return SỚM để bỏ qua toàn bộ GATE bán hàng phía dưới (done-slots, commitment, chốt-ngày...).
+  if (stage === "retention") {
+    const heldName = knownInfo.name ? ` ${state.honorific} ${knownInfo.name}` : "";
+    const heldTime = knownInfo.preferredTime ? ` (lịch đã giữ: ${knownInfo.preferredTime})` : "";
+    hints.push(
+      `[GATE retention — ĐƠN ĐÃ CHỐT${heldTime}. KH${heldName} đã đặt lịch xong, giờ chỉ trò chuyện/hỏi thêm.\n` +
+        `  • Answer-first: trả ĐÚNG câu khách hỏi, ngắn gọn ấm áp như đã là khách quen. KHÔNG mở lại bằng "Dạ em chào... cảm ơn đã quan tâm".\n` +
+        `  • TUYỆT ĐỐI KHÔNG xin lại tên/SĐT/giờ đã có; KHÔNG nhắc lại "giữ slot... DỪNG"; KHÔNG pitch lại gói vừa chốt.\n` +
+        `  • Upsell NHẸ: chỉ khi khách lộ tín hiệu quan tâm (hỏi môn khác, hỏi giá, khen, rảnh thêm) mới gợi 1 ý liên quan (vd thêm Yoga thư giãn sau khi đạt mục tiêu). KHÔNG chèo kéo, không spam gói.\n` +
+        `  • Nếu khách muốn ĐẶT THÊM (môn khác / buổi khác / cho người thân) → vui vẻ tiếp nhận, hỏi gọn thông tin còn thiếu cho đơn mới.\n` +
+        `  • Dặn dò hữu ích nếu hợp ngữ cảnh: mang đồ tập/đồ bơi, đến sớm 10p, hỏi đường... Giữ giọng sale Việt thật, tự nhiên.]`,
+    );
+    // Khách lộ cue "đặt thêm" → hướng dẫn thu thập đơn MỚI (hỏi giờ/môn còn thiếu) rồi xác nhận
+    // giữ slot mới. KHÔNG nhầm sang xác nhận lại đơn cũ.
+    if (message && detectAddBookingIntent(message)) {
+      hints.push(
+        `[GATE đặt-thêm: khách muốn đặt THÊM đơn mới (ngoài lịch đã có). Hỏi gọn thông tin còn thiếu cho đơn mới ` +
+          `(môn/dịch vụ nào, NGÀY-GIỜ nào — chốt ngày cụ thể kiểu chọn 1-trong-2 nếu khách nói mơ hồ). ` +
+          `Nếu đặt hộ NGƯỜI THÂN → xin tên + SĐT của người được đặt (có thể khác mình). ` +
+          `Khi đủ → xác nhận "em giữ thêm slot [ngày giờ mới] cho mình nha". KHÔNG nhắc lại / xác nhận lại lịch đơn cũ.]`,
+      );
+    }
+    // Khách ĐỔI LỊCH sau chốt → xác nhận lịch MỚI gọn (đơn cũ sẽ được update trên hệ thống).
+    if (message && detectRescheduleIntent(message) && !detectAddBookingIntent(message)) {
+      hints.push(
+        `[GATE đổi-lịch: khách muốn DỜI lịch đã đặt sang giờ khác. Xác nhận 1 câu "Dạ em đổi lịch sang [giờ mới] cho mình rồi nha ${state.honorific}". ` +
+          `Nếu giờ mới còn mơ hồ → chốt ngày cụ thể (chọn 1-trong-2). KHÔNG tạo cảm giác đặt 2 lịch.]`,
+      );
+    }
+    // Limitation 4: hỏi giá SAU chốt → inject PRICING block để báo giá CHÍNH XÁC (GATE mode
+    // không tự kèm knowledge). Concierge vẫn trả lời tự nhiên, không pitch ép.
+    if (message && detectPriceQuestion(message)) {
+      hints.push(
+        flow === "fitness" ? buildFitnessPricing(knownInfo) : buildGiaiCoPricing(),
+      );
+      hints.push(
+        `[GATE giá-sau-chốt: khách hỏi giá → báo đúng số trong PRICING ở trên, gọn gàng. KHÔNG ép đăng ký, KHÔNG nhắc lại đơn đã chốt.]`,
+      );
+    }
+    // servicesContextHint (đa môn) được buildPrefixWithMeta append ở cấp GATE-mode → không push lại đây (tránh trùng).
+    return hints.join("\n");
+  }
+
+  // ── ƯU TIÊN TUYỆT ĐỐI: ĐỦ tên+SĐT+NGÀY CỤ THỂ → chỉ confirm rồi DỪNG ──
+  // Chỉ confirm khi giờ-muốn đã có ngày cụ thể (DD/MM). Nếu khách mới nói buổi/cửa
+  // sổ mơ hồ ("chiều", "đầu tuần sau") → KHÔNG confirm vội, để xuống GATE chốt-ngày
+  // ép khách chọn 1 trong 2 ngày cụ thể (sale cần ngày chuẩn để gọi/đón khách).
   if (
     knownInfo.name !== null &&
     knownInfo.phone !== null &&
-    knownInfo.preferredTime !== null
+    hasConcreteDate(knownInfo.preferredTime)
   ) {
-    return `[GATE done-slots: ĐỦ tên=${knownInfo.name}, SĐT=${knownInfo.phone}, giờ=${knownInfo.preferredTime}. Reply 1 CÂU "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG. KHÔNG pitch/QR/hỏi thêm.]`;
+    return `[GATE done-slots: ĐỦ tên=${knownInfo.name}, SĐT=${knownInfo.phone}, ngày=${knownInfo.preferredTime}. Reply 1 CÂU "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG. KHÔNG pitch/QR/hỏi thêm.]`;
   }
 
   // ── Khách đổi giờ (compact) ──
@@ -676,6 +793,13 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // questionFlow chạy trước buildLogicGate trong buildPrefix.
 
   // ── Multi-service: khách nhắc 2+ dịch vụ trong 1 tin (compact) ──
+  // Yêu cầu: tư vấn SONG SONG từng môn, KHÔNG tự lái về Full. Chỉ chốt Full khi khách
+  // chủ động hỏi giá-cả-gói/combo hoặc muốn tập nhiều môn 1 lúc.
+  const wantsComboNow =
+    message != null &&
+    /(combo|cả\s*(gói|hai|2|ba|3)|trọn\s*gói|tất\s*cả\s*(các\s*)?môn|full|chung\s*1\s*thẻ|dùng\s*chung|bao\s*nhiêu\s*tất)/i.test(
+      message,
+    );
   if (
     flow === "fitness" &&
     message &&
@@ -683,7 +807,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       message,
     )
   ) {
-    hints.push("[GATE multi-service: đề xuất thẻ Full 4 dịch vụ (1.2tr/tháng → 7tr/12 tháng).]");
+    hints.push(
+      wantsComboNow
+        ? "[GATE multi-service: khách hỏi combo/cả gói → giới thiệu thẻ Full 4 dịch vụ (1.2tr/tháng → 7tr/12 tháng, dùng chung 1 thẻ).]"
+        : "[GATE multi-service: khách nhắc 2 môn → trả lời TỪNG môn theo đúng câu hỏi (lợi ích/giá riêng mỗi môn), KHÔNG tự gộp ép thẻ Full. Chỉ khi khách hỏi 'cả gói/combo/tập nhiều môn 1 lúc' mới gợi Full.]",
+    );
   }
 
   // ── HS/SV (compact, giá cụ thể) ──
@@ -923,35 +1051,64 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     knownInfo.preferredTime !== null
   ) {
     hints.push(
-      `[GATE: khách đã xác nhận lịch ${knownInfo.preferredTime}. KHÔNG pitch lại, xin tên+SĐT để giữ slot.]`,
+      hasConcreteDate(knownInfo.preferredTime)
+        ? `[GATE: khách đã xác nhận lịch ${knownInfo.preferredTime}. KHÔNG pitch lại, xin tên+SĐT để giữ slot.]`
+        : `[GATE: khách muốn đến (giờ chưa rõ ngày: '${knownInfo.preferredTime}'). KHÔNG pitch lại; xin tên+SĐT + chốt NGÀY cụ thể (xem GATE chốt-ngày).]`,
     );
   }
   // (Removed: giải cơ evaluation pitch GATE — đã có few-shot EXAMPLE với visualize + contrast + invite.)
 
-  // ── COMMITMENT: chốt lịch (compact, 4 nhánh nội bộ) ──
+  // ── DATE-PIN (sớm): khách có Ý ĐỊNH đến nhưng CHƯA chốt NGÀY cụ thể ──
+  // Ngay khi intent=selecting/ready mà giờ-muốn còn mơ hồ (chỉ buổi, hoặc cửa sổ
+  // "đầu tuần sau" / "đầu tháng") → dùng đòn CHỌN-1-TRONG-2 ngày để khách dễ chốt.
+  // Stage commitment có nhánh riêng bên dưới → loại ra đây để tránh 2 GATE trùng.
+  if (
+    stage !== "commitment" &&
+    (intent === "selecting" || intent === "ready") &&
+    !hasConcreteDate(knownInfo.preferredTime) &&
+    !((state as any).qrShown ?? false)
+  ) {
+    const { options } = suggestDatePair(knownInfo.preferredTime);
+    hints.push(
+      `[GATE chốt-ngày: khách muốn đến nhưng CHƯA có ngày cụ thể` +
+        (knownInfo.preferredTime ? ` (mới có '${knownInfo.preferredTime}')` : "") +
+        `. Chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
+        `KHÔNG hỏi mở 'khi nào / hôm nào'. Tối đa 1 câu hỏi.]`,
+    );
+  }
+
+  // ── COMMITMENT: chốt lịch — luôn ÉP ngày cụ thể (chọn 1-trong-2) ──
   if (stage === "commitment") {
     const { name, phone } = knownInfo;
-    const hasTime = knownInfo.preferredTime !== null;
+    const concreteDate = hasConcreteDate(knownInfo.preferredTime);
     const qrShown = (state as any).qrShown ?? false;
     const prevAskedContact = state.lastBotReply
       ? /(cho\s+em\s+xin\s+tên|xin\s+tên\s+(với|và)\s+sđt|cho\s+em\s+xin\s+(tên|liên\s+hệ))/i.test(
           state.lastBotReply,
         )
       : false;
+    // Đã đưa khách 2 ngày turn trước mà vẫn chưa chốt → ĐỪNG ép lại (tránh làm phiền).
+    const prevAskedDate = state.lastBotReply
+      ? /tiện hơn ạ|\d{1,2}\/\d{1,2}.*\d{1,2}\/\d{1,2}/i.test(state.lastBotReply)
+      : false;
+    const { options } = suggestDatePair(knownInfo.preferredTime);
+    const dayChoice = `${options[0]} hay ${options[1]}`;
 
     let cmt: string;
     if (!name || !phone) {
       if (prevAskedContact) {
         cmt = "prev đã xin tên/SĐT mà khách chưa cho → answer câu khách hỏi rồi DỪNG, KHÔNG xin lại. Reply ≤150 chars.";
-      } else if (!hasTime) {
-        cmt = "CHƯA tên+SĐT+giờ → hỏi GỘP 1 câu: 'Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng, chiều hay tối ạ'. KHÔNG nhắc giá/gói.";
+      } else if (!concreteDate) {
+        cmt = `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm ÉP CHỌN ngày 'anh/chị qua ${dayChoice} tiện hơn ạ'. KHÔNG hỏi mở 'khi nào', KHÔNG nhắc giá/gói.`;
       } else {
-        cmt = `đã có giờ=${knownInfo.preferredTime} → chỉ xin tên+SĐT. KHÔNG hỏi lại buổi.`;
+        cmt = `đã chốt ngày=${knownInfo.preferredTime} → chỉ xin tên+SĐT. KHÔNG hỏi lại ngày.`;
       }
-    } else if (!hasTime) {
-      cmt = "đã có tên/SĐT → hỏi giờ: 'Anh/chị đến buổi sáng, chiều hay tối ạ'.";
+    } else if (!concreteDate) {
+      cmt = prevAskedDate
+        ? `đã có tên/SĐT, turn trước đã đưa 2 ngày mà khách chưa chốt → KHÔNG ép lại: note theo '${knownInfo.preferredTime ?? "ý khách"}', báo 'em giữ slot, sẽ gọi xác nhận ngày giờ cụ thể với mình ạ' rồi DỪNG.`
+        : `đã có tên/SĐT nhưng CHƯA có ngày cụ thể → ÉP CHỌN 1-TRONG-2: 'Anh/chị qua ${dayChoice} tiện hơn ạ?'. KHÔNG hỏi mở 'khi nào'.`;
     } else if (!qrShown) {
-      cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, giờ=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ slot [giờ] cho mình rồi nha ${state.honorific} [tên]' rồi DỪNG. ${knownInfo.preferredTime?.match(/\d{1,2}\/\d{1,2}/) ? "" : "Nếu chỉ có buổi → hỏi thêm ngày."}`;
+      cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, ngày=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${name}' rồi DỪNG.`;
     } else {
       cmt = "đã gửi QR. Xác nhận bước tiếp theo. DỪNG.";
     }
@@ -1659,11 +1816,15 @@ export function buildPrefixWithMeta(
   //   PITCH   = no template, no GATE override → full prefix với TACTIC + KNOWLEDGE + FEW-SHOT
   // ─────────────────────────────────────────────
 
-  // Multi-intent hint — render 1 lần, append vào cả 3 mode.
+  // Multi-intent hint + far-context multi-service hint — render 1 lần, append vào cả 3 mode.
   const multiIntentHint = buildMultiIntentHint(state);
+  const servicesContextHint = buildServicesContextHint(state);
+  // NHỊP hint — KH nhắn cụt → reply ngắn, append vào cả 3 mode (đặt cuối cho salience cao).
+  const terseHint = buildTerseHint(state, message);
 
   // ─── MODE = SCRIPT (template match) ───
-  if (state.flow === "fitness" && message) {
+  // Bỏ qua trong retention: sau chốt để GATE concierge điều phối tự nhiên, không dùng template cứng.
+  if (state.flow === "fitness" && message && state.stage !== "retention") {
     const decision = decideFitnessQuestion(state, message, prevBotReply);
     if (decision) {
       console.log(`[prefix] MODE=SCRIPT id=${decision.id}`);
@@ -1673,7 +1834,9 @@ export function buildPrefixWithMeta(
         `[RULES: Text thuần, KHÔNG markdown, KHÔNG link [text](url). Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết bằng "ạ?" hoặc "?". 2 câu kết "ạ" liên tiếp PHẢI có dấu "." giữa. CẤM khen đáp án khách. CẤM "tuyệt vời/quá/chắc chắn rồi". CẤM "nha?".]`,
         buildKnownSummary(state.knownInfo, state.flow),
         formatDecision(decision),
+        servicesContextHint,
         multiIntentHint,
+        terseHint,
       ];
       return {
         prefix: lines.filter(Boolean).join("\n"),
@@ -1914,7 +2077,7 @@ export function buildPrefixWithMeta(
   // Build GATE → detect mode
   const gateOutput = buildLogicGate(state, message);
   const isOverrideGate =
-    /chấn thương cấp|done-slots|đang lạnh|phản đối giá|GATE deposit|cold lead/i.test(
+    /chấn thương cấp|done-slots|đang lạnh|phản đối giá|GATE deposit|cold lead|GATE retention/i.test(
       gateOutput,
     );
 
@@ -1928,7 +2091,9 @@ export function buildPrefixWithMeta(
       antiLoopHint,
       buildKnownSummary(state.knownInfo, state.flow),
       gateOutput,
+      servicesContextHint,
       multiIntentHint,
+      terseHint,
     ];
     return {
       prefix: lines.filter(Boolean).join("\n"),
@@ -1964,6 +2129,13 @@ export function buildPrefixWithMeta(
     state.stage,
   );
 
+  // KH nhắn cụt → KHÔNG chủ động gợi media (trừ khi khách explicit xin xem) — tránh bung dài.
+  const customerAskingMedia =
+    state.intentTopic === "media_request" ||
+    (message ? detectMediaRequest(message) : false);
+  const mediaHint =
+    isTerseMessage(message) && !customerAskingMedia ? "" : buildMediaHint(state);
+
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
@@ -1972,10 +2144,12 @@ export function buildPrefixWithMeta(
     buildKnownSummary(state.knownInfo, state.flow),
     missingSlotHint,
     knowledgeBlock,
-    buildMediaHint(state),
+    mediaHint,
     gateOutput,
     fewShotBlock,
+    servicesContextHint,
     multiIntentHint,
+    terseHint,
   ];
 
   return {
