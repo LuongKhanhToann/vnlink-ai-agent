@@ -22,7 +22,7 @@ import {
 } from "./stateMachine";
 import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
-import { buildDateContext, suggestDatePair, hasConcreteDate } from "./dateHelper";
+import { buildDateContext, suggestDatePair, hasConcreteDate, hasDateWindow } from "./dateHelper";
 import { decideFitnessQuestion, formatDecision } from "./questionFlow";
 
 // ─────────────────────────────────────────────
@@ -1059,8 +1059,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // (Removed: giải cơ evaluation pitch GATE — đã có few-shot EXAMPLE với visualize + contrast + invite.)
 
   // ── DATE-PIN (sớm): khách có Ý ĐỊNH đến nhưng CHƯA chốt NGÀY cụ thể ──
-  // Ngay khi intent=selecting/ready mà giờ-muốn còn mơ hồ (chỉ buổi, hoặc cửa sổ
-  // "đầu tuần sau" / "đầu tháng") → dùng đòn CHỌN-1-TRONG-2 ngày để khách dễ chốt.
+  // Quy trình 2 bước:
+  //   BƯỚC 1 — khách mới nói buổi (chỉ "sáng"/"chiều") hoặc chưa nói ngày → HỎI MỞ
+  //            "qua hôm nào" để khách tự chọn ngày trước.
+  //   BƯỚC 2 — khách nói cửa sổ mơ hồ ("đầu tháng sau"/"tuần sau"/"cuối tuần") hoặc đã
+  //            được hỏi mở rồi mà vẫn chung chung → MỚI ÉP CHỌN-1-TRONG-2 ngày cụ thể.
   // Stage commitment có nhánh riêng bên dưới → loại ra đây để tránh 2 GATE trùng.
   if (
     stage !== "commitment" &&
@@ -1068,13 +1071,25 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     !hasConcreteDate(knownInfo.preferredTime) &&
     !((state as any).qrShown ?? false)
   ) {
-    const { options } = suggestDatePair(knownInfo.preferredTime);
-    hints.push(
-      `[GATE chốt-ngày: khách muốn đến nhưng CHƯA có ngày cụ thể` +
-        (knownInfo.preferredTime ? ` (mới có '${knownInfo.preferredTime}')` : "") +
-        `. Chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
-        `KHÔNG hỏi mở 'khi nào / hôm nào'. Tối đa 1 câu hỏi.]`,
-    );
+    const prevAskedOpenDay = state.lastBotReply
+      ? /hôm nào|ngày nào/i.test(state.lastBotReply)
+      : false;
+    if (!hasDateWindow(knownInfo.preferredTime) && !prevAskedOpenDay) {
+      hints.push(
+        `[GATE hỏi-ngày: khách muốn đến nhưng CHƯA nói ngày` +
+          (knownInfo.preferredTime ? ` (mới có '${knownInfo.preferredTime}')` : "") +
+          `. HỎI MỞ 1 câu 'Anh/chị tiện qua hôm nào ạ' để khách tự chọn ngày. ` +
+          `CHƯA ép chọn 1-trong-2 vội. Tối đa 1 câu hỏi.]`,
+      );
+    } else {
+      const { options } = suggestDatePair(knownInfo.preferredTime);
+      hints.push(
+        `[GATE chốt-ngày: khách đã nói cửa sổ mơ hồ` +
+          (knownInfo.preferredTime ? ` ('${knownInfo.preferredTime}')` : "") +
+          ` → chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
+          `Tối đa 1 câu hỏi.]`,
+      );
+    }
   }
 
   // ── COMMITMENT: chốt lịch — luôn ÉP ngày cụ thể (chọn 1-trong-2) ──
@@ -1091,6 +1106,13 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const prevAskedDate = state.lastBotReply
       ? /tiện hơn ạ|\d{1,2}\/\d{1,2}.*\d{1,2}\/\d{1,2}/i.test(state.lastBotReply)
       : false;
+    const prevAskedOpenDay = state.lastBotReply
+      ? /hôm nào|ngày nào/i.test(state.lastBotReply)
+      : false;
+    // Khách chưa nói cửa sổ ngày (null/chỉ buổi) & chưa được hỏi mở → BƯỚC 1: hỏi mở "hôm nào".
+    // Có cửa sổ mơ hồ / đã hỏi mở rồi → BƯỚC 2: ép chọn 1-trong-2 ngày.
+    const askOpenDayFirst =
+      !hasDateWindow(knownInfo.preferredTime) && !prevAskedOpenDay;
     const { options } = suggestDatePair(knownInfo.preferredTime);
     const dayChoice = `${options[0]} hay ${options[1]}`;
 
@@ -1099,14 +1121,20 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       if (prevAskedContact) {
         cmt = "prev đã xin tên/SĐT mà khách chưa cho → answer câu khách hỏi rồi DỪNG, KHÔNG xin lại. Reply ≤150 chars.";
       } else if (!concreteDate) {
-        cmt = `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm ÉP CHỌN ngày 'anh/chị qua ${dayChoice} tiện hơn ạ'. KHÔNG hỏi mở 'khi nào', KHÔNG nhắc giá/gói.`;
+        cmt = askOpenDayFirst
+          ? `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm HỎI MỞ 'anh/chị tiện qua hôm nào ạ'. CHƯA ép chọn 1-trong-2 vội, KHÔNG nhắc giá/gói.`
+          : `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm ÉP CHỌN ngày 'anh/chị qua ${dayChoice} tiện hơn ạ'. KHÔNG nhắc giá/gói.`;
       } else {
         cmt = `đã chốt ngày=${knownInfo.preferredTime} → chỉ xin tên+SĐT. KHÔNG hỏi lại ngày.`;
       }
     } else if (!concreteDate) {
-      cmt = prevAskedDate
-        ? `đã có tên/SĐT, turn trước đã đưa 2 ngày mà khách chưa chốt → KHÔNG ép lại: note theo '${knownInfo.preferredTime ?? "ý khách"}', báo 'em giữ slot, sẽ gọi xác nhận ngày giờ cụ thể với mình ạ' rồi DỪNG.`
-        : `đã có tên/SĐT nhưng CHƯA có ngày cụ thể → ÉP CHỌN 1-TRONG-2: 'Anh/chị qua ${dayChoice} tiện hơn ạ?'. KHÔNG hỏi mở 'khi nào'.`;
+      if (prevAskedDate) {
+        cmt = `đã có tên/SĐT, turn trước đã đưa 2 ngày mà khách chưa chốt → KHÔNG ép lại: note theo '${knownInfo.preferredTime ?? "ý khách"}', báo 'em giữ slot, sẽ gọi xác nhận ngày giờ cụ thể với mình ạ' rồi DỪNG.`;
+      } else if (askOpenDayFirst) {
+        cmt = `đã có tên/SĐT nhưng khách CHƯA nói ngày → HỎI MỞ 'Anh/chị tiện qua hôm nào ạ' để khách tự chọn. CHƯA ép chọn 1-trong-2 vội.`;
+      } else {
+        cmt = `đã có tên/SĐT, khách đã nói cửa sổ mơ hồ → ÉP CHỌN 1-TRONG-2: 'Anh/chị qua ${dayChoice} tiện hơn ạ?'.`;
+      }
     } else if (!qrShown) {
       cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, ngày=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${name}' rồi DỪNG.`;
     } else {

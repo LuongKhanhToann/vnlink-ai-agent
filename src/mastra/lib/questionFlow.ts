@@ -16,7 +16,7 @@
 import { ConversationState, IntentTopic, resolveHonorific } from "./stateMachine";
 import { FITNESS_TEMPLATES } from "./templates/fitness";
 import { findTemplate, type TemplateContext } from "./templates/engine";
-import { suggestDatePair, hasConcreteDate } from "./dateHelper";
+import { suggestDatePair, hasConcreteDate, hasDateWindow } from "./dateHelper";
 
 export interface QuestionFlowDecision {
   /** Tên decision (debug log). */
@@ -1360,6 +1360,18 @@ export function decideFitnessQuestion(
         mustInclude: ["giữ slot", "xác nhận"],
       };
     }
+    // BƯỚC 1 — khách chưa nói ngày (null / chỉ buổi) và chưa được hỏi mở → HỎI MỞ "hôm nào".
+    // Chỉ khi khách nói cửa sổ mơ hồ ("đầu tháng sau"/"tuần sau") hoặc đã hỏi mở rồi mà vẫn
+    // chung chung → mới ÉP CHỌN 1-trong-2 ngày (bước 2).
+    const prevAskedOpenDay = /hôm nào|ngày nào/i.test(prev);
+    if (!hasDateWindow(state.knownInfo.preferredTime) && !prevAskedOpenDay) {
+      return {
+        id: "ask_open_day",
+        template:
+          `Dạ vâng ${h} ${state.knownInfo.name}, ${h} tiện qua hôm nào để em giữ slot giúp mình ạ.`,
+        mustInclude: ["hôm nào"],
+      };
+    }
     const { options } = suggestDatePair(state.knownInfo.preferredTime);
     return {
       id: "ask_pick_date",
@@ -1388,7 +1400,18 @@ export function decideFitnessQuestion(
         mustInclude: ["tên", "SĐT"],
       };
     }
-    // Mới có buổi / cửa sổ mơ hồ → GỘP: xin tên/SĐT + ÉP CHỌN 1-trong-2 ngày.
+    // BƯỚC 1 — mới có buổi (chưa có cửa sổ ngày) và chưa hỏi mở → GỘP xin tên/SĐT + HỎI MỞ "hôm nào".
+    const prevAskedOpenDay = /hôm nào|ngày nào/i.test(prev);
+    if (!hasDateWindow(state.knownInfo.preferredTime) && !prevAskedOpenDay) {
+      return {
+        id: "ask_name_phone_open_day",
+        template:
+          `Dạ vâng ${h}, ${h} cho em xin tên với SĐT, với tiện qua hôm nào ` +
+          `để em giữ slot giúp mình ạ.`,
+        mustInclude: ["tên", "SĐT", "hôm nào"],
+      };
+    }
+    // BƯỚC 2 — khách đã nói cửa sổ mơ hồ / đã hỏi mở rồi → GỘP: xin tên/SĐT + ÉP CHỌN 1-trong-2 ngày.
     const { options } = suggestDatePair(state.knownInfo.preferredTime);
     return {
       id: "ask_name_phone_pick_date",

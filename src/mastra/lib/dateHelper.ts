@@ -118,6 +118,24 @@ export function hasConcreteDate(s: string | null | undefined): boolean {
   return !!s && /\d{1,2}\/\d{1,2}/.test(s);
 }
 
+/**
+ * preferredTime đã có CỬA SỔ ngày (tuần/tháng/hôm tương đối) chưa — để phân biệt
+ * với trường hợp khách MỚI chỉ nói buổi ("sáng"/"chiều") hoặc chưa nói gì về ngày.
+ *
+ * Quy trình chốt lịch 2 bước (theo phản hồi sale):
+ *   1. Khách chưa nói ngày (null / chỉ buổi)  → HỎI MỞ "qua hôm nào" trước.
+ *   2. Khách nói cửa sổ mơ hồ ("đầu tháng sau", "tuần sau", "cuối tuần", "mai"...)
+ *      → MỚI ÉP CHỌN 1-trong-2 ngày cụ thể trong cửa sổ đó (dùng suggestDatePair).
+ *
+ * hasConcreteDate (DD/MM) → đã chốt, không cần bước nào nữa.
+ */
+export function hasDateWindow(s: string | null | undefined): boolean {
+  if (!s) return false;
+  return /(đầu\s*tuần|giữa\s*tuần|cuối\s*tuần|tuần\s*(sau|tới|này)|đầu\s*tháng|giữa\s*tháng|cuối\s*tháng|tháng\s*(sau|tới|này)|(vài|mấy)\s*hôm|hôm\s*nào|ngày\s*kia|\bmai\b|\bmốt\b|thứ\s*[2-7]|chủ\s*nhật|\bcn\b)/i.test(
+    s,
+  );
+}
+
 function addDays(base: Date, n: number): Date {
   const d = new Date(base);
   d.setDate(base.getDate() + n);
