@@ -130,6 +130,12 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   // (tránh classifier mis-label "Quan tâm zumba" → opening_chua_biet).
   opening_greeting: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    // Guard: đã biết bộ môn (KH nói "quan tâm gym") → KHÔNG bao giờ hỏi lại "bộ môn nào".
+    // isFreshServiceDiscovery chỉ bail khi CHƯA có goal; khi KH nói cả bộ môn + goal cùng
+    // tin (vd "hii / quan tâm gym / giảm mỡ") → goal set nên isFresh=false, nhưng vẫn KHÔNG
+    // được hỏi bộ môn. Return null → fall through fallbackDiscoveryAfterServiceMention
+    // (ask_schedule_after_goal: "sáng hay chiều").
+    if (s.knownInfo.serviceType !== null) return null;
     // Guard: memberType=gia-dinh/hoc-sinh đã set → KHÔNG dùng template chào suông,
     // để prefix builder pitch family/student gói cụ thể (có pricing block riêng).
     if (s.knownInfo.memberType !== null) return null;
@@ -144,6 +150,8 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
 
   opening_chuong_trinh: (s, h, prev) => {
     if (isFreshServiceDiscovery(s, prev)) return null;
+    // Đã biết bộ môn → KHÔNG liệt kê "Gym/Yoga/Zumba/Bơi... bộ môn nào" nữa (xem opening_greeting).
+    if (s.knownInfo.serviceType !== null) return null;
     if (s.knownInfo.memberType !== null) return null;
     return {
       id: "opening_chuong_trinh",
