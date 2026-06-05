@@ -1083,11 +1083,17 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       );
     } else {
       const { options } = suggestDatePair(knownInfo.preferredTime);
+      const prevAskedDate = state.lastBotReply
+        ? /tiện hơn|xếp .{0,6}vào/i.test(state.lastBotReply)
+        : false;
       hints.push(
-        `[GATE chốt-ngày: khách đã nói cửa sổ mơ hồ` +
-          (knownInfo.preferredTime ? ` ('${knownInfo.preferredTime}')` : "") +
-          ` → chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
-          `Tối đa 1 câu hỏi.]`,
+        prevAskedDate
+          ? `[GATE chốt-ngày (lần 2 — khách còn lưỡng lự): ĐỪNG lặp y nguyên câu trước, NÓI CÁCH KHÁC cho tự nhiên. ` +
+              `Dùng giả định chốt ấm áp 'Vậy em xếp anh/chị vào ${options[0]} cho chắc chỗ nha, thích ${options[1]} thì nhắn em đổi'. Gọn, dễ nghe, kích chốt. Tối đa 1 ý.]`
+          : `[GATE chốt-ngày: khách đã nói cửa sổ mơ hồ` +
+              (knownInfo.preferredTime ? ` ('${knownInfo.preferredTime}')` : "") +
+              ` → chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
+              `Tối đa 1 câu hỏi. (Cửa sổ gần chỉ cần nói thứ, không cần kèm ngày.)]`,
       );
     }
   }

@@ -1412,8 +1412,20 @@ export function decideFitnessQuestion(
         mustInclude: ["hôm nào"],
       };
     }
-    // BƯỚC 2 — khách đã nói cửa sổ mơ hồ / đã hỏi mở rồi → ÉP CHỌN 1-trong-2 ngày (chỉ hỏi ngày).
-    const { options } = suggestDatePair(state.knownInfo.preferredTime);
+    // BƯỚC 2 — khách đã nói cửa sổ mơ hồ / đã hỏi mở rồi → CHỐT NGÀY (chỉ hỏi ngày).
+    const { options, weekdays } = suggestDatePair(state.knownInfo.preferredTime);
+    // Đã hỏi chọn ngày turn trước mà khách vẫn lưỡng lự → ĐỪNG lặp y nguyên câu hỏi.
+    // Đổi sang giả định chốt (assumptive close) — ấm, gọn, kích khách chốt.
+    const prevAskedDate = /tiện hơn|xếp .{0,6}vào/i.test(prev);
+    if (prevAskedDate) {
+      return {
+        id: "ask_pick_date_nudge",
+        template:
+          `Dạ vâng ${h}, vậy em xếp ${h} vào ${options[0]} cho chắc chỗ nha, ` +
+          `tới hôm đó ${h} qua em đón ạ. Nếu ${h} thích ${options[1]} hơn thì nhắn em đổi cũng được ạ.`,
+        mustInclude: [weekdays[0]],
+      };
+    }
     return {
       id: "ask_pick_date_precontact",
       template: `Dạ vâng ${h}, ${h} qua ${options[0]} hay ${options[1]} tiện hơn ạ.`,

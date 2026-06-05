@@ -155,15 +155,27 @@ function nextWeekMonday(from: Date): Date {
   return addDays(from, 8 - dayMon);
 }
 
-/** Format 1 lựa chọn ngày: "thứ 2 (8/7)". */
-function fmtDayOption(d: Date): string {
-  const dow = DAY_NAMES[d.getDay()].toLowerCase();
-  return `${dow} (${d.getDate()}/${d.getMonth() + 1})`;
+/** Tên thứ viết thường: "thứ 2" / "chủ nhật". */
+function weekdayLower(d: Date): string {
+  return DAY_NAMES[d.getDay()].toLowerCase();
+}
+
+/**
+ * Format 1 lựa chọn ngày.
+ *   - withDate=false (cửa sổ GẦN — trong/đầu/giữa/cuối tuần) → chỉ thứ: "thứ 2".
+ *     Tuần gần khách hiểu ngay, kèm "(8/7)" là thừa.
+ *   - withDate=true  (cửa sổ XA — theo tháng) → kèm ngày: "thứ 2 (8/7)".
+ */
+function fmtDayOption(d: Date, withDate: boolean): string {
+  const dow = weekdayLower(d);
+  return withDate ? `${dow} (${d.getDate()}/${d.getMonth() + 1})` : dow;
 }
 
 export interface DatePair {
-  /** 2 chuỗi ngày cụ thể, vd ["thứ 2 (8/7)", "thứ 3 (9/7)"]. */
+  /** 2 chuỗi hiển thị (proximity-aware): gần → "thứ 2"; xa → "thứ 2 (8/7)". */
   options: [string, string];
+  /** 2 tên thứ thuần (luôn không kèm ngày) — tiện cho mustInclude/validator. */
+  weekdays: [string, string];
 }
 
 /**
@@ -174,17 +186,17 @@ export interface DatePair {
  * Quy ước cửa sổ: đầu tuần=T2&T3, giữa tuần=T4&T5, cuối tuần=T7&CN,
  *   đầu tháng=ngày 1-5, giữa tháng=13-17, cuối tháng=25-28.
  *   Có "sau"/"tới" → dịch sang tuần kế tiếp.
+ *
+ * Định dạng hiển thị theo độ XA: cửa sổ theo TUẦN → chỉ nói thứ ("thứ 2 hay thứ 3");
+ *   cửa sổ theo THÁNG → kèm ngày cụ thể ("thứ 2 (1/7) hay thứ 3 (2/7)").
  */
 export function suggestDatePair(phrase: string | null | undefined): DatePair {
   const now = getNowVN();
   const p = (phrase ?? "").toLowerCase();
-  const mk = (a: Date, b: Date): DatePair => ({
-    options: [fmtDayOption(a), fmtDayOption(b)],
-  });
 
   // 2 ngày gần nhất chưa qua trong khoảng ngày-trong-tháng [lo, hi];
   // ưu tiên tháng này, hết thì sang tháng sau.
-  const monthRange = (lo: number, hi: number): DatePair => {
+  const monthPick = (lo: number, hi: number): [Date, Date] => {
     const picks: Date[] = [];
     for (let mOff = 0; mOff <= 1 && picks.length < 2; mOff++) {
       for (let day = lo; day <= hi && picks.length < 2; day++) {
@@ -192,47 +204,63 @@ export function suggestDatePair(phrase: string | null | undefined): DatePair {
         if (d.getTime() > now.getTime()) picks.push(d);
       }
     }
-    return picks.length >= 2
-      ? mk(picks[0], picks[1])
-      : mk(addDays(now, 1), addDays(now, 2));
+    return picks.length >= 2 ? [picks[0], picks[1]] : [addDays(now, 1), addDays(now, 2)];
   };
 
   const nextWeek = /tuần\s*(sau|tới)/.test(p);
 
-  // ── Cửa sổ theo TUẦN ──
+  let a: Date;
+  let b: Date;
+  let withDate: boolean;
+
+  // ── Cửa sổ theo TUẦN (gần → chỉ nói thứ) ──
   if (/cuối\s*tuần/.test(p)) {
-    const sat = nextWeek ? addDays(nextWeekMonday(now), 5) : upcomingDow(now, 6);
-    return mk(sat, addDays(sat, 1)); // T7 & CN
-  }
-  if (/giữa\s*tuần/.test(p)) {
-    const wed = nextWeek ? addDays(nextWeekMonday(now), 2) : upcomingDow(now, 3);
-    return mk(wed, addDays(wed, 1)); // T4 & T5
-  }
-  if (/đầu\s*tuần/.test(p)) {
-    const mon = nextWeek ? nextWeekMonday(now) : upcomingDow(now, 1);
-    return mk(mon, addDays(mon, 1)); // T2 & T3
-  }
-  if (nextWeek) {
-    const mon = nextWeekMonday(now);
-    return mk(mon, addDays(mon, 2)); // T2 & T4
+    a = nextWeek ? addDays(nextWeekMonday(now), 5) : upcomingDow(now, 6);
+    b = addDays(a, 1); // T7 & CN
+    withDate = false;
+  } else if (/giữa\s*tuần/.test(p)) {
+    a = nextWeek ? addDays(nextWeekMonday(now), 2) : upcomingDow(now, 3);
+    b = addDays(a, 1); // T4 & T5
+    withDate = false;
+  } else if (/đầu\s*tuần/.test(p)) {
+    a = nextWeek ? nextWeekMonday(now) : upcomingDow(now, 1);
+    b = addDays(a, 1); // T2 & T3
+    withDate = false;
+  } else if (nextWeek) {
+    a = nextWeekMonday(now);
+    b = addDays(a, 2); // T2 & T4
+    withDate = false;
+
+  // ── Cửa sổ theo THÁNG (xa → kèm ngày cụ thể) ──
+  } else if (/tháng\s*(sau|tới)/.test(p)) {
+    a = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    b = new Date(now.getFullYear(), now.getMonth() + 1, 2);
+    withDate = true;
+  } else if (/đầu\s*tháng/.test(p)) {
+    [a, b] = monthPick(1, 5);
+    withDate = true;
+  } else if (/giữa\s*tháng/.test(p)) {
+    [a, b] = monthPick(13, 17);
+    withDate = true;
+  } else if (/cuối\s*tháng/.test(p)) {
+    [a, b] = monthPick(25, 28);
+    withDate = true;
+
+  // ── "vài hôm nữa" / "mấy hôm nữa" / "hôm nào đó" (gần) ──
+  } else if (/(vài|mấy)\s*hôm|hôm\s*nào/.test(p)) {
+    a = addDays(now, 2);
+    b = addDays(now, 3);
+    withDate = false;
+
+  // ── Mặc định: ngày mai & ngày kia (gần) ──
+  } else {
+    a = addDays(now, 1);
+    b = addDays(now, 2);
+    withDate = false;
   }
 
-  // ── Cửa sổ theo THÁNG ──
-  if (/tháng\s*(sau|tới)/.test(p)) {
-    return mk(
-      new Date(now.getFullYear(), now.getMonth() + 1, 1),
-      new Date(now.getFullYear(), now.getMonth() + 1, 2),
-    );
-  }
-  if (/đầu\s*tháng/.test(p)) return monthRange(1, 5);
-  if (/giữa\s*tháng/.test(p)) return monthRange(13, 17);
-  if (/cuối\s*tháng/.test(p)) return monthRange(25, 28);
-
-  // ── "vài hôm nữa" / "mấy hôm nữa" / "hôm nào đó" ──
-  if (/(vài|mấy)\s*hôm|hôm\s*nào/.test(p)) {
-    return mk(addDays(now, 2), addDays(now, 3));
-  }
-
-  // ── Mặc định: ngày mai & ngày kia ──
-  return mk(addDays(now, 1), addDays(now, 2));
+  return {
+    options: [fmtDayOption(a, withDate), fmtDayOption(b, withDate)],
+    weekdays: [weekdayLower(a), weekdayLower(b)],
+  };
 }
