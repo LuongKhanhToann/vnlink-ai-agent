@@ -1400,25 +1400,24 @@ export function decideFitnessQuestion(
         mustInclude: ["tên", "SĐT"],
       };
     }
-    // BƯỚC 1 — mới có buổi (chưa có cửa sổ ngày) và chưa hỏi mở → GỘP xin tên/SĐT + HỎI MỞ "hôm nào".
+    // CHƯA có ngày cụ thể → CHỐT NGÀY trước, TÁCH khỏi việc xin tên/SĐT (tránh dồn dập).
+    // Xin tên+SĐT để dành turn sau, khi khách đã chốt được 1 ngày cụ thể
+    // (lúc đó nhánh hasConcreteDate ở trên sẽ xin tên/SĐT).
     const prevAskedOpenDay = /hôm nào|ngày nào/i.test(prev);
+    // BƯỚC 1 — mới có buổi (chưa có cửa sổ ngày) và chưa hỏi mở → HỎI MỞ "hôm nào".
     if (!hasDateWindow(state.knownInfo.preferredTime) && !prevAskedOpenDay) {
       return {
-        id: "ask_name_phone_open_day",
-        template:
-          `Dạ vâng ${h}, ${h} cho em xin tên với SĐT, với tiện qua hôm nào ` +
-          `để em giữ slot giúp mình ạ.`,
-        mustInclude: ["tên", "SĐT", "hôm nào"],
+        id: "ask_open_day_precontact",
+        template: `Dạ vâng ${h}, ${h} tiện qua hôm nào để em sắp xếp giúp mình ạ.`,
+        mustInclude: ["hôm nào"],
       };
     }
-    // BƯỚC 2 — khách đã nói cửa sổ mơ hồ / đã hỏi mở rồi → GỘP: xin tên/SĐT + ÉP CHỌN 1-trong-2 ngày.
+    // BƯỚC 2 — khách đã nói cửa sổ mơ hồ / đã hỏi mở rồi → ÉP CHỌN 1-trong-2 ngày (chỉ hỏi ngày).
     const { options } = suggestDatePair(state.knownInfo.preferredTime);
     return {
-      id: "ask_name_phone_pick_date",
-      template:
-        `Dạ vâng ${h}, ${h} cho em xin tên với SĐT, với qua ${options[0]} hay ${options[1]} ` +
-        `tiện hơn để em giữ slot giúp mình ạ.`,
-      mustInclude: ["tên", "SĐT"],
+      id: "ask_pick_date_precontact",
+      template: `Dạ vâng ${h}, ${h} qua ${options[0]} hay ${options[1]} tiện hơn ạ.`,
+      mustInclude: ["tiện hơn"],
     };
   }
 

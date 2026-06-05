@@ -1121,11 +1121,13 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       if (prevAskedContact) {
         cmt = "prev đã xin tên/SĐT mà khách chưa cho → answer câu khách hỏi rồi DỪNG, KHÔNG xin lại. Reply ≤150 chars.";
       } else if (!concreteDate) {
+        // TÁCH: chốt NGÀY trước (chỉ hỏi ngày), CHƯA xin tên/SĐT turn này — tránh dồn dập.
+        // Khi khách chốt được 1 ngày cụ thể → turn sau mới xin tên+SĐT.
         cmt = askOpenDayFirst
-          ? `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm HỎI MỞ 'anh/chị tiện qua hôm nào ạ'. CHƯA ép chọn 1-trong-2 vội, KHÔNG nhắc giá/gói.`
-          : `CHƯA đủ info → hỏi GỘP 1 câu: xin tên + SĐT, kèm ÉP CHỌN ngày 'anh/chị qua ${dayChoice} tiện hơn ạ'. KHÔNG nhắc giá/gói.`;
+          ? `khách CHƯA nói ngày → HỎI MỞ 'anh/chị tiện qua hôm nào ạ'. CHỈ hỏi ngày, CHƯA xin tên/SĐT, CHƯA ép chọn 1-trong-2, KHÔNG nhắc giá/gói.`
+          : `khách đã nói cửa sổ mơ hồ → ÉP CHỌN ngày 'anh/chị qua ${dayChoice} tiện hơn ạ'. CHỈ hỏi ngày, CHƯA xin tên/SĐT turn này, KHÔNG nhắc giá/gói.`;
       } else {
-        cmt = `đã chốt ngày=${knownInfo.preferredTime} → chỉ xin tên+SĐT. KHÔNG hỏi lại ngày.`;
+        cmt = `đã chốt ngày=${knownInfo.preferredTime} → giờ chỉ xin tên+SĐT (1 câu). KHÔNG hỏi lại ngày.`;
       }
     } else if (!concreteDate) {
       if (prevAskedDate) {

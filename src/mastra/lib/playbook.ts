@@ -47,7 +47,9 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Tháng lẻ: 'tháng lẻ 1.2tr, gói năm 7tr còn bảo lưu khi bận'.",
 
   commitment_neutral:
-    "Hỏi GỘP 1 câu: tên + SĐT + buổi sáng/chiều/tối. Đủ 3 → xác nhận 1 câu rồi DỪNG. Không gợi cọc/QR nếu KH chưa hỏi.",
+    "TÁCH ngày khỏi tên/SĐT, đừng dồn dập 1 câu hỏi cả 3 thứ. " +
+    "Chốt NGÀY trước: khách chưa nói ngày → hỏi mở 'mình tiện qua hôm nào ạ'; khách nói mơ hồ ('đầu tuần sau') → cho chọn 1-trong-2 ngày cụ thể. " +
+    "Khi đã có ngày cụ thể → MỚI xin tên + SĐT (gộp tên+SĐT trong 1 câu được). Đủ tên+SĐT+ngày → xác nhận 1 câu rồi DỪNG. Không gợi cọc/QR nếu KH chưa hỏi.",
 
   objection_neutral:
     "Ghi nhận từ khoá phản đối. Feel-Felt-Found ngắn gọn. Luôn có phương án backup rẻ hơn.",
@@ -86,7 +88,9 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "Chia nhỏ giá/buổi: '10 buổi ~380k/buổi, tặng 1 buổi'. Reframe: 'massage bề mặt 2 ngày lại đau vì chưa gỡ sâu'. KHÔNG giảm giá.",
 
   commitment_neutral:
-    "Hỏi GỘP 1 câu: tên + SĐT + sáng/chiều/tối. Đủ 3 → xác nhận rồi DỪNG. Không lặp 'KTV đánh giá thực tế'.",
+    "TÁCH ngày khỏi tên/SĐT, đừng dồn dập 1 câu hỏi cả 3 thứ. " +
+    "Chốt NGÀY trước: khách chưa nói ngày → hỏi mở 'mình tiện qua hôm nào ạ'; khách nói mơ hồ ('đầu tuần sau') → cho chọn 1-trong-2 ngày cụ thể. " +
+    "Khi đã có ngày cụ thể → MỚI xin tên + SĐT (gộp 1 câu được). Đủ tên+SĐT+ngày → xác nhận rồi DỪNG. Không lặp 'KTV đánh giá thực tế'.",
 
   objection_neutral:
     "Xác nhận: 'Câu này nhiều người hỏi — để em giải thích'. Trả lời theo script objection. KHÔNG ép mua.",
