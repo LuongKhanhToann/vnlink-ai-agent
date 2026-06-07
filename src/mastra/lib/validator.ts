@@ -14,6 +14,7 @@
  */
 
 import type { ConversationState } from "./stateMachine";
+import { detectServiceByKeyword, detectHonorific } from "./stateMachine";
 
 export interface ValidationResult {
   valid: boolean;
@@ -23,10 +24,24 @@ export interface ValidationResult {
 /**
  * Safe fallback reply khi LLM output không validate được.
  * Mềm + invite mà KHÔNG cam kết → bot không drift / im lặng.
+ *
+ * `message` (tin khách lượt này) là LỚP PHÒNG THỦ CUỐI: nếu state bị lỗi load
+ * (vd storage hiccup → DEFAULT_STATE) thì vẫn quét keyword bộ môn + honorific TRỰC TIẾP
+ * từ tin khách → KHÔNG bao giờ hỏi lại "bộ môn nào" khi khách đã ghi rõ "gym".
  */
-export function safeFallback(state: ConversationState): string {
-  const h =
-    state.honorific === "anh/chị" ? "anh/chị" : state.honorific;
+export function safeFallback(state: ConversationState, message?: string): string {
+  // serviceType: ưu tiên state, fallback keyword từ tin khách.
+  const serviceType =
+    state.knownInfo.serviceType ??
+    (message ? detectServiceByKeyword(message) : null);
+  // honorific: nếu state default ("anh/chị"), thử suy từ tin khách.
+  const rawH =
+    state.honorific !== "anh/chị"
+      ? state.honorific
+      : message
+        ? detectHonorific(message, "anh/chị")
+        : "anh/chị";
+  const h = rawH === "anh/chị" ? "anh/chị" : rawH;
   // Stage-specific fallback — context-aware nhưng vẫn safe
   // Retention (sau chốt): KHÔNG xin lại info — chỉ mời hỏi thêm.
   if (state.stage === "retention") {
@@ -42,8 +57,8 @@ export function safeFallback(state: ConversationState): string {
     return `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ tư vấn trực tiếp ạ.`;
   }
   // Default: discovery / opening — câu DỨT KHOÁT, KHÔNG mơ hồ "xin thêm chi tiết".
-  // Đã biết bộ môn → hỏi lịch (bước kế); chưa biết → hỏi bộ môn.
-  if (state.knownInfo.serviceType) {
+  // Đã biết bộ môn (state HOẶC keyword tin khách) → hỏi lịch; chưa biết → hỏi bộ môn.
+  if (serviceType) {
     return `Dạ vâng ${h}, ${h} tiện tập buổi sáng hay chiều để em tư vấn lịch phù hợp ạ.`;
   }
   return `Dạ vâng ${h}, ${h} đang quan tâm bộ môn nào để em tư vấn giúp ạ.`;

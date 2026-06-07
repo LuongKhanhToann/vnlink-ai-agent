@@ -24,6 +24,30 @@ const GRAPH_API            = "https://graph.facebook.com/v19.0/me/messages";
 // 2s default. Override qua FB_DEBOUNCE_MS.
 const DEBOUNCE_MS = Number(process.env.FB_DEBOUNCE_MS ?? "2000");
 
+// Hold dài hơn khi buffer mới CHỈ là câu chào/gọi trống ("alo e", "hi", "chào shop").
+// Lý do: trên FB khách hay tách tin — chào trước, hỏi sau. Nếu flush câu chào ngay (2s) →
+// bot trả lời chào, rồi tin nội dung tới thành turn 2 → 2 reply rời rạc ("loạn").
+// Giữ lâu hơn để câu hỏi thật kịp tới rồi gộp chung 1 turn. Override qua FB_OPENER_HOLD_MS.
+const OPENER_HOLD_MS = Number(process.env.FB_OPENER_HOLD_MS ?? "6000");
+
+/**
+ * True khi text mới chỉ gồm từ chào/gọi + tiểu từ (chưa có nội dung thực).
+ * Vd: "alo e", "hi", "chào shop", "em ơi", "ad ơi" → true.
+ *     "a muốn tập gym", "giảm mỡ" → false (đã có nội dung).
+ */
+function looksIncompleteOpener(text: string): boolean {
+  const t = (text || "").toLowerCase().trim();
+  if (!t) return true;
+  const stripped = t
+    // từ chào
+    .replace(/\b(a?lô|alo|hi+|hello|hế?l+ô|chào|chao|xin chào|good morning|gm|ad|admin|shop)\b/gi, "")
+    // tiểu từ / đại từ gọi
+    .replace(/\b(em|e|anh|a|chị|chi|ơi|oi|ạ|dạ|vâng|ad|nhé|nha)\b/gi, "")
+    .replace(/[\s,.!?…ơ~-]+/g, "")
+    .trim();
+  return stripped.length <= 1;
+}
+
 type SenderState = {
   /** Tin chưa được xử lý — append theo thứ tự, gộp = join("\n") khi flush. */
   buffer: string[];
@@ -199,12 +223,17 @@ function enqueueMessage(senderId: string, text: string) {
   // Typing indicator để KH thấy bot "đọc" → giảm cảm giác lag khi đợi debounce.
   void sendTyping(senderId);
 
-  // Debounce: reset mỗi lần có tin mới — chỉ flush khi KH dừng gõ DEBOUNCE_MS.
+  // Debounce: reset mỗi lần có tin mới — chỉ flush khi KH dừng gõ.
+  // Buffer mới chỉ là câu chào trống → giữ lâu hơn (OPENER_HOLD_MS) chờ câu hỏi thật,
+  // tránh trả lời chào lẻ rồi tin nội dung thành turn 2.
   if (state.debounceTimer) clearTimeout(state.debounceTimer);
+  const waitMs = looksIncompleteOpener(state.buffer.join("\n"))
+    ? OPENER_HOLD_MS
+    : DEBOUNCE_MS;
   state.debounceTimer = setTimeout(() => {
     state.debounceTimer = null;
     void flush(senderId);
-  }, DEBOUNCE_MS);
+  }, waitMs);
 }
 
 async function flush(senderId: string) {

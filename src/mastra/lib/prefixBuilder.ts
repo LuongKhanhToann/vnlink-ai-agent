@@ -58,7 +58,14 @@ function humanizeSignal(s: IntentSignal): string {
  * Đặt ở CUỐI prefix (sau GATE) để agent đọc cuối cùng, dễ tích hợp vào reply.
  */
 function buildMultiIntentHint(state: ConversationState): string {
-  const secondaries = state.secondaryIntents ?? [];
+  // Lọc secondary KHÔNG phải câu hỏi cần trả lời riêng:
+  //   - greeting: câu chào đã nằm trong "Dạ..." của reply chính → KHÔNG append "Dạ em chào..."
+  //     (classifier temp thấp vẫn thỉnh thoảng đẩy greeting/general_hi làm secondary khi tin gộp
+  //      có cả lời chào lẫn nội dung → append câu chào vào CUỐI reply = lỗi "mash" loạn).
+  //   - chitchat / filler: không có nội dung để cover.
+  const ACTIONABLE = (s: IntentSignal): boolean =>
+    s.domain !== "greeting" && s.domain !== "chitchat";
+  const secondaries = (state.secondaryIntents ?? []).filter(ACTIONABLE);
   if (secondaries.length === 0) return "";
   const list = secondaries.map(humanizeSignal).join(" + ");
   return (

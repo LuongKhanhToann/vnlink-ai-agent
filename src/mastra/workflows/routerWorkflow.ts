@@ -372,9 +372,17 @@ function buildAgentStep(
       const rawSecondary = (obj as { secondaryAnswers?: string[] | null }).secondaryAnswers;
       if (Array.isArray(rawSecondary) && rawSecondary.length > 0) {
         const lowerText = cleanedText.toLowerCase();
+        // Guard tuyệt đối: KHÔNG bao giờ append câu chào/cảm-ơn-đã-quan-tâm như secondary.
+        // Câu chào đã nằm trong reply chính → append vào cuối = "mash" loạn (gym reply + "Dạ em chào...").
+        // Đề phòng agent tự điền dù prefix đã lọc greeting khỏi MULTI-INTENT hint.
+        const isGreetingLike = (s: string): boolean =>
+          /(^|\b)(dạ\s+)?(em\s+)?chào\b/i.test(s) ||
+          /cảm\s*ơn.{0,20}(đã\s+)?quan\s*tâm/i.test(s) ||
+          /xin\s+chào/i.test(s);
         const extras = rawSecondary
           .map((s) => (typeof s === "string" ? s.trim() : ""))
           .filter((s) => s.length > 0)
+          .filter((s) => !isGreetingLike(s))
           .filter((s) => !lowerText.includes(s.toLowerCase().slice(0, 20)))
           .slice(0, 2);
         if (extras.length > 0) {
@@ -408,7 +416,7 @@ function buildAgentStep(
         if (!validation.valid) {
           const reasonsStr = validation.reasons.join(", ");
           console.warn(`[validator] FAIL — reasons: ${reasonsStr} → safe fallback`);
-          cleanedText = safeFallback(stateBeforeReply);
+          cleanedText = safeFallback(stateBeforeReply, message);
           validatorResult = validation.reasons;
         }
       }

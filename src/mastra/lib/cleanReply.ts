@@ -148,6 +148,40 @@ function splitSentences(s: string): string[] {
  * `prevReply` = reply turn trước. Nếu prev đã có pitch package (≥2 số tiền) và
  * current lặp y số tiền đó → strip câu chứa số tiền (giảm lặp ý).
  */
+/**
+ * Structured-output leak guard: khi DeepSeek structured-output FAIL → nhánh plain-text fallback
+ * đôi khi trả NGUYÊN khối JSON ra cho khách (```json {"text":"..."}```), hoặc append khối JSON
+ * vào CUỐI câu trả lời sạch. Trích field "text", bỏ phần JSON thừa.
+ *   - Có text sạch (≥20 ký tự) TRƯỚC fence/JSON → giữ phần sạch, cắt đuôi JSON.
+ *   - Toàn bộ là JSON → trích value của "text".
+ */
+function stripStructuredJsonLeak(text: string): string {
+  let r = text;
+  const extractTextField = (s: string): string | null => {
+    const m = s.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (!m) return null;
+    try {
+      return JSON.parse(`"${m[1]}"`);
+    } catch {
+      return m[1];
+    }
+  };
+  const fenceIdx = r.search(/```/);
+  if (fenceIdx >= 0) {
+    const before = r.slice(0, fenceIdx).trim();
+    if (before.length >= 20) return before; // giữ phần trả lời sạch, bỏ đuôi JSON
+    const t = extractTextField(r);
+    if (t) return t;
+    return r.replace(/```(?:json)?/gi, "").trim();
+  }
+  // JSON object trần (không fence) chứa "text"
+  if (/^\s*\{[\s\S]*"text"\s*:/.test(r)) {
+    const t = extractTextField(r);
+    if (t) return t;
+  }
+  return r;
+}
+
 export function cleanReply(
   text: string,
   hasMedia: boolean = false,
@@ -155,7 +189,8 @@ export function cleanReply(
 ): string {
   if (!text) return text;
 
-  let r = text;
+  // Chặn raw-JSON leak TRƯỚC mọi xử lý khác (DeepSeek structured-fail → plain-text dump JSON).
+  let r = stripStructuredJsonLeak(text);
 
   // Anti-loop pitch: detect các phrase đặc trưng trong prev → strip current sentences chứa chúng.
   // Targets:

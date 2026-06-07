@@ -971,9 +971,23 @@ export function buildNextState(
     }
   }
 
+  // Deterministic serviceType fallback: classifier (LLM) thỉnh thoảng MISS serviceType khi tin
+  // gộp có cả lời chào ("alo e\na muốn tập gym\ngiảm mỡ") → tunnel-vision vào câu chào, để
+  // serviceType=null → bot hỏi lại "bộ môn nào" dù khách ghi rõ "gym". Quét keyword để CHẮC CHẮN
+  // bắt được bộ môn khi message ghi rõ. Guard so-sánh ("gym hay yoga") → KHÔNG khoá, để classifier
+  // xử lý câu hỏi so sánh đúng (pickServiceType phía dưới vẫn validate giá trị hợp lệ).
+  const isServiceCompare =
+    /(gym|yoga|zumba|bơi|boi|pilates)\b[^.!?]{0,12}(với|hay|vs\.?|so\s*với|cái\s*nào|hoặc)/i.test(
+      message,
+    );
+  const keywordServiceFallback = isServiceCompare
+    ? null
+    : detectServiceByKeyword(message);
+
   const extractedSlotsAugmented = {
     ...llm.extractedSlots,
     // Chỉ override khi LLM không cho giá trị (null/undefined/empty).
+    serviceType: llm.extractedSlots.serviceType ?? keywordServiceFallback,
     name:
       llmNameValid
         ? llmName
