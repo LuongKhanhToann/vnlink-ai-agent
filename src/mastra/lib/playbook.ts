@@ -52,7 +52,8 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Khi đã có ngày cụ thể → MỚI xin tên + SĐT (gộp tên+SĐT trong 1 câu được). Đủ tên+SĐT+ngày → xác nhận 1 câu rồi DỪNG. Không gợi cọc/QR nếu KH chưa hỏi.",
 
   objection_neutral:
-    "Ghi nhận từ khoá phản đối. Feel-Felt-Found ngắn gọn. Luôn có phương án backup rẻ hơn.",
+    "Ghi nhận điểm khách băn khoăn (Feel-Felt-Found ngắn). Reframe theo GIÁ TRỊ trước (cơ sở 700m2 + bể 4 mùa duy nhất, GV Ấn Độ + InBody miễn phí, hội viên gắn bó 2-3 năm) + mời thử 1 buổi miễn phí. " +
+    "KHÔNG hạ giá. Chỉ giới thiệu gói nhẹ hơn như 1 LỰA CHỌN sau khi đã neo giá trị, đóng khung 'tiết kiệm hơn' chứ không phải để né giá.",
   // Nghịch đảo tactic — chỉ áp dụng khi KH thực sự hesitant
   objection_hesitant:
     "Nghịch đảo: ngừng push, 'Thôi để anh/chị nghĩ thêm, em chỉ muốn biết thêm 1 điều...' Tạo tò mò. Phải trung thực khi dùng.",

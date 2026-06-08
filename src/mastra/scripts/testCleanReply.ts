@@ -42,4 +42,24 @@ const sentences = t4.split(/(?<=[.!?])(?!\d)\s+(?=\S)/);
 console.log("SPLIT:", sentences);
 console.log(`     ${sentences.length === 3 ? "✅" : "❌"} đúng 3 câu (không split '1.2')`);
 
+console.log("\n═══ Test 5: NỚI Nhánh D — giữ ĐÚNG 1 dấu '?' ở câu hỏi cuối ═══");
+const t5a = cleanReply("Dạ vâng anh, anh tiện tập buổi sáng hay chiều ạ?", false, "");
+console.log("Q cuối   :", t5a, ` ${/ạ\?$/.test(t5a) && (t5a.match(/\?/g) || []).length === 1 ? "✅" : "❌"} giữ 1 '?'`);
+const t5b = cleanReply("Anh đã tập gym chưa? Anh tiện sáng hay chiều ạ?", false, "");
+console.log("2 Q      :", t5b, ` ${(t5b.match(/\?/g) || []).length === 1 ? "✅" : "❌"} còn 1 '?'`);
+const t5c = cleanReply("Dạ vâng anh, em giữ slot 7h tối cho mình rồi nha.", false, "");
+console.log("statement:", t5c, ` ${!/\?/.test(t5c) ? "✅" : "❌"} không thêm '?'`);
+const t5d = cleanReply("Xem tại facebook.com/page?id=123 nhé anh", false, "");
+console.log("URL ?id= :", t5d, ` ${/\?id=123/.test(t5d) ? "✅" : "❌"} giữ URL query`);
+
+console.log("\n═══ Test 6: KH hỏi LẠI giá — KHÔNG bị anti-loop nuốt câu báo giá ═══");
+const prev6 =
+  "Bên em có lớp học bơi 1-1 12 buổi 3 triệu, kèm 3 tháng bể; nếu nhẹ hơn thì có lớp nhóm 1,2 triệu ạ. Anh/chị tiện khung giờ nào ạ?";
+const raw6 =
+  "Dạ 1 khóa học bơi 1-1 12 buổi là 3 triệu ạ. Nếu chị muốn em chốt luôn lịch thử cho bé thì chị tiện khung giờ nào ạ?";
+const t6ask = cleanReply(raw6, false, prev6, "1 khóa hết bao nhiêu");
+const t6noask = cleanReply(raw6, false, prev6, "ừ chị nghe");
+console.log("KH hỏi giá   :", t6ask, ` ${/3 triệu/.test(t6ask) ? "✅" : "❌"} giữ câu báo giá`);
+console.log("KH KHÔNG hỏi :", t6noask, ` ${!/3 triệu/.test(t6noask) ? "✅" : "❌"} vẫn dedup (no-regress)`);
+
 process.exit(0);

@@ -363,7 +363,7 @@ function buildAgentStep(
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
-      let cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply);
+      let cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply, message);
 
       // ═══════ MULTI-INTENT — append secondaryAnswers (Fix #3) ═══════
       // Agent fill secondaryAnswers khi prefix có [MULTI-INTENT] hint.

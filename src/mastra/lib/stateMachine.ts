@@ -390,6 +390,58 @@ const PAIN_PRIORITY = new RegExp(
 //
 // Vietnamese name chars: 1-3 từ, mỗi từ ≤ 12 chars, chỉ chứa Unicode letter (\p{L}).
 // Phone: 9-11 chữ số liên tiếp (có thể có dấu cách/gạch nhưng strip trước).
+/**
+ * Strip động từ/xưng hô dẫn vào tên do extract slot `name` nuốt phải.
+ * Vd: "Là Trung" → "Trung", "tên anh là Lan" → "Lan", "mình tên Hùng" → "Hùng".
+ * Bảo thủ: chỉ cắt các tiền tố cố định (tên/họ/xưng hô + copula "là"), KHÔNG đụng phần tên thật
+ * ("Anh Tuấn", "Lan Anh" giữ nguyên). Dùng cho CẢ LLM path (classifier) lẫn inline/standalone extractor.
+ */
+export function sanitizeName(raw: string): string | null {
+  let n = (raw ?? "").trim();
+  if (!n) return null;
+  let prev: string;
+  do {
+    prev = n;
+    n = n
+      .replace(/^(họ\s+tên|tên\s+gọi|tên)\s+/iu, "")        // "tên ...", "họ tên ..."
+      .replace(/^của\s+/iu, "")                              // "của em ..."
+      .replace(/^(anh|chị|em|mình|tôi|con|cô|chú|bác|cháu)\s+(là|tên)\s+/iu, "") // "anh là", "mình tên"
+      .replace(/^là\s+/iu, "")                               // copula "là" đứng đầu → "Là Trung"
+      .trim();
+  } while (n !== prev && n.length > 0);
+  return n.length ? n : null;
+}
+
+/**
+ * Lưới chống classifier BỊA thứ/ngày khi khách chỉ cho KHOẢNG GIỜ ("tối 7-9h").
+ * Bug thật (real_tang_co_bao_gia_ngay T3): "tối 7-9h" (19-21h) → classifier resolve
+ * "19h tối thứ 7 13/06" (đọc "7-9h" thành "thứ 7" + bịa ngày 13/06 khách KHÔNG nói).
+ * Bot tự bịa ngày đặt lịch = lỗi CORRECTNESS (chốt nhầm ngày). Khi MESSAGE có range-giờ ("\d-\dh")
+ * mà KHÔNG nêu thứ/ngày → mọi "thứ N"/"DD/MM" trong preferredTime là BỊA → cắt, giữ phần giờ/buổi.
+ * Bảo thủ: chỉ cắt khi message THỰC SỰ vắng cue thứ/ngày (tránh nuốt lịch thật khách cho).
+ */
+export function sanitizePreferredTime(
+  extracted: string | null | undefined,
+  message: string,
+): string | null {
+  if (!extracted) return extracted ?? null;
+  const msg = (message || "").toLowerCase();
+  // Range-giờ kiểu "7-9h", "7h-9h", "19-21h", "7 - 9h" (KHÔNG khớp "3-4 buổi": cần "h" sau số cuối).
+  const hasHourRange = /\d{1,2}\s*h?\s*[-–—]\s*\d{1,2}\s*h/.test(msg);
+  if (!hasHourRange) return extracted;
+  const msgHasDayOrDate =
+    /(thứ\s*[2-7]|thứ\s*(hai|ba|tư|năm|sáu|bảy)|chủ\s*nhật|(?<!\p{L})cn(?!\p{L})|cuối\s*tuần|đầu\s*tuần)/iu.test(msg) ||
+    /(\d{1,2}\s*\/\s*\d{1,2}|ngày\s*\d|hôm\s*nay|ngày\s*mai|(?<!\p{L})mai(?!\p{L})|(?<!\p{L})mốt(?!\p{L})|(?<!\p{L})kia(?!\p{L})|tuần\s*(sau|tới)|(?<!\p{L})nay(?!\p{L}))/iu.test(msg);
+  if (msgHasDayOrDate) return extracted; // khách CÓ cho thứ/ngày → giữ nguyên
+  // Message chỉ cho range-giờ → cắt "thứ N" + "DD/MM" BỊA trong extracted, giữ giờ/buổi.
+  const cleaned = extracted
+    .replace(/\s*(thứ\s*[2-7]|thứ\s*(hai|ba|tư|năm|sáu|bảy)|chủ\s*nhật|(?<!\p{L})cn(?!\p{L}))/giu, "")
+    .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned.length >= 2 ? cleaned : extracted;
+}
+
 export function detectNamePhoneInline(
   message: string,
 ): { name: string | null; phone: string | null } {
@@ -510,6 +562,21 @@ export function detectServiceByKeyword(message: string): string | null {
   // "bơi" phải có context (học bơi, tập bơi) để tránh false positive
   if (/(học\s*bơi|tập\s*bơi|bộ\s*môn\s*bơi|gói\s*bơi|đi\s*bơi|biết\s*bơi)/.test(m)) return "boi";
   if (/(gói\s*full|thẻ\s*full|combo\s*4|đa\s*dịch\s*vụ)/.test(m)) return "full";
+  return null;
+}
+
+/**
+ * Lưới TẤT ĐỊNH vá gap classifier hay miss goal: "lấy lại dáng / lấy dáng / về dáng" (mẹ bỉm sau sinh)
+ * → giam-mo. Bug (real_so_sanh T3): KH "mới sinh, cần lấy lại dáng" → classifier KHÔNG set fitnessGoal
+ * (chỉ gắn attribute goal_postpartum_shape) → goal=null → bot hỏi history lùi thay vì recommend.
+ * BẢO THỦ: CHỈ vá cue "(...)dáng" mẹ-bỉm; các goal khác (giảm cân/tăng cơ/thư giãn) classifier đã bắt tốt
+ * → KHÔNG thêm để tránh đụng routing đang chuẩn.
+ */
+export function detectGoalByKeyword(message: string): string | null {
+  if (!message) return null;
+  const m = message.toLowerCase();
+  if (/(lấy\s*lại\s*(vóc\s*)?dáng|lấy\s*dáng|về\s*dáng|lại\s*(vóc\s*)?dáng|gọn\s*dáng|thon\s*dáng)/.test(m))
+    return "giam-mo";
   return null;
 }
 
@@ -923,6 +990,24 @@ export function buildNextState(
     flow = "fitness";
   }
 
+  // FITNESS-SERVICE LOCK: KH đã chốt 1 bộ môn fitness (yoga/gym/zumba/bơi/pilates) mà turn này
+  // CHỈ than đau (vd "tập yoga để thư giãn, lưng hay đau") → KHÔNG nhảy giai-co. Cơn đau là LÝ DO/
+  // ngữ cảnh tập, KHÔNG phải request đặt giải cơ. Yoga/pilates còn thường được tập ĐỂ giảm đau lưng.
+  // Vẫn cho switch nếu message NÊU RÕ dịch vụ giải cơ (massage/giải cơ/xoa bóp/VLTL...).
+  const FITNESS_SERVICES_SET = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+  const committedFitnessService =
+    previous.flow === "fitness" &&
+    previous.knownInfo.serviceType !== null &&
+    FITNESS_SERVICES_SET.includes(previous.knownInfo.serviceType);
+  const giaiCoServiceRequest =
+    /(giải\s*cơ|massage|xoa\s*bóp|vật\s*lý\s*trị\s*liệu|ngâm\s*bồn|trigger|fascia|regenix)/i;
+  if (flow === "giai-co" && committedFitnessService && !giaiCoServiceRequest.test(message)) {
+    console.log(
+      `[stateMachine] fitness-service lock: serviceType=${previous.knownInfo.serviceType} + chỉ than đau → giữ flow=fitness`,
+    );
+    flow = "fitness";
+  }
+
   // Detect SERVICE SWITCH: KH đổi bộ môn giữa cuộc thoại.
   // Tín hiệu: LLM classifier extract serviceType MỚI khác serviceType hiện tại trong state.
   // Khi switch:
@@ -988,14 +1073,20 @@ export function buildNextState(
     ...llm.extractedSlots,
     // Chỉ override khi LLM không cho giá trị (null/undefined/empty).
     serviceType: llm.extractedSlots.serviceType ?? keywordServiceFallback,
+    // llmName đã sanitize ở mapToClassification; inline/standalone là path TẤT ĐỊNH chưa qua sanitize
+    // → bọc sanitizeName để "tên anh là Trung, sđt..." không leak "Là Trung" (đóng gap của 6d).
     name:
       llmNameValid
         ? llmName
-        : (inlineName ?? standaloneName),
+        : (sanitizeName(inlineName ?? standaloneName ?? "") ?? null),
     phone:
       llm.extractedSlots.phone && String(llm.extractedSlots.phone).trim().length > 0
         ? llm.extractedSlots.phone
         : inlineExtract.phone,
+    // Chống classifier bịa thứ/ngày từ range-giờ ("tối 7-9h" → "thứ 7 13/06"). Xem sanitizePreferredTime.
+    preferredTime: sanitizePreferredTime(llm.extractedSlots.preferredTime, message),
+    // Vá gap classifier miss goal "lấy lại dáng" (mẹ bỉm) → giam-mo. Chỉ fallback khi LLM không cho goal.
+    fitnessGoal: llm.extractedSlots.fitnessGoal ?? detectGoalByKeyword(message),
   };
   if (inlineExtract.name || inlineExtract.phone) {
     console.log(
@@ -1005,11 +1096,18 @@ export function buildNextState(
 
   let knownInfo = mergeSlots(previous.knownInfo, extractedSlotsAugmented);
   if (switched) {
+    // fitnessGoal là mục tiêu CỦA NGƯỜI (giảm mỡ/tăng cơ/sức khỏe/thư giãn) → cross-service:
+    // đổi gym→yoga KHÔNG đổi việc khách muốn giảm cân. GIỮ goal (post-merge: ưu tiên goal mới
+    // trong tin này, else carry-over) để bot KHÔNG hỏi lại mục tiêu thừa.
+    // Ngoại lệ: goal service-bound "hoc-boi" chỉ hợp lệ với bơi → reset nếu chuyển sang bộ môn khác.
+    const mergedGoal = knownInfo.fitnessGoal;
+    const goalStillValid =
+      mergedGoal !== null && !(mergedGoal === "hoc-boi" && switched !== "boi");
     knownInfo = {
       ...knownInfo,
       serviceType: switched,
-      fitnessGoal: null,
-      memberType: null,
+      fitnessGoal: goalStillValid ? mergedGoal : null,
+      // memberType giữ (cross-service: HS/SV/gia đình không đổi theo bộ môn).
       schedule: null,
       durationMonths: null,
       sessionPackage: null,
@@ -1133,7 +1231,25 @@ export function buildNextState(
       : inFunnel2 && !curBookingWritten ? previous.stage // ngay sau chốt, KH còn sửa đơn → funnel chốt lại + ghi
       : "retention";                                 // mặc định sau chốt: concierge (nhận đặt thêm tự nhiên)
 
-  const intent = llm.intent;
+  let intent = llm.intent;
+
+  // DETERMINISTIC INTENT GUARD — "ok" nhiễu: 4o-mini đôi khi classify affirmation thuần ("ok"/"ừ"/
+  // "được") thành `explore` dù khách đang ĐỒNG Ý lời MỜI THỬ/InBody của bot → funnel đứng. Khi tin
+  // CHỈ là 1 affirmation thuần VÀ bot vừa mời thử 1 buổi / đo InBody / trải nghiệm → bump explore→
+  // selecting để tiến. Bảo thủ: KHÔNG bump lên `ready`; KHÔNG đụng nếu LLM đã selecting/ready/compare;
+  // FSM vẫn có guard commit-signal trước khi vào commitment (xem computeNextStage). Đúng rule classifier L587-588.
+  const bareAffirmation =
+    /^(ok|oke|okie|okê|okay|uh|uhm|ừ|ừm|um|vâng|dạ|đồng\s*ý|được|duoc|vang)\s*(em|ạ|a|nhé|nha|vâng|được|luôn|đi|thôi|nhỉ)?\s*[.!,]?$/i;
+  const prevInvitedTrial =
+    /(thử\s*1\s*buổi|thử\s*miễn\s*phí|đo\s*inbody|trải\s*nghiệm|ghé\s*thử|có\s*muốn\s*(thử|đo|ghé))/i;
+  if (
+    intent === "explore" &&
+    bareAffirmation.test((message ?? "").trim()) &&
+    prevInvitedTrial.test(previous.lastBotReply ?? "")
+  ) {
+    console.log(`[stateMachine] intent guard: bare "${message.trim()}" sau lời mời thử → explore→selecting`);
+    intent = "selecting";
+  }
 
   // turnCount: conversation-wide — KHÔNG reset khi flow đổi.
   // Dùng cho greeting decision (đã chào ở turn 1 rồi thì các turn sau dùng "Dạ vâng").

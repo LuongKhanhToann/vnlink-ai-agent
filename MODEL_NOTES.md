@@ -4,7 +4,15 @@
 
 ## Model
 
-- **Đang dùng**: `gpt-4o-mini` (cố định, KHÔNG nâng vì cost)
+> ⚠️ CẬP NHẬT 2026-06-08: đã đổi DEFAULT provider sang OpenAI (DeepSeek hết số dư). Xem `config/openai.ts`.
+
+- **Reply (đang dùng)**: `gpt-5.4-mini` (OpenAI) — `REPLY_MODEL` default openai.
+  - Chấp nhận `temperature 0.85` + `top_p 0.95`, ~1.4s/call, KHÔNG tốn reasoning tokens.
+  - ⚠️ Gotcha gpt-5.x: bắt `max_completion_tokens` (không `max_tokens`). Code KHÔNG truyền `maxTokens` → không dính.
+    **ĐỪNG thêm `maxTokens` vào modelSettings cho dòng gpt-5.**
+- **Classifier / grader**: `gpt-4o-mini` (OpenAI) — `CLASSIFIER_MODEL` default openai.
+- **Lùi về DeepSeek**: set `LLM_PROVIDER=deepseek` (cần đã nạp số dư — hiện balance âm, `is_available:false`).
+- **Bảng "Models đã thử" bên dưới = lịch sử trên 4o-mini reply** (lỗi thời, giữ tham khảo). Số đo hiện tại đo trên `gpt-5.4-mini`.
 - **Context window**: 128K tokens (input)
 - **Output cap**: 16K tokens
 - **TTL prompt cache**: 5 phút

@@ -47,11 +47,23 @@ export function safeFallback(state: ConversationState, message?: string): string
   if (state.stage === "retention") {
     return `Dạ vâng ${h}, còn điều gì em hỗ trợ thêm cho ${h} không ạ.`;
   }
-  if (state.stage === "commitment" && state.knownInfo.preferredTime) {
-    return `Dạ vâng ${h}, ${h} cho em xin tên với SĐT để em giữ slot ạ.`;
+  // ĐÃ CÓ GIỜ CỤ THỂ (preferredTime): bất kể stage → hướng THẲNG về chốt slot.
+  // KHÔNG hỏi lại giờ, KHÔNG mời InBody/"sáng hay chiều" (đã đặt giờ rồi). Đủ tên+SĐT → xác nhận.
+  if (state.knownInfo.preferredTime) {
+    if (state.knownInfo.name && state.knownInfo.phone) {
+      return `Dạ vâng ${h}, em giữ slot ${state.knownInfo.preferredTime} cho mình rồi nha ${h}, hẹn gặp ${h} ạ.`;
+    }
+    return `Dạ vâng ${h}, ${h} cho em xin tên với SĐT để em giữ slot ${state.knownInfo.preferredTime} ạ.`;
   }
   if (state.stage === "commitment") {
     return `Dạ vâng ${h}, ${h} cho em xin thêm thông tin để em hỗ trợ chốt slot ạ.`;
+  }
+  // EMOTION-AWARE (Nhánh 3, 2026-06-08 tối): khách PHÂN VÂN/LO mà LLM reply bị validator reject →
+  // fallback robotic "tiện tập sáng hay chiều" càng khiến khách thấy bị ép (bỏ qua cảm xúc). Trấn an
+  // + mời thử KHÔNG cam kết thay vì hỏi lịch. Chạy SAU guard preferredTime/retention/commitment (đã
+  // chốt → ưu tiên hướng chốt). Áp cho discovery/inbody/evaluation/negotiation.
+  if (state.emotion === "hesitant" || state.emotion === "anxious") {
+    return `Dạ ${h} cứ yên tâm ạ, người mới bên em đều có HLV kèm từ đầu và điều chỉnh theo sức. ${h} ghé thử 1 buổi xem có hợp không rồi quyết cũng được ạ.`;
   }
   if (state.stage === "evaluation" || state.stage === "negotiation") {
     return `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ tư vấn trực tiếp ạ.`;
@@ -59,6 +71,11 @@ export function safeFallback(state: ConversationState, message?: string): string
   // Default: discovery / opening — câu DỨT KHOÁT, KHÔNG mơ hồ "xin thêm chi tiết".
   // Đã biết bộ môn (state HOẶC keyword tin khách) → hỏi lịch; chưa biết → hỏi bộ môn.
   if (serviceType) {
+    // ĐÃ biết buổi tập (schedule sáng/chiều/tối) → KHÔNG hỏi lại "sáng hay chiều";
+    // mời ghé thử 1 buổi + hỏi ngày để tiến tới chốt slot.
+    if (state.knownInfo.schedule) {
+      return `Dạ vâng ${h}, ${h} ghé thử 1 buổi để em hỗ trợ tư vấn trực tiếp nha, ${h} tiện hôm nào ạ.`;
+    }
     return `Dạ vâng ${h}, ${h} tiện tập buổi sáng hay chiều để em tư vấn lịch phù hợp ạ.`;
   }
   return `Dạ vâng ${h}, ${h} đang quan tâm bộ môn nào để em tư vấn giúp ạ.`;

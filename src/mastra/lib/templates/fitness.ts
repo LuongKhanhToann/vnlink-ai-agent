@@ -87,24 +87,37 @@ export const FITNESS_TEMPLATES: Template[] = [
     render: (ctx) => {
       const goal = ctx.state.knownInfo.fitnessGoal;
       const h = ctx.h;
-      // Đã recommend rồi mà KH vẫn nhờ tư vấn → fall-through để LLM xin slot
+      // Đã recommend rồi mà KH VẪN nhờ tư vấn ("chọn giúp em") →
       if (alreadyRecommendedSolution(ctx.prevReply)) {
+        // Đã có giờ / tên+SĐT → KH đi tiếp được, nudge nhẹ về trải nghiệm.
         if (
           ctx.state.knownInfo.preferredTime ||
           (ctx.state.knownInfo.name && ctx.state.knownInfo.phone)
         ) {
-          // Return empty template? actually we want to return null but we can't — engine will skip via anti-loop
-          // Instead return a generic invite that won't loop
           return {
             id: "indecisive_after_recommended_invite",
             template: `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ đo InBody miễn phí và xem trực tiếp phòng tập ạ.`,
             mustInclude: ["sáng", "chiều"],
           };
         }
+        // KH vẫn phân vân, xin chọn LẠI → TÁI KHẲNG ĐỊNH gợi ý dứt khoát theo goal
+        // (KHÔNG đẩy lịch "sáng hay chiều" — sale thật phải chốt giúp khách đang lưỡng lự).
+        const reaffirm: Record<string, { pick: string; must: string[] }> = {
+          "giam-mo": { pick: "Gym kết hợp Zumba", must: ["Gym", "Zumba"] },
+          "tang-co": { pick: "Gym kèm PT 1-1", must: ["Gym", "PT"] },
+          "thu-gian": { pick: "Yoga", must: ["Yoga"] },
+          "hoc-boi": { pick: "lớp bơi 1-1", must: ["bơi"] },
+        };
+        const r = (goal && reaffirm[goal]) || {
+          pick: "thẻ Full đa năng (Gym, Bơi, Yoga, Zumba dùng chung 1 thẻ)",
+          must: ["Full"],
+        };
         return {
-          id: "indecisive_after_recommended_invite",
-          template: `Dạ vâng ${h}, ${h} tiện ghé buổi sáng hay chiều để em hỗ trợ đo InBody miễn phí và xem trực tiếp phòng tập ạ.`,
-          mustInclude: ["sáng", "chiều"],
+          id: "indecisive_reaffirm_recommend",
+          template:
+            `Dạ ${h} cứ bắt đầu với ${r.pick} như em gợi là hợp mục tiêu của mình nhất ạ. ` +
+            `${h} ghé thử 1 buổi cảm nhận rồi quyết cũng được ạ.`,
+          mustInclude: r.must,
         };
       }
       if (goal === "giam-mo") {
@@ -286,8 +299,19 @@ export const FITNESS_TEMPLATES: Template[] = [
         /tư\s*vấn|báo\s*(giá|chi\s*phí|phí)|gợi\s*ý|chọn\s*(giúp|hộ|cho)|môn\s*nào\s*phù\s*hợp|dịch\s*vụ\s*phù\s*hợp/.test(
           m,
         );
+      // (2a) KH nêu GOAL rõ ("muốn/cần + giảm cân/mỡ/stress/săn chắc/vóc dáng...") mà KHÔNG nhắc
+      // đang-dùng-phương-pháp → recommend value-first NGAY, KHÔNG hỏi history. Turn "em muốn giảm
+      // cân với giảm stress" từng bị grader chấm 2/10 vì hỏi info không cần thiết thay vì build value.
+      const usingMethodCue =
+        /đang\s*(tập|dùng|ăn\s*kiêng|chạy|nhịn|uống|áp\s*dụng|theo)|đã\s*(tập|thử|dùng)/.test(
+          m,
+        );
+      const statesGoalClearly =
+        /(muốn|cần|mong(\s*muốn)?)[^.]*?(giảm\s*(cân|mỡ|stress|béo)|săn\s*chắc|vóc\s*dáng|cải\s*thiện|tăng\s*cơ|khỏe|đẹp)/.test(
+          m,
+        );
       const inThamQuanContext = /Tổ\s*hợp\s*thể\s*thao/i.test(prev);
-      if (inThamQuanContext || askingRecommend) {
+      if (inThamQuanContext || askingRecommend || (statesGoalClearly && !usingMethodCue)) {
         return {
           id: "giam_can_recommend_solution",
           template:

@@ -1177,12 +1177,24 @@ function fallbackDiscoveryAfterServiceMention(
   state: ConversationState,
   h: string,
   prev: string,
+  message?: string,
 ): QuestionFlowDecision | null {
   if (state.stage !== "discovery") return null;
   if (state.knownInfo.serviceType === null) return null;
   // Đã thu được tên hoặc SĐT → không quay lại hỏi discovery (đang chốt slot).
   if (state.knownInfo.name || state.knownInfo.phone) return null;
   const svc = state.knownInfo.serviceType;
+  // Khách hỏi kiểu "có (gói/lớp) X không" → AFFIRM "Dạ có ạ" TRƯỚC khi hỏi discovery.
+  // Nếu không, bot lờ câu hỏi gói/dịch vụ → "không trả lời đúng câu hỏi" (grader chấm thấp).
+  // ⚠️ Boundary VI-safe (\b không match ký tự có dấu) — dùng lookaround \p{L} + flag "u".
+  const askingAvailability =
+    /(?<!\p{L})có(?!\p{L})[^?]*(?<!\p{L})(không|khong|ko|hông|hok)(?!\p{L})/iu.test(
+      message ?? "",
+    );
+  const affirmLead = (serviceName: string): string =>
+    state.turnCount <= 1
+      ? `Dạ em chào ${h}, bên em có nhiều gói ${serviceName} linh hoạt ạ. `
+      : `Dạ vâng ${h}, bên em có nhiều gói ${serviceName} ạ. `;
 
   // ── ĐÃ BIẾT bộ môn + MỤC TIÊU nhưng CHƯA có lịch/giờ → hỏi LỊCH (bước discovery kế).
   // Trước đây goal set là return null → không có template → LLM tự generate, dễ drift
@@ -1232,14 +1244,15 @@ function fallbackDiscoveryAfterServiceMention(
     return {
       id: "gym_discovery",
       template:
-        greetingServicePrefix(state, h, "Gym") +
+        (askingAvailability ? affirmLead("Gym") : greetingServicePrefix(state, h, "Gym")) +
         `Không biết ${h} đã tập gym bao giờ chưa ạ.`,
       mustInclude: turnAwareMustInclude(state, ["đã tập gym"]),
     };
   }
   if (svc === "yoga") {
-    const prefix =
-      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
+    const prefix = askingAvailability
+      ? affirmLead("Yoga")
+      : state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "yoga_discovery",
       template: prefix + `trước đây ${h} đã tập yoga chưa ạ.`,
@@ -1247,8 +1260,9 @@ function fallbackDiscoveryAfterServiceMention(
     };
   }
   if (svc === "zumba") {
-    const prefix =
-      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
+    const prefix = askingAvailability
+      ? affirmLead("Zumba")
+      : state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "zumba_discovery",
       template: prefix + `trước đây ${h} đã tập zumba chưa ạ.`,
@@ -1256,8 +1270,9 @@ function fallbackDiscoveryAfterServiceMention(
     };
   }
   if (svc === "pilates") {
-    const prefix =
-      state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
+    const prefix = askingAvailability
+      ? affirmLead("Pilates")
+      : state.turnCount <= 1 ? `Dạ em chào ${h}, ` : `Dạ vâng ${h}, `;
     return {
       id: "pilates_discovery",
       template:
@@ -1473,8 +1488,24 @@ export function decideFitnessQuestion(
     }
   }
 
+  // AVAILABILITY GUARD: "có gói X không" hay bị classifier gắn nhầm topic GIÁ
+  // (price_explicit_list/price_ask_generic) → bot bổ thẳng "ưu đãi chỉ từ 333k" (anchor thấp,
+  // mời mặc cả — bug §3). Khi tin là HỎI CÓ/KHÔNG về dịch vụ mà KHÔNG có từ giá → SKIP template giá,
+  // để rơi qua GATE availability-affirm (prefixBuilder: "Dạ có ạ" + discovery, không bổ giá).
+  // ⚠️ Boundary VI-safe (lookaround \p{L}+flag u — \b không match "có"/"không").
+  const msgRaw = message ?? "";
+  const priceTopic =
+    state.intentTopic === "price_explicit_list" ||
+    state.intentTopic === "price_ask_generic";
+  const isAvailabilityAsk =
+    /(?<!\p{L})có(?!\p{L})[^?]*(?<!\p{L})(không|khong|ko|hông|hok|chứ)(?!\p{L})/iu.test(msgRaw) &&
+    /(gói|khoá|khóa|lớp|dịch\s*vụ|gym|yoga|zumba|bơi|pilates|(?<!\p{L})pt(?!\p{L})|hlv)/iu.test(msgRaw);
+  const hasPriceWord =
+    /(giá|bao\s+nhiêu|tiền|chi\s*phí|học\s*phí|ưu\s*đãi|khuyến\s*mãi|báo\s*giá|triệu|\d\s*tr\b|\d\s*k\b)/i.test(msgRaw);
+  const skipPriceForAvailability = priceTopic && isAvailabilityAsk && !hasPriceWord;
+
   // 1. Lookup topic-based template
-  if (state.intentTopic) {
+  if (state.intentTopic && !skipPriceForAvailability) {
     const generator = TEMPLATES[state.intentTopic];
     if (generator) {
       const decision = generator(state, h, prev, message);
@@ -1483,7 +1514,7 @@ export function decideFitnessQuestion(
   }
 
   // 2. Fallback: vừa biết serviceType nhưng chưa hỏi experience → discovery question
-  return fallbackDiscoveryAfterServiceMention(state, h, prev);
+  return fallbackDiscoveryAfterServiceMention(state, h, prev, message);
 }
 
 // ─────────────────────────────────────────────
@@ -1495,10 +1526,117 @@ export function decideFitnessQuestion(
  * Bot được instruct DUY NHẤT 1 việc: paraphrase template với phong cách Fami,
  * đảm bảo chứa các keyword bắt buộc.
  */
+/**
+ * INTENT-GUIDE allowlist — template hội thoại (chào / discovery / recommend / trấn an /
+ * mời trải nghiệm / cold-lead) nơi GIỌNG TỰ NHIÊN quan trọng hơn từng-chữ.
+ * Với các id này, formatDecision nới thành "ý cần truyền đạt + giữ nguyên số liệu",
+ * cho model tự diễn đạt thay vì copy template → bớt cứng nhắc.
+ *
+ * MỌI id KHÁC mặc định FACT-LOCK (giữ chặt như cũ): giá / chính sách / an toàn / cơ sở
+ * vật chất / giờ-địa-chỉ / CHỐT SLOT (commitment) — chỗ cần chính xác tuyệt đối.
+ */
+const INTENT_GUIDE_IDS = new Set<string>([
+  // opening / discovery
+  "opening_greeting", "opening_chuong_trinh", "opening_chua_biet",
+  "intro_uu_dai", "uu_dai_ask_service", "indecisive_pick_for_me",
+  "gym_ask_goal", "gym_ask_goal_yes",
+  "yoga_experienced_ask_schedule", "zumba_experienced_ask_schedule",
+  "pool_audience_ask", "no_experience_generic",
+  // recommend giải pháp (số liệu được auto-pin)
+  "indecisive_recommend_giam_mo", "indecisive_recommend_tang_co",
+  "indecisive_recommend_thu_gian", "indecisive_recommend_hoc_boi",
+  "indecisive_recommend_suc_khoe", "indecisive_recommend_full",
+  "indecisive_after_recommended_invite", "indecisive_reaffirm_recommend",
+  "giam_can_recommend_solution", "giam_can_after_recommended_invite",
+  "giam_can_ask_history", "tham_quan",
+  // trấn an
+  "yoga_tran_an", "zumba_tran_an",
+  "yoga_new_class", "zumba_new_class",
+  "yoga_new_class_inquiry", "zumba_new_class_inquiry",
+  "class_has_newbies", "zumba_class_composition",
+  // mời trải nghiệm
+  "intro_trai_nghiem_t1", "intro_trai_nghiem_followup",
+  "trial_ask_confirm", "trial_ask_confirm_zumba", "trial_register_how",
+  // cold-lead back-off
+  "cold_lead_back_off",
+]);
+
+/**
+ * Template INTENT-GUIDE (soft, giọng quan trọng hơn từng chữ) hay FACT-LOCK (giá/chính sách —
+ * cần chính xác tuyệt đối)? Dùng ở prefixBuilder để quyết: khi khách hesitant/anxious + template
+ * soft → nhường PITCH reframe/trấn an (xem buildSaleSenseHint); FACT-LOCK luôn giữ template.
+ */
+export function isIntentGuideId(id: string): boolean {
+  return INTENT_GUIDE_IDS.has(id);
+}
+
+/**
+ * Template "mềm" AN TOÀN để NHƯỜNG xuống PITCH khi khách hesitant/anxious (Nhánh 3):
+ * INTENT-GUIDE (discovery/recommend/trấn an/mời trải nghiệm) + MỌI template HỎI-LỊCH thuần
+ * (`ask_schedule_after_goal`, `<svc>_ask_schedule_after_experience`, `<svc>_experienced_ask_schedule`).
+ * Template hỏi-lịch máy móc "sáng hay chiều" là root-cause khiến bot cứng với khách phân vân/lo →
+ * khi đó nhường PITCH để buildSaleSenseHint reframe/trấn an trước. KHÔNG gồm FACT-LOCK
+ * (giá/chính sách/an toàn/cơ sở VC/giờ-địa-chỉ/CHỐT SLOT) → các template đó luôn giữ template.
+ */
+export function isEmotionSoftSkipId(id: string): boolean {
+  return INTENT_GUIDE_IDS.has(id) || /ask_schedule/.test(id);
+}
+
+/**
+ * Rút các "sự thật cứng" (số tiền/buổi/tháng/tuổi/giờ/phần trăm/1-1...) trong template
+ * để PIN nguyên văn khi nới INTENT-GUIDE — chống model bịa/sai số (vd "7 triệu" → "6 triệu").
+ */
+function extractLockedFacts(template: string): string[] {
+  const re =
+    /\d+(?:[.,]\d+)?\s*(?:triệu|tr|k|nghìn|đồng|buổi|tháng|tuần|tuổi|năm|ca\/ngày|ca|người|phút|lần|m2|mét)\b|\d{1,2}h(?:\d{2})?\b|\d+%|\b\d-\d\b/gi;
+  const found = template.match(re) ?? [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const f of found) {
+    const norm = f.replace(/\s+/g, " ").trim();
+    const key = norm.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(norm);
+    }
+  }
+  return out;
+}
+
 export function formatDecision(d: QuestionFlowDecision): string {
   // Detect: template KHÔNG có câu chào dài → cấm LLM thêm vào.
   const templateHasGreeting =
     /em chào|cảm ơn .*đã quan tâm|quay lại với bên em/i.test(d.template);
+
+  // ── INTENT-GUIDE: nới cho model tự diễn đạt, chỉ pin số liệu + mustInclude ──
+  if (INTENT_GUIDE_IDS.has(d.id)) {
+    const lockedFacts = Array.from(
+      new Set([...extractLockedFacts(d.template), ...d.mustInclude]),
+    );
+    const ig: string[] = [
+      `[INTENT-GUIDE ${d.id}: Truyền đạt ĐÚNG Ý dưới đây bằng GIỌNG SALE TỰ NHIÊN của em —`,
+      `viết lại cho mượt, ĐỪNG copy nguyên văn, miễn đủ ý chính và GIỮ ĐÚNG mọi số liệu.`,
+      ``,
+      `Ý (mẫu tham khảo cách nói, em diễn đạt lại theo ngữ cảnh khách):`,
+      `"${d.template}"`,
+      ``,
+      `GIỮ NGUYÊN, KHÔNG đổi/bịa số: ${lockedFacts.map((s) => `"${s}"`).join(", ")}.`,
+    ];
+    if (d.mustNotInclude && d.mustNotInclude.length > 0) {
+      ig.push(
+        `TUYỆT ĐỐI KHÔNG chứa: ${d.mustNotInclude.map((s) => `"${s}"`).join(", ")}.`,
+      );
+    }
+    if (!templateHasGreeting) {
+      ig.push(
+        `⛔ KHÔNG tự thêm câu chào "Dạ em chào / cảm ơn ... đã quan tâm" ngoài Ý trên.`,
+      );
+    }
+    ig.push(
+      `Tối đa 1 câu hỏi. KHÔNG pitch thêm gói/giá ngoài Ý trên, KHÔNG hỏi tên/SĐT trừ khi Ý yêu cầu.]`,
+    );
+    return ig.join("\n");
+  }
 
   const parts: string[] = [
     `[ANSWER_LOCK ${d.id}: BẮT BUỘC reply theo template dưới đây.`,

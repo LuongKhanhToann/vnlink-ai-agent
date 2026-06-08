@@ -229,7 +229,11 @@ async function judgeTurn(
         "\n\n"
       : "";
 
-  const prompt = `BỐI CẢNH SCENARIO: ${scenarioContext}
+  const prompt = `BỐI CẢNH SCENARIO (mục tiêu TOÀN cuộc thoại — chỉ để tham khảo, KHÔNG phải checklist từng turn): ${scenarioContext}
+⚠️ Mô tả trên nói kết cục mong đợi của CẢ cuộc (vd "khách chốt time → bot xin tên/SĐT"). TUYỆT ĐỐI không áp kỳ vọng
+cuối-cuộc (xin tên/SĐT, giữ slot, chốt) vào turn mà khách CHƯA tạo tiền đề tương ứng. Chấm tin hiện tại theo đúng
+những gì khách VỪA nói + lịch sử, KHÔNG theo kết cục. Vd khách mới hỏi "có gói gym không" ở T1 → bot affirm + hỏi 1
+bước discovery là ĐÚNG; trừ điểm "chưa xin SĐT/chưa chốt slot" ở đây là SAI (khách chưa hề cho giờ/cam kết).
 
 ${historyBlock}═══ TIN HIỆN TẠI (chấm điểm tin này) ═══
 KHÁCH (turn ${turn.turn}): "${turn.input}"
@@ -248,6 +252,9 @@ TIÊU CHÍ:
 ⚠️ CHẤM CÔNG BẰNG dựa trên context:
   - Nếu thông tin đã được trả lời ở turn trước → ĐỪNG trừ điểm 'không trả lời X'.
   - Nếu mediaCount > 0 → coi như bot ĐÃ gửi hình rồi (không cần xuất hiện URL trong text).
+  - Chấm theo TIN HIỆN TẠI, KHÔNG theo kết cục scenario: chỉ kỳ vọng "xin tên/SĐT" hay "chốt slot" khi khách
+    ĐÃ cho giờ cụ thể HOẶC tín hiệu cam kết ("ok đăng ký", "chốt luôn"). Khách mới hỏi mở đầu / hỏi dịch vụ /
+    hỏi giá → bot dẫn 1 bước discovery hoặc answer là ĐÚNG, KHÔNG trừ điểm "chưa chốt/chưa xin info".
 ⚠️ KHẮT KHE với: khen giả ('Tuyệt vời/quá'), reply > 300 ký tự, pitch khi đã chốt, ép info khi khách lạnh, lặp y câu hỏi từ turn trước.
 
 Trả JSON với điểm và list issues.`;

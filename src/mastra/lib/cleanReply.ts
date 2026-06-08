@@ -186,11 +186,22 @@ export function cleanReply(
   text: string,
   hasMedia: boolean = false,
   prevReply: string = "",
+  customerMessage: string = "",
 ): string {
   if (!text) return text;
 
   // Chặn raw-JSON leak TRƯỚC mọi xử lý khác (DeepSeek structured-fail → plain-text dump JSON).
   let r = stripStructuredJsonLeak(text);
+
+  // KH đang HỎI GIÁ trực tiếp (kể cả hỏi LẠI) → KHÔNG được strip câu trả lời giá qua anti-loop
+  // (bug: KH "1 khóa hết bao nhiêu" sau khi bot đã báo giá turn trước → dedup nuốt câu giá →
+  //  bot né câu hỏi, sale=0). Khi cờ này bật: bỏ qua price-forbid + giữ câu có số tiền ở Jaccard.
+  const customerAskingPrice =
+    /(giá|bao\s+nhiêu|mấy\s+(tiền|đồng)|chi\s*phí|học\s*phí|báo\s*giá|nhiêu\s+tiền|hết\s+bao|tổng\s+(cộng|hết)|trọn\s+gói\s+bao)/i.test(
+      customerMessage,
+    );
+  const hasPriceNumber = (s: string): boolean =>
+    /\d+(?:[.,]\d+)?\s*(?:tr|triệu|k|nghìn|ngàn|đồng)/i.test(s);
 
   // Anti-loop pitch: detect các phrase đặc trưng trong prev → strip current sentences chứa chúng.
   // Targets:
@@ -210,7 +221,7 @@ export function cleanReply(
         ),
       ),
     );
-    if (prevPrices.length >= 2) {
+    if (prevPrices.length >= 2 && !customerAskingPrice) {
       forbidPhrases.push(...prevPrices);
     }
 
@@ -267,6 +278,7 @@ export function cleanReply(
     if (prevSentences.length > 0 && curSentences.length >= 2) {
       const keptCur = curSentences.filter((sent) => {
         if (isAffirmativeAnswer(sent)) return true; // luôn giữ câu xác nhận
+        if (customerAskingPrice && hasPriceNumber(sent)) return true; // KH hỏi giá → giữ câu báo giá
         const tokens = tokenize(sent);
         if (tokens.length < 3) return true; // câu quá ngắn (thường là chào/ack) → giữ
         const maxSim = Math.max(
@@ -395,9 +407,11 @@ export function cleanReply(
     }
   }
 
-  // 7. Strip TOÀN BỘ dấu "?" — văn phong sale Việt thường mềm bằng "ạ"/"nha" thay vì "?".
-  //    Bảo toàn "?" nằm trong URL (vd facebook.com/profile?id=...) bằng cách chỉ strip
-  //    "?" khi KHÔNG đứng trước ký tự word (URL query thường có "?id=" → "?" theo "i" word char).
+  // 7. Dấu "?" — NỚI (Nhánh D 2026-06-08): trước đây strip TOÀN BỘ "?" → mọi câu hỏi đọc thành
+  //    "...ạ" mất ngữ điệu hỏi (góp phần bot "cứng"). Giờ GIỮ ĐÚNG 1 dấu "?" ở câu hỏi CUỐI để tự
+  //    nhiên hơn; strip mọi "?" nội bộ còn lại. An toàn với grader (chỉ phạt khi >1 "?"). "?" trong
+  //    URL (?id=) vẫn giữ qua (?!\w). Restore dấu "?" cuối ở bước 8d-bis (sau khi chuẩn hoá particle).
+  const endedWithQuestion = /\?\s*$/.test(r.trim());
   r = r.replace(/\?(?!\w)/g, "");
 
   // 8. Whitespace cleanup — bảo toàn \n để render list xuống dòng
@@ -456,6 +470,13 @@ export function cleanReply(
         }
       }
     }
+  }
+
+  // 8d-bis. NỚI (Nhánh D): khôi phục 1 dấu "?" cuối nếu reply gốc là câu hỏi (xem bước 7).
+  //         Chạy SAU 8c/8d (đã chuẩn hoá "ạ"/"nha") → cho ra dạng tự nhiên "...ạ?". Chỉ thêm khi
+  //         hiện chưa kết bằng "?" (tránh "??"). KHÔNG thêm nếu câu cuối kết bằng số/giá.
+  if (endedWithQuestion && !/\?\s*$/.test(r.trim()) && !/[\d%]\s*$/.test(r.trim())) {
+    r = r.replace(/\s*$/, "?");
   }
 
   // 8e. Strip duplicate honorific kế cận trong cùng 1 câu.

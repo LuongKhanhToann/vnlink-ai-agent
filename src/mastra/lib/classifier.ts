@@ -19,6 +19,7 @@ import {
   KnownInfo,
   LLMClassification,
   nullSlots,
+  sanitizeName,
 } from "./stateMachine";
 import {
   Domain,
@@ -374,7 +375,12 @@ Trả JSON thuần:
   ${missingSlots.length > 0 ? `"slots": {${slotExtractionFields}}` : `// slots đã đủ`}
 }
 
-EMOTION: suy luận từ cách viết, dấu câu, từ ngữ.
+EMOTION: suy luận từ cách viết, dấu câu, từ ngữ. Mặc định "neutral" khi không có tín hiệu rõ — ĐỪNG ép gán cảm xúc.
+  - excited: hào hứng, dùng "!", "quá", "luôn", muốn bắt đầu ngay ("đăng ký luôn", "tập ngay được không", "ok chốt luôn").
+  - trusting: tin & xuôi theo tư vấn, "ok em", "nghe hợp lý", "vậy chốt", "em tư vấn giúp anh/chị" — đồng ý dễ, ít vặn.
+  - hesitant: phân vân/chưa quyết, "để nghĩ thêm", "chưa chắc", "hơi lăn tăn", "không biết có hợp không", "tham khảo đã", "từ từ".
+  - anxious: lo lắng về bản thân, "sợ tập sai", "sợ đau", "không theo kịp", "mới tập có sao không", "có nguy hiểm không", "lớn tuổi tập được không".
+  - frustrated: khó chịu/bực, gắt, đòi hỏi lặp, "sao lâu thế", "nãy giờ hỏi mãi", "trả lời thẳng đi", "lại nữa à".
 
 FLOW DISAMBIGUATION:
   - "sauna/xông hơi/spa/jacuzzi" khi hỏi về amenity của trung tâm → flow=fitness (KHÔNG phải giai-co).
@@ -629,7 +635,8 @@ SLOTS cho giai-co:
   sessionPackage = le/5-buoi/10-buoi/20-buoi
 
 SLOTS chung (áp dụng cả fitness và giai-co):
-  name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào)
+  name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào).
+          ⚠️ CHỈ lấy phần TÊN, BỎ động từ/xưng hô dẫn vào: "tên anh là Trung"→"Trung", "mình tên Lan"→"Lan", "em là Hùng"→"Hùng". KHÔNG bao giờ gồm "là"/"tên"/"anh"/"chị".
   phone = số điện thoại
   preferredTime = thời gian khách muốn đến — RESOLVE dựa vào NGÀY HIỆN TẠI ở trên.
     ⚠️ Viết có dấu tiếng Việt, KHÔNG slugify (KHÔNG viết "cuoi tuan", "sang", "chieu" — phải là "cuối tuần", "sáng", "chiều").
@@ -712,6 +719,10 @@ const VALID_INTENTS: Intent[] = ["explore", "compare", "selecting", "ready"];
 
 const VALID_TOPICS: readonly string[] = INTENT_TOPICS;
 
+// sanitizeName đã chuyển xuống stateMachine.ts (layer thấp hơn) để dùng chung cho cả inline/standalone
+// extractor trong buildNextState (path đó trước KHÔNG sanitize → "Là Trung" leak). Re-export giữ API cũ.
+export { sanitizeName };
+
 function mapToClassification(
   parsed: any,
   hadFlowInPrompt: boolean,
@@ -772,6 +783,16 @@ function mapToClassification(
         (extractedSlots as any)[slot] = parsed.slots[slot];
       }
     }
+  }
+
+  // Lưới TẤT ĐỊNH: strip động từ/xưng hô dẫn vào tên ("tên anh là Trung" → name="Là Trung"
+  // do LLM nuốt cả "là"). Tránh bot gọi "anh Là Trung". Chạy bất kể LLM có sạch hay không.
+  if (typeof extractedSlots.name === "string") {
+    const cleaned = sanitizeName(extractedSlots.name);
+    if (cleaned !== extractedSlots.name) {
+      console.warn(`[classifier] sửa tên: "${extractedSlots.name}" → "${cleaned}"`);
+    }
+    extractedSlots.name = cleaned as any;
   }
 
   // Verify thứ-trong-tuần khớp với DD/MM. Nếu LLM lỡ ghi "thứ 7 26/04" mà

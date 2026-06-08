@@ -23,7 +23,7 @@ import {
 import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
 import { buildDateContext, suggestDatePair, hasConcreteDate, hasDateWindow } from "./dateHelper";
-import { decideFitnessQuestion, formatDecision } from "./questionFlow";
+import { decideFitnessQuestion, formatDecision, isEmotionSoftSkipId } from "./questionFlow";
 
 // ─────────────────────────────────────────────
 // MULTI-INTENT HINT — render khi KH hỏi 2+ thứ trong 1 tin
@@ -143,6 +143,80 @@ function buildTerseHint(state: ConversationState, message?: string): string {
   );
 }
 
+/**
+ * SALE-SENSE — nhịp CHỐT theo CẢM XÚC khách (emotion) + độ "chín" của context.
+ *
+ * Đọc emotion như một sale thật, thay vì rập khuôn theo stage:
+ *   - ẤM (excited/trusting)  → TIẾN 1 nhịp: mạnh dạn mời thử / đo InBody / gợi ghé hôm nào.
+ *   - PHÂN VÂN (hesitant)    → LÙI nhẹ: gãi đúng băn khoăn, mời trải nghiệm KHÔNG cam kết, không ép.
+ *   - LO (anxious)           → TRẤN AN cụ thể trước, hạ lo ngại rồi mới mời thử, chưa bung giá.
+ *   - BỰC (frustrated)       → lắng nghe & gỡ đúng vấn đề, KHÔNG pitch/chốt vội.
+ *   - neutral + đã có momentum + đang ở stage pitch → nudge 1 CTA nhẹ để hội thoại không "chết".
+ *
+ * Advisory — chỉ điều tiết GIỌNG & HƯỚNG, defer cho GATE/TACTIC khi mâu thuẫn. Chỉ inject ở PITCH.
+ * Return "" khi chưa tới lúc (opening lạnh / đã đủ tên+SĐT / retention) để khỏi nhiễu token.
+ */
+function buildSaleSenseHint(state: ConversationState, _message?: string): string {
+  const { stage, emotion, knownInfo, flow, honorific } = state;
+
+  // Đã đủ tên+SĐT → đang chốt slot (GATE commitment lo). retention/recovery có concierge riêng.
+  if (knownInfo.name && knownInfo.phone) return "";
+  if (stage === "retention" || stage === "recovery") return "";
+
+  const hasMomentum =
+    flow === "fitness"
+      ? knownInfo.fitnessGoal !== null || knownInfo.serviceType !== null
+      : knownInfo.painArea !== null;
+
+  // Opening/discovery + cảm xúc trung tính + chưa có gì → còn đang thăm dò, đừng chốt sớm.
+  if (
+    (stage === "opening" || stage === "discovery") &&
+    emotion === "neutral" &&
+    !hasMomentum
+  )
+    return "";
+
+  const h = resolveHonorific(honorific);
+  const trialWord = flow === "fitness" ? "thử 1 buổi / đo InBody miễn phí" : "thử 1 buổi không cam kết";
+
+  switch (emotion) {
+    case "excited":
+    case "trusting":
+      return (
+        `[SALE-SENSE: khách đang ẤM/xuôi theo — đây là lúc TIẾN 1 nhịp, đừng hỏi lan man thêm. ` +
+        `Chốt mềm tự nhiên: mời ${trialWord} + gợi ghé "${flow === "fitness" ? "sáng hay chiều" : "buổi nào"} tiện" để giữ momentum. ` +
+        `Nếu GATE/TACTIC đã bảo xin tên/SĐT hoặc DỪNG → theo GATE.]`
+      );
+    case "hesitant":
+      return (
+        `[SALE-SENSE: khách đang PHÂN VÂN — ĐỪNG push chốt hay xin info dồn. Gãi đúng điều khách lăn tăn, ` +
+        `đưa 1 lý do an tâm cụ thể, mời trải nghiệm KHÔNG cam kết ("${h} ${trialWord} rồi quyết cũng được ạ"). Hỏi nhẹ 1 điều khách còn băn khoăn.]`
+      );
+    case "anxious":
+      return (
+        `[SALE-SENSE: khách đang LO (sợ tập sai/đau/không theo kịp) — TRẤN AN cụ thể trước ` +
+        `(có HLV/KTV kèm, điều chỉnh theo sức, người mới tập được), hạ lo ngại rồi mới nhẹ nhàng mời ${trialWord}. CHƯA bung giá/gói.]`
+      );
+    case "frustrated":
+      return (
+        `[SALE-SENSE: khách đang KHÓ CHỊU — lắng nghe & ghi nhận trước, trả lời THẲNG đúng câu hỏi, ` +
+        `KHÔNG pitch/không chốt vội. Lấy lại thiện cảm đã rồi mới dẫn dắt tiếp.]`
+      );
+    default:
+      // neutral nhưng đã có momentum & đang stage pitch → nudge 1 CTA nhẹ proactive.
+      if (
+        hasMomentum &&
+        (stage === "inbody" || stage === "evaluation" || stage === "negotiation")
+      ) {
+        return (
+          `[SALE-SENSE: đã đủ context mà turn này chưa có lời mời hành động — kết bằng 1 CTA NHẸ ` +
+          `(mời ${trialWord} HOẶC gợi ghé xem trực tiếp), đừng để hội thoại "chết" sau khi tư vấn xong. 1 câu, không ép.]`
+        );
+      }
+      return "";
+  }
+}
+
 // ─────────────────────────────────────────────
 // DIGRESSION CLASSIFIER
 // ─────────────────────────────────────────────
@@ -200,15 +274,30 @@ export function detectColdLead(message: string): boolean {
 }
 
 /**
- * Khách phản đối giá / xin giảm.
+ * Khách phản đối giá / xin giảm / chê đắt / so đối thủ.
+ *
+ * Lưới TẤT ĐỊNH cho GATE objection (buildLogicGate) — fire kể cả khi classifier LLM
+ * miss/mis-label, để bot luôn reframe VALUE thay vì tụt giá.
+ *
+ * Siết để TRÁNH false-positive:
+ *   - "thắc mắc" (không phải "mắc tiền"), "giảm cân" (goal, không phải giảm giá)
+ *   - hỏi ưu đãi theo NHÓM (SV/HS/gia đình/công ty) — đó là hỏi gói ưu đãi, có template riêng,
+ *     KHÔNG phải chê đắt → return false để pricing/template tương ứng xử lý.
+ *   - "ưu đãi/khuyến mãi" suông — là hỏi promo, không phải objection.
  */
 export function detectPriceObjection(message: string): boolean {
   if (!message) return false;
   const m = message.toLowerCase();
+  // Loại trừ hỏi ưu đãi theo nhóm → không coi là chê đắt.
+  if (/(sinh\s*viên|học\s*sinh|\bsv\b|\bhs\b|gia\s*đình|nhân\s*viên|công\s*ty|cả\s*nhóm|đoàn)/.test(m)) {
+    return false;
+  }
   return (
-    /(đắt|cao|mắc|hơi\s+đắt)\s*(quá|lắm|nhỉ)?/.test(m) ||
-    /giảm\s*giá|có\s+giảm|bớt|khuyến\s*mãi|\bkm\b|\bsale\b|\bưu\s*đãi\b/.test(m) ||
-    /(shop|chỗ|bên)\s+(kia|khác)\s+(rẻ|tốt|hơn)/.test(m)
+    /đắt/.test(m) ||                                                         // "đắt", "đắt quá", "đắt đỏ"
+    (/(mắc|chát)\s*(quá|lắm|vậy|thế|rồi)/.test(m) && !/thắc\s*mắc/.test(m)) || // "mắc quá" (trừ "thắc mắc")
+    /(giá|tiền|phí|gói|thẻ)[^.!?]{0,12}(cao|mắc|chát)\b/.test(m) ||          // "giá hơi cao", "thẻ mắc"
+    /giảm\s*giá|bớt\s*(giá|tiền|chút|được|đi|cho|tí)|giảm\s+(được|giá)|rẻ\s+hơn\b|giá\s+(mềm|tốt)\s+hơn/.test(m) ||
+    /(shop|chỗ|bên|nơi|trung\s*tâm|phòng)\s+(kia|khác)\s+(rẻ|tốt|hơn|mềm)/.test(m)
   );
 }
 
@@ -242,6 +331,26 @@ export function detectPriceQuestion(message: string): boolean {
   // "chương trình ưu đãi" / "chương trình khuyến mãi" → match qua "ưu đãi"/"khuyến mãi".
   // KHÔNG match "chương trình tập luyện" (KH hỏi tư vấn, không hỏi giá).
   return /(giá|bao\s+nhiêu|mấy\s+(tiền|đồng)|giá\s+thẻ|tiền\s+gói|chi\s+phí|báo\s+giá|học\s+phí|phí\s+(tập|gói|đăng\s+ký)|ưu\s*đãi|khuyến\s*mãi)/.test(m);
+}
+
+/**
+ * Khách hỏi CÓ/KHÔNG về sự TỒN TẠI của dịch vụ ("có gói gym giảm mỡ không", "có lớp yoga không",
+ * "bên em có PT không") — KHÔNG phải hỏi giá. Sale thật phải AFFIRM "Dạ có ạ" trước rồi mới discovery,
+ * KHÔNG bổ thẳng giá/teaser "333k" (anchor thấp, mời mặc cả — bug §3).
+ *
+ * VI-safe: \b KHÔNG match "có"/"không" (ký tự có dấu) → dùng lookaround \p{L} + flag u (bài học Batch 2b/6h).
+ * Bảo thủ: yêu cầu ĐỦ 3 phần (có + danh từ dịch vụ + phủ định "không/chứ") để tránh false-positive.
+ */
+export function detectServiceAvailabilityQuestion(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  const hasCo = /(?<!\p{L})có(?!\p{L})/u.test(m);
+  const hasNeg = /(?<!\p{L})(không|ko|khong|hông|hong|chứ)(?!\p{L})/u.test(m);
+  const hasServiceNoun =
+    /(gói|khoá|khóa|lớp|dịch\s*vụ|gym|yoga|zumba|bơi|pilates|(?<!\p{L})pt(?!\p{L})|hlv|huấn\s*luyện)/u.test(
+      m,
+    );
+  return hasCo && hasNeg && hasServiceNoun;
 }
 
 /**
@@ -728,14 +837,17 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
 
   // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE ──
   // (Detail value 3 mũi đã có ở playbook negotiation_neutral + [OBJECTIONS] block)
-  if (state.intentTopic === "price_objection" && flow === "fitness") {
+  const priceObjectionSignal =
+    state.intentTopic === "price_objection" ||
+    (message ? detectPriceObjection(message) : false);
+  if (priceObjectionSignal && flow === "fitness") {
     return (
       "[GATE: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê. " +
       "Reframe value 3 mũi (cơ sở 700m2 + bể 4 mùa duy nhất / GV Ấn Độ + InBody miễn phí / social proof hội viên gắn bó 2-3 năm). " +
       "Mời thử 1 buổi miễn phí. KHÔNG xin tên/SĐT tin này.]"
     );
   }
-  if (state.intentTopic === "price_objection" && flow === "giai-co") {
+  if (priceObjectionSignal && flow === "giai-co") {
     return (
       "[GATE: khách phản đối giá. Reframe: KTV đào tạo giải phẫu cơ bài bản, tác động đúng nhóm cơ kẹt, đỡ rõ trong 1-2 buổi. " +
       "Mời thử 1 buổi không cam kết.]"
@@ -853,6 +965,53 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       /(yoga|zumba|bơi|pilates|gym)\s+thôi/i.test(message))
   ) {
     hints.push("[GATE single-service: KHÔNG ép Full, pitch gói đơn dịch vụ khách chọn. KHÔNG nói 'kết hợp cardio'.]");
+  }
+
+  // ── Khách hỏi CÓ/KHÔNG về dịch vụ ("có gói gym giảm mỡ không") → AFFIRM trước, KHÔNG bổ giá ──
+  // Bug §3: bot từng bổ thẳng "ưu đãi chỉ từ 333k/tháng" khi khách MỚI hỏi có/không (anchor thấp,
+  // mời mặc cả). Sale thật: "Dạ có ạ" + 1 câu value + 1 câu discovery. Bảo thủ: chỉ early-funnel,
+  // KHÔNG phải hỏi giá/lịch/giờ, chưa có tên+SĐT. Return sớm (kèm hint đã có) để chặn inbody/price pitch dưới.
+  if (
+    flow === "fitness" &&
+    message &&
+    detectServiceAvailabilityQuestion(message) &&
+    !detectPriceQuestion(message) &&
+    !detectClassScheduleQuestion(message) &&
+    !detectHoursQuestion(message) &&
+    !knownInfo.name &&
+    !knownInfo.phone &&
+    stage !== "retention" &&
+    stage !== "commitment"
+  ) {
+    const svc = knownInfo.serviceType ?? "bộ môn mình quan tâm";
+    hints.push(
+      `[GATE hỏi-có-không (availability): khách hỏi CÓ/KHÔNG về dịch vụ — TRẢ LỜI THẲNG "Dạ có ạ, bên em có ${svc}" + 1 câu value ngắn (hợp mục tiêu của khách), rồi hỏi 1 câu discovery (đã tập chưa / mục tiêu rõ hơn / tiện lịch nào). ` +
+        `TUYỆT ĐỐI KHÔNG bung giá hay "ưu đãi chỉ từ 333k", KHÔNG ép InBody, KHÔNG xin tên/SĐT. Tối đa 1 câu hỏi.]`,
+    );
+    return hints.join("\n");
+  }
+
+  // ── Goal ĐÃ biết + KH cho LỊCH/giờ nhưng chưa chốt bộ môn → recommend value-first, KHÔNG hỏi history lùi ──
+  // Bug (real_so_sanh T3): goal=giảm-mỡ đã biết, KH "tập sáng hoặc tối tùy" → bot hỏi LÙI
+  // "đã thử tập cách nào chưa" (PITCH tự chọn). Sale thật: ack lịch ngắn + recommend bộ môn hợp goal + mời thử.
+  if (
+    flow === "fitness" &&
+    stage === "discovery" &&
+    knownInfo.fitnessGoal !== null &&
+    knownInfo.serviceType === null &&
+    !knownInfo.name &&
+    !knownInfo.phone &&
+    message &&
+    /(sáng|chiều|tối|trưa|\d+\s*buổi|mỗi\s*tuần|tuần\s*\d|hàng\s*ngày|giờ\s*nào\s*cũng|lúc\s*nào\s*cũng)/iu.test(message) &&
+    !detectPriceQuestion(message) &&
+    !detectServiceAvailabilityQuestion(message) &&
+    !detectClassScheduleQuestion(message) &&
+    !detectHoursQuestion(message)
+  ) {
+    hints.push(
+      `[GATE goal-rõ-cho-lịch: đã biết mục tiêu "${knownInfo.fitnessGoal}" + khách vừa cho lịch/giờ → TUYỆT ĐỐI KHÔNG hỏi lại quá khứ/history ("đã tập cách nào chưa"). Ack lịch 1 câu ngắn + RECOMMEND bộ môn hợp mục tiêu (value-first) + mời thử 1 buổi hoặc đo InBody. Tối đa 1 câu hỏi.]`,
+    );
+    return hints.join("\n");
   }
 
   // ── Khách hỏi giá (Fami trial-first close style) ──
@@ -1869,7 +2028,24 @@ export function buildPrefixWithMeta(
   // Bỏ qua trong retention: sau chốt để GATE concierge điều phối tự nhiên, không dùng template cứng.
   if (state.flow === "fitness" && message && state.stage !== "retention") {
     const decision = decideFitnessQuestion(state, message, prevBotReply);
-    if (decision) {
+    // EMOTION-AWARE SCRIPT SKIP (Nhánh 3, 2026-06-08 tối): khách PHÂN VÂN/LO mà template match
+    // là INTENT-GUIDE (soft: discovery/recommend/schedule-ask) → template hỏi "sáng hay chiều"
+    // máy móc, BỎ QUA cảm xúc (root cause "cứng" ở khách hesitant/anxious). Nhường xuống PITCH
+    // nơi buildSaleSenseHint + getTactic(emotion) reframe/trấn an trước. Giữ FACT-LOCK (giá/chính
+    // sách — isIntentGuideId=false) LUÔN fire. Bảo thủ: chỉ skip khi CHƯA có commit signal
+    // (tên+SĐT / preferredTime) → đang chốt thì giữ template/flow cũ, không phá.
+    const noCommitSignal =
+      !(state.knownInfo.name && state.knownInfo.phone) &&
+      state.knownInfo.preferredTime === null;
+    const emotionSoftSkip =
+      decision !== null &&
+      (state.emotion === "hesitant" || state.emotion === "anxious") &&
+      noCommitSignal &&
+      isEmotionSoftSkipId(decision.id);
+    if (emotionSoftSkip && decision) {
+      console.log(`[prefix] SCRIPT skip (emotion=${state.emotion}, soft id=${decision.id}) → nhường PITCH reframe`);
+    }
+    if (decision && !emotionSoftSkip) {
       console.log(`[prefix] MODE=SCRIPT id=${decision.id}`);
       const lines: string[] = [
         `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
@@ -1890,6 +2066,28 @@ export function buildPrefixWithMeta(
   }
 
   let tactic = getTactic(state.flow, state.stage, state.emotion);
+
+  // Override TACTIC: khách PHÂN VÂN/LO (hesitant/anxious) ở stage pitch sớm (Nhánh 3, 2026-06-08 tối).
+  // Đặt SỚM (ngay sau getTactic) làm BASELINE → các override cụ thể sau (đã-chấp-nhận / cold-lead /
+  // hỏi-giá / chỉ-tập-X) vẫn ghi đè khi khớp. Vấn đề: ở stage inbody/evaluation, nội dung pitch InBody
+  // lấn át buildSaleSenseHint (append cuối) → bot pitch InBody/hỏi lịch thay vì gãi đúng băn khoăn.
+  // Bảo thủ: chỉ khi CHƯA commit (tên+SĐT / preferredTime) + flow fitness + stage thăm dò/pitch sớm.
+  if (
+    state.flow === "fitness" &&
+    (state.emotion === "hesitant" || state.emotion === "anxious") &&
+    !(state.knownInfo.name && state.knownInfo.phone) &&
+    state.knownInfo.preferredTime === null &&
+    (state.stage === "discovery" || state.stage === "inbody" || state.stage === "evaluation") &&
+    // Khách hesitant NHƯNG đang hỏi GIÁ/LỊCH cụ thể → nhường override sau (vẫn trả giá/lịch đúng).
+    !(message && (detectPriceQuestion(message) || detectClassScheduleQuestion(message)))
+  ) {
+    tactic =
+      (state.emotion === "anxious"
+        ? "Khách đang LO (sợ tập sai / không theo kịp / không hợp). TRẤN AN cụ thể TRƯỚC: người mới có HLV kèm chỉnh động tác, điều chỉnh theo sức, tập chậm quen rồi tăng dần. "
+        : "Khách đang PHÂN VÂN (chưa chắc có hợp / còn lăn tăn). Gãi ĐÚNG điều khách băn khoăn + đưa 1 lý do an tâm cụ thể. ") +
+      "Rồi MỜI thử 1 buổi / đo InBody miễn phí KHÔNG cam kết ('thử xem có hợp không rồi quyết cũng được'). " +
+      "❌ KHÔNG hỏi 'sáng hay chiều' máy móc, KHÔNG ép chốt/xin info dồn, KHÔNG bung giá/gói. Hỏi nhẹ 1 điều khách còn lăn tăn.";
+  }
 
   // Override TACTIC khi khách đã chấp nhận ở negotiation
   if (
@@ -2179,10 +2377,14 @@ export function buildPrefixWithMeta(
   const mediaHint =
     isTerseMessage(message) && !customerAskingMedia ? "" : buildMediaHint(state);
 
+  // SALE-SENSE: điều tiết nhịp chốt theo cảm xúc khách — chỉ ở PITCH (bot có tự do diễn đạt).
+  // Tin cụt thì terseHint đã ghì độ dài; sale-sense vẫn hữu ích nhưng nhường terse nếu trùng hướng.
+  const saleSenseHint = buildSaleSenseHint(state, message);
+
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng). CẤM markdown **bold**/*italic*. CẤM viết tắt giá nội bộ ra cho khách: "12m=5tr", "3b/t", dấu "|" và "=" — phải đổi sang "12 tháng 5 triệu", "3 buổi/tuần", phẩy hoặc \\n. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK chỉ nhắc lại / note. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — đọc rồi tự viết.]`,
+    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng). CẤM markdown **bold**/*italic*. CẤM viết tắt giá nội bộ ra cho khách: "12m=5tr", "3b/t", dấu "|" và "=" — phải đổi sang "12 tháng 5 triệu", "3 buổi/tuần", phẩy hoặc \\n. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK ngắn TRUNG TÍNH ("Dạ vâng anh/chị"), KHÔNG đọc lại nguyên văn cả cụm thông tin khách vừa nói, KHÔNG "em note / em ghi nhận", rồi vào thẳng value. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — đọc rồi tự viết.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     missingSlotHint,
@@ -2190,6 +2392,7 @@ export function buildPrefixWithMeta(
     mediaHint,
     gateOutput,
     fewShotBlock,
+    saleSenseHint,
     servicesContextHint,
     multiIntentHint,
     terseHint,

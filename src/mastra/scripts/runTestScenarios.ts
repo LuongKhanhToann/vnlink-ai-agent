@@ -372,6 +372,16 @@ const SCENARIOS: Scenario[] = [
       "chị tên Hà, sđt 0911222333, chị qua chiều mai 5h",
     ],
   },
+  {
+    name: "real_phan_van_so_tap_sai",
+    description:
+      "Khách hesitant→anxious: muốn tập gym giảm cân nhưng phân vân + sợ tập sai/không theo kịp. Bot phải trấn an (có HLV kèm) + mời thử KHÔNG cam kết (buildSaleSenseHint emotion). Khi khách 'ok' nhận lời thử → bot tiến chốt (6k explore→selecting), KHÔNG ép info dồn.",
+    messages: [
+      "em muốn tập gym để giảm cân nhưng đang phân vân chưa biết có hợp không",
+      "em sợ mới tập sẽ tập sai với không theo kịp được",
+      "ok em",
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────
@@ -545,17 +555,29 @@ async function runScenario(scenario: Scenario, runId: string): Promise<ScenarioR
 async function main() {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
 
-  // Filter scenarios qua env SCENARIOS=name1,name2,... (substring match)
-  // → Dùng khi iter fix nhanh, không muốn chạy full 33 scenarios.
+  // ⚠️ CHI PHÍ TOKEN: KHÔNG mặc định chạy full 33 scenario (mỗi case nhiều lượt ×
+  // bot reply + classifier + grader = tốn $). Mặc định chỉ SMOKE 2 case đại diện.
+  //   SCENARIOS=name1,name2  → chạy đúng case khớp substring (iter fix nhanh)
+  //   SCENARIOS=all          → opt-in chạy full 33 (chỉ khi cần baseline / chốt cuối)
+  //   (không set)            → smoke 2 case (1 fitness + 1 giải cơ)
+  const SMOKE_DEFAULT = ["fitness_happy_path", "giaico_happy_path"];
   const filter = process.env.SCENARIOS?.trim();
-  const selected = filter
-    ? SCENARIOS.filter((s) =>
-        filter.split(",").some((f) => s.name.includes(f.trim())),
-      )
-    : SCENARIOS;
+  let selected: typeof SCENARIOS;
+  if (!filter) {
+    selected = SCENARIOS.filter((s) => SMOKE_DEFAULT.includes(s.name));
+  } else if (filter.toLowerCase() === "all") {
+    selected = SCENARIOS;
+  } else {
+    selected = SCENARIOS.filter((s) =>
+      filter.split(",").some((f) => s.name.includes(f.trim())),
+    );
+  }
 
   console.log(`\n🏃 Run ID: ${runId}`);
-  console.log(`📦 Scenarios: ${selected.length}${filter ? ` (filter="${filter}")` : ""}`);
+  const mode = !filter ? "SMOKE (mặc định 2 case — set SCENARIOS=all để chạy full 33)"
+    : filter.toLowerCase() === "all" ? "FULL 33 (opt-in)"
+    : `filter="${filter}"`;
+  console.log(`📦 Scenarios: ${selected.length} · ${mode}`);
 
   const overallStart = Date.now();
   const scenarios: ScenarioResult[] = [];
