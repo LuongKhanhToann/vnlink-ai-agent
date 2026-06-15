@@ -1701,11 +1701,21 @@ Em: "Fami có 4 dịch vụ chính ${h}, điểm đặc biệt là dùng chung 1
   }
 
   // ── FITNESS: biết dịch vụ + mục tiêu, đang discovery → xác nhận + hỏi schedule ──
+  // ⚠️ KHÔNG fire cho body-goal (giảm/tăng cân, tăng cơ, giữ dáng): các mục tiêu này phải đi
+  // qua luồng KHAI THÁC NỖI ĐAU (cao/nặng/thói quen/đã thử gì) — hỏi "sáng hay chiều" lúc này là
+  // chốt lịch sớm, mâu thuẫn với khối [BƯỚC: KHAI THÁC] (buildFitnessStageFocus) → model nghe "cụt
+  // ngủn/chốt sớm". Few-shot lịch chỉ hợp với goal không-body (sức khoẻ/thư giãn) — nơi không có nỗi đau để đào.
+  const isBodyGoalSchedule =
+    knownInfo.fitnessGoal === "giam-mo" ||
+    knownInfo.fitnessGoal === "tang-can" ||
+    knownInfo.fitnessGoal === "tang-co" ||
+    knownInfo.fitnessGoal === "giu-dang";
   if (
     flow === "fitness" &&
     stage === "discovery" &&
     knownInfo.serviceType !== null &&
     knownInfo.fitnessGoal !== null &&
+    !isBodyGoalSchedule &&
     knownInfo.schedule === null
   ) {
     const svc = knownInfo.serviceType;
