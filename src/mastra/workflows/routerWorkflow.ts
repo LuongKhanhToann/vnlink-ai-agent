@@ -20,6 +20,7 @@ import {
   detectMentionedServiceKey,
   detectMediaRequest,
   isTerseMessage,
+  isBareGreetingOrFiller,
 } from "../lib/prefixBuilder";
 import { logTurn, type PrefixMode } from "../lib/observability";
 import { cleanReply } from "../lib/cleanReply";
@@ -186,6 +187,7 @@ async function updateStateAfterReply(
   currentFlags: { qrShown: boolean; mediaShown: boolean },
   botReply: string,
   customerMessage: string,
+  templateId: string | null,
 ): Promise<void> {
   const needQR    = nextStep === "show_qr"    && !currentFlags.qrShown;
   // KHÔNG check !mediaShown ở đây — cho phép gửi media mới khi khách hỏi service khác.
@@ -205,6 +207,12 @@ async function updateStateAfterReply(
         : currentKeys;
     // Phase 6: detect câu hỏi đã hỏi + fact đã pitch → cập nhật tracking sets.
     const tracking = updateTracking(current, botReply);
+    // recentBotReplies: giữ tối đa 3 reply gần nhất (cho anti-parrot không-liền-kề ở cleanReply).
+    const recent = (current.recentBotReplies ?? []).slice();
+    if (botReply) {
+      recent.push(botReply);
+      while (recent.length > 3) recent.shift();
+    }
     const updated = {
       ...current,
       qrShown:    needQR    ? true : current.qrShown,
@@ -213,6 +221,8 @@ async function updateStateAfterReply(
       lastBotReply: botReply || current.lastBotReply,
       askedHistory: tracking.askedHistory,
       mentionedFacts: tracking.mentionedFacts,
+      lastTemplateId: templateId ?? current.lastTemplateId ?? null,
+      recentBotReplies: recent,
     };
     await saveState(mastra, threadId, resourceId, updated);
     console.log(
@@ -363,7 +373,13 @@ function buildAgentStep(
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
-      let cleanedText = cleanReply(obj.text ?? "", hasMedia, prevReply, message);
+      let cleanedText = cleanReply(
+        obj.text ?? "",
+        hasMedia,
+        prevReply,
+        message,
+        stateBeforeReply.recentBotReplies ?? [],
+      );
 
       // ═══════ MULTI-INTENT — append secondaryAnswers (Fix #3) ═══════
       // Agent fill secondaryAnswers khi prefix có [MULTI-INTENT] hint.
@@ -411,12 +427,19 @@ function buildAgentStep(
         cleanedText = fallback;
         validatorResult = "off-topic-fallback";
       } else {
-        // Validate reply — fail thì dùng safeFallback (3-layer pattern)
-        const validation = validateReply(cleanedText, stateBeforeReply);
+        // Validate reply — fail thì dùng safeFallback (3-layer pattern).
+        // Re-greeting/filler (KH chỉ "ới"/chào trống): reply CỰC NGẮN là ĐÚNG → bỏ length floor,
+        // và nếu fail vì lý do khác thì fallback cũng phải NGẮN (KHÔNG đè template pitch dài).
+        const isReGreet = isBareGreetingOrFiller(message);
+        const validation = validateReply(cleanedText, stateBeforeReply, {
+          allowShort: isReGreet,
+        });
         if (!validation.valid) {
           const reasonsStr = validation.reasons.join(", ");
           console.warn(`[validator] FAIL — reasons: ${reasonsStr} → safe fallback`);
-          cleanedText = safeFallback(stateBeforeReply, message);
+          cleanedText = isReGreet
+            ? "Dạ em đây ạ"
+            : safeFallback(stateBeforeReply, message);
           validatorResult = validation.reasons;
         }
       }
@@ -429,6 +452,7 @@ function buildAgentStep(
         { qrShown, mediaShown },
         cleanedText,
         message,
+        templateId,
       );
 
       // ═══════════ PHASE 7 — Per-turn structured log ═══════════

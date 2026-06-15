@@ -98,11 +98,16 @@ export function offTopicFallback(state: ConversationState): string {
 export function validateReply(
   reply: string,
   state: ConversationState,
+  opts?: { allowShort?: boolean },
 ): ValidationResult {
   const reasons: string[] = [];
 
-  // 1. Length check — quá ngắn = bot không thực sự reply
-  if (!reply || reply.trim().length < 20) {
+  // 1. Length check — quá ngắn = bot không thực sự reply.
+  //    allowShort: lượt re-greeting/filler (KH chỉ "ới"/chào trống) → reply ĐÚNG kiểu sale thật
+  //    là CỰC NGẮN ("Dạ em đây ạ" ~11 chữ). KHÔNG được reject thành fallback pitch dài.
+  //    Vẫn chặn rỗng/1-2 ký tự rác (floor 4).
+  const floor = opts?.allowShort ? 4 : 20;
+  if (!reply || reply.trim().length < floor) {
     reasons.push(`reply too short (${reply?.length ?? 0} chars)`);
   }
 

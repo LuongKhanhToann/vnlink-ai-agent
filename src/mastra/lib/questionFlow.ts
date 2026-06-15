@@ -228,6 +228,26 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         mustInclude: ["PT", "Gym"],
       };
     }
+    if (goal === "tang-can") {
+      return {
+        id: "indecisive_recommend_tang_can",
+        template:
+          `Dạ với mục tiêu tăng cân, em gợi ${h} chọn Gym kèm PT 1-1 ạ. ` +
+          `PT 20 buổi 6 triệu (2 tháng), HLV lên giáo án tăng khối cơ nạc + thực đơn 5-6 bữa dễ ăn, tăng cân khoa học không tích mỡ. ` +
+          `${h} muốn ghé đo InBody miễn phí buổi sáng hay chiều ạ.`,
+        mustInclude: ["PT", "Gym"],
+      };
+    }
+    if (goal === "giu-dang") {
+      return {
+        id: "indecisive_recommend_giu_dang",
+        template:
+          `Dạ với mục tiêu giữ dáng, em gợi thẻ Full 4 dịch vụ ạ — Gym + Bơi + Yoga + Zumba dùng chung 1 thẻ, đổi môn tùy hôm duy trì vóc dáng săn chắc. ` +
+          `7 triệu/12 tháng, tính ra mỗi môn khoảng 146k/tháng. ` +
+          `${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+        mustInclude: ["Full", "Gym"],
+      };
+    }
     if (goal === "thu-gian") {
       return {
         id: "indecisive_recommend_thu_gian",
@@ -306,6 +326,13 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
   },
 
   intro_giam_can: (s, h, prev, message) => {
+    // GUARD A0: mục tiêu KHÔNG phải giảm cân (vd tăng cân/giữ dáng/tăng cơ) → KHÔNG hỏi
+    // "biện pháp giảm cân" (sai + ngượng). classifier mini hay map nhầm intentTopic=intro_giam_can
+    // cho tin "tăng cân" (đều có chữ "cân"). fitnessGoal slot đã extract đúng → tin cậy goal.
+    // Return null → rơi xuống PITCH mode → goalConsult khai thác đúng theo goal.
+    if (s.knownInfo.fitnessGoal !== null && s.knownInfo.fitnessGoal !== "giam-mo") {
+      return null;
+    }
     // GUARD A: state past discovery → KHÔNG hỏi history nữa.
     if (
       s.knownInfo.schedule ||
@@ -732,6 +759,12 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
             `Hoặc thẻ Gym tự tập fulltime 12 tháng 5 triệu nếu ${h} muốn tiết kiệm. ${h} tiện ghé InBody buổi sáng hay chiều ạ.`,
           must: ["PT", "6 triệu"],
         },
+        "tang-can": {
+          template:
+            `Dạ với tăng cân, em gợi Gym kèm PT 1-1 — PT 20 buổi 6 triệu (2 tháng), HLV lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn ạ. ` +
+            `Hoặc thẻ Gym tự tập fulltime 12 tháng 5 triệu nếu ${h} muốn tiết kiệm. ${h} tiện ghé InBody buổi sáng hay chiều ạ.`,
+          must: ["PT", "6 triệu"],
+        },
         "thu-gian": {
           template:
             `Dạ với thư giãn giảm stress, em gợi Yoga GV Ấn Độ ạ — 5.8 triệu/12 tháng fulltime 4 ca/ngày linh hoạt, ` +
@@ -747,6 +780,12 @@ const TEMPLATES: Partial<Record<IntentTopic, TemplateGenerator>> = {
         "suc-khoe": {
           template:
             `Dạ để duy trì sức khỏe, em gợi thẻ Full 4 dịch vụ — 7 triệu/12 tháng dùng chung Gym + Bơi + Yoga + Zumba ạ. ` +
+            `Gói ngắn hơn có Full 6 tháng 4.5 triệu. ${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
+          must: ["Full", "7 triệu"],
+        },
+        "giu-dang": {
+          template:
+            `Dạ để giữ dáng, em gợi thẻ Full 4 dịch vụ — 7 triệu/12 tháng dùng chung Gym + Bơi + Yoga + Zumba, đổi môn duy trì vóc dáng ạ. ` +
             `Gói ngắn hơn có Full 6 tháng 4.5 triệu. ${h} tiện ghé thử 1 buổi sáng hay chiều ạ.`,
           must: ["Full", "7 triệu"],
         },
@@ -1196,15 +1235,52 @@ function fallbackDiscoveryAfterServiceMention(
       ? `Dạ em chào ${h}, bên em có nhiều gói ${serviceName} linh hoạt ạ. `
       : `Dạ vâng ${h}, bên em có nhiều gói ${serviceName} ạ. `;
 
-  // ── ĐÃ BIẾT bộ môn + MỤC TIÊU nhưng CHƯA có lịch/giờ → hỏi LỊCH (bước discovery kế).
-  // Trước đây goal set là return null → không có template → LLM tự generate, dễ drift
-  // rồi rớt safeFallback mơ hồ ("xin thêm chi tiết"). Giờ ack goal + hỏi buổi dứt khoát.
+  // ── ĐÃ BIẾT bộ môn + MỤC TIÊU nhưng CHƯA có lịch/giờ.
   if (
     state.knownInfo.fitnessGoal !== null &&
     !state.knownInfo.schedule &&
     !state.knownInfo.preferredTime &&
     !state.knownInfo.memberType
   ) {
+    const goal = state.knownInfo.fitnessGoal;
+    // ── BƯỚC 1 FUNNEL (TL Fami): KHAI THÁC "NỖI ĐAU" TRƯỚC khi chốt lịch.
+    // Goal cần tư vấn sâu (giảm-cân/tăng-cân/giữ-dáng) → hỏi cao/nặng/số kg (nỗi đau)
+    // TRƯỚC. KHÔNG nhảy thẳng "sáng hay chiều" (bỏ qua cả funnel → lộ máy, mất cớ tư vấn).
+    // Anti-loop: prev đã hỏi nỗi đau, HOẶC khách đã tự khai số liệu trong tin → tiến sang hỏi lịch.
+    const PAIN: Record<string, { template: string; must: string[] }> = {
+      "giam-mo": {
+        template:
+          `Dạ vâng ${h} ơi, để em lên lộ trình giảm cân sát với cơ thể mình nhất, ` +
+          `${h} cho em hỏi chiều cao với cân nặng hiện tại đang tầm bao nhiêu, và mình muốn giảm chừng mấy cân ạ?`,
+        must: ["chiều cao", "cân"],
+      },
+      "tang-can": {
+        template:
+          `Dạ vâng ${h} ơi, để em lên lộ trình tăng cân sát với thể trạng mình nhất, ` +
+          `${h} cho em hỏi chiều cao với cân nặng hiện tại đang tầm bao nhiêu, và mình muốn tăng chừng mấy cân ạ?`,
+        must: ["chiều cao", "cân"],
+      },
+      "giu-dang": {
+        template:
+          `Dạ vâng ${h} ơi, để em tư vấn lộ trình giữ dáng hợp với mình nhất, ` +
+          `${h} đang muốn săn chắc hay gọn lại vùng nào nhất ạ?`,
+        must: ["săn chắc"],
+      },
+    };
+    const pain = PAIN[goal];
+    // KHÔNG regex — tín hiệu tất định/LLM:
+    //  askedPain = lượt trước bot đã gửi đúng template hỏi nỗi đau (so id mình kiểm soát).
+    //  gaveStats = khách đã khai chỉ số → slot bodyStats (classifier/LLM trích).
+    const askedPain = (state.lastTemplateId ?? "").startsWith("ask_pain_after_goal");
+    const gaveStats = state.knownInfo.bodyStats !== null;
+    if (pain && !askedPain && !gaveStats) {
+      return {
+        id: `ask_pain_after_goal_${goal}`,
+        template: pain.template,
+        mustInclude: pain.must,
+      };
+    }
+    // Đã khai thác nỗi đau (hoặc goal không cần) → ack + hỏi LỊCH (bước tiến funnel).
     return {
       id: "ask_schedule_after_goal",
       template:

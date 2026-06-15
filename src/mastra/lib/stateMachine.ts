@@ -142,7 +142,8 @@ export interface KnownInfo {
   memberType: string | null;      // ca-nhan / gia-dinh / hoc-sinh
   durationMonths: number | null;  // 1 / 3 / 6 / 12 / 24 / 36
   schedule: string | null;        // khung giờ / buổi mong muốn
-  fitnessGoal: string | null;     // [MỚI] mục tiêu: giam-mo / tang-co / thu-gian / hoc-boi / suc-khoe
+  fitnessGoal: string | null;     // mục tiêu: giam-mo / tang-co / tang-can / thu-gian / hoc-boi / suc-khoe / giu-dang
+  bodyStats: string | null;       // chỉ số cơ thể KH tự khai (cao/nặng/số kg muốn đổi) — classifier (LLM) trích, KHÔNG regex
 
   // Giải cơ
   painArea: string | null;        // vùng đau: vai-gay / lung / chan / toan-than / ...
@@ -204,6 +205,16 @@ export interface ConversationState {
   /** Phase 6: keys của fact bot đã pitch (vd "inbody_free", "full_7tr", "be_4_mua").
    *  Anti-repeat-pitch: bot không repeat same value. Xem lib/tracking.ts cho FACT_KEY_PATTERNS. */
   mentionedFacts?: string[];
+  /** Các chủ đề trấn an SAFETY đã trả lời (postpartum/prenatal/senior/post_surgery/teen).
+   *  Sticky toàn cuộc thoại (KHÔNG chỉ turn trước). Template safety đọc field này để KHÔNG bắn lại
+   *  NGUYÊN VĂN đoạn trấn an dài ở lượt sau (lỗi HARD-LOOP lộ máy) — nhường LLM trả lời ngắn, sát. */
+  safetyTopicsCovered?: string[];
+  /** ID template bot gửi ở lượt TRƯỚC (vd "ask_pain_after_goal_giam-mo"). Tín hiệu TẤT ĐỊNH
+   *  (id mình kiểm soát, KHÔNG regex) cho anti-loop: vd biết "đã hỏi nỗi đau rồi" để không hỏi lại. */
+  lastTemplateId?: string | null;
+  /** 3 reply gần nhất của bot — cho anti-parrot: model nhỏ đôi khi nhại lại NGUYÊN VĂN câu cũ
+   *  cách 1-2 lượt (HARD-LOOP không liền kề). cleanReply so similarity với cả list này. */
+  recentBotReplies?: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -294,6 +305,8 @@ export function mergeSlots(
     // fitnessGoal: KH có thể bổ sung / đổi mục tiêu giữa cuộc thoại (vd "muốn học bơi" rồi "và muốn giảm cân").
     // Classifier chỉ extract khi có cue rõ ràng nên an toàn để override với value mới.
     fitnessGoal:    pickWithReextract(existing.fitnessGoal, extracted.fitnessGoal),
+    // bodyStats: store-first nhưng cho REFINE — khách bổ sung dần (turn 1 "85kg", turn 2 "muốn giảm 8kg").
+    bodyStats:      pickWithReextract(existing.bodyStats,  extracted.bodyStats),
     painArea:       pickWithReextract(existing.painArea,   extracted.painArea),
     painSpread:     pickWithReextract(existing.painSpread, extracted.painSpread),
     painDuration:   pick(existing.painDuration,   extracted.painDuration),
@@ -566,17 +579,23 @@ export function detectServiceByKeyword(message: string): string | null {
 }
 
 /**
- * Lưới TẤT ĐỊNH vá gap classifier hay miss goal: "lấy lại dáng / lấy dáng / về dáng" (mẹ bỉm sau sinh)
- * → giam-mo. Bug (real_so_sanh T3): KH "mới sinh, cần lấy lại dáng" → classifier KHÔNG set fitnessGoal
- * (chỉ gắn attribute goal_postpartum_shape) → goal=null → bot hỏi history lùi thay vì recommend.
- * BẢO THỦ: CHỈ vá cue "(...)dáng" mẹ-bỉm; các goal khác (giảm cân/tăng cơ/thư giãn) classifier đã bắt tốt
- * → KHÔNG thêm để tránh đụng routing đang chuẩn.
+ * Lưới TẤT ĐỊNH vá gap classifier hay miss goal. Chỉ fire khi classifier trả goal=null (backup).
+ * - "lấy lại dáng / lấy dáng / về dáng" (mẹ bỉm sau sinh) → giam-mo.
+ *   Bug (real_so_sanh T3): KH "mới sinh, cần lấy lại dáng" → classifier KHÔNG set fitnessGoal → goal=null
+ *   → bot hỏi history lùi thay vì recommend.
+ * - "giữ dáng / duy trì dáng / giữ form / giữ cân" → giu-dang (duy trì vóc dáng, KHÁC "lấy lại dáng").
+ * - "tăng cân / lên cân / mập lên / ăn mãi không béo" → tang-can (người gầy muốn lên cân).
+ * ⚠️ THỨ TỰ: nhánh giam-mo ("lấy lại dáng") đứng TRƯỚC giu-dang ("giữ dáng") để không bị nuốt.
  */
 export function detectGoalByKeyword(message: string): string | null {
   if (!message) return null;
   const m = message.toLowerCase();
   if (/(lấy\s*lại\s*(vóc\s*)?dáng|lấy\s*dáng|về\s*dáng|lại\s*(vóc\s*)?dáng|gọn\s*dáng|thon\s*dáng)/.test(m))
     return "giam-mo";
+  if (/(giữ\s*(vóc\s*)?dáng|duy\s*trì\s*(vóc\s*)?dáng|giữ\s*form|giữ\s*cân)/.test(m))
+    return "giu-dang";
+  if (/(tăng\s*cân|lên\s*cân|mập\s*lên|ăn\s*(mãi|hoài)[^.]*?(không|ko)\s*(béo|mập|lên\s*cân))/.test(m))
+    return "tang-can";
   return null;
 }
 
@@ -758,7 +777,10 @@ export function computeNextStage(
   intent: Intent,
   flow: Flow,
   llmSuggestedStage: Stage,
-  turnCount: number = 0
+  turnCount: number = 0,
+  // FUNNEL TL Fami: đã "chạm nỗi đau" chưa? (bot đã hỏi cao/nặng/số-kg, HOẶC khách đã đưa số liệu,
+  // HOẶC đã biết thói quen/lịch sử). Với goal body-comp, discovery CHƯA xong nếu chưa probe nỗi đau.
+  painProbed: boolean = false
 ): Stage {
 
   // Recovery / retention — giữ nguyên
@@ -792,7 +814,7 @@ export function computeNextStage(
       info.preferredTime !== null ||
       intent !== "explore"
     ) {
-      return computeNextStage("discovery", info, intent, flow, llmSuggestedStage, turnCount);
+      return computeNextStage("discovery", info, intent, flow, llmSuggestedStage, turnCount, painProbed);
     }
     // Anti-stuck: nếu turn ≥ 3 mà vẫn opening → đẩy về discovery để bot không lặp template chào.
     if (turnCount >= 3) {
@@ -809,11 +831,14 @@ export function computeNextStage(
     if (fitnessReady || giaiCoReady) {
       // GUARD — tin đầu tiên (turnCount <= 1): giữ ở discovery NẾU chưa có thông tin cốt lõi.
       // Bypass guard khi slots cốt lõi đã đầy đủ (khách cung cấp hết 1 lần).
+      // FUNNEL TL Fami: serviceType + GOAL-một-mình KHÔNG đủ để bỏ qua discovery — vẫn phải
+      // KHAI THÁC NỖI ĐAU (cao/nặng/số kg) trước khi pitch InBody/gói. Chỉ coi là "front-load
+      // đủ slot" (cho nhảy thẳng) khi khách đã cho thêm tín hiệu lịch/loại-thẻ/giờ cụ thể.
       const coreSlotsFilled =
         (flow === "giai-co" && info.preferredTime !== null) ||
         (flow === "fitness" &&
           info.serviceType !== null &&
-          (info.fitnessGoal !== null || info.memberType !== null || info.schedule !== null));
+          (info.memberType !== null || info.schedule !== null || info.preferredTime !== null));
 
       if (turnCount <= 1 && intent !== "selecting" && intent !== "ready" && !coreSlotsFilled) {
         return "discovery";
@@ -847,6 +872,25 @@ export function computeNextStage(
       if (flow === "fitness" && info.preferredTime !== null) {
         console.log(`[stateMachine] fitness discovery → commitment (preferredTime=${info.preferredTime})`);
         return "commitment";
+      }
+      // FUNNEL TL Fami — KHAI THÁC NỖI ĐAU trước khi pitch InBody:
+      // Goal body-comp (giảm/tăng cân, giữ dáng) mà MỚI biết mỗi mục tiêu, CHƯA chạm nỗi đau
+      // (cao/nặng/số kg, thói quen, lịch sử) → giữ ở discovery để hỏi 1 lượt đúng kịch bản sale,
+      // KHÔNG nhảy thẳng "đo InBody + sáng hay chiều". Một khi đã probe (painProbed) → cho qua inbody.
+      // Khách chủ động commit (selecting/ready), đã có giờ, hoặc đã có tên+SĐT → bỏ qua, không nài.
+      const BODY_GOALS = ["giam-mo", "tang-can", "giu-dang"];
+      const isBodyGoal = info.fitnessGoal !== null && BODY_GOALS.includes(info.fitnessGoal);
+      if (
+        flow === "fitness" &&
+        isBodyGoal &&
+        !painProbed &&
+        intent !== "selecting" &&
+        intent !== "ready" &&
+        info.preferredTime === null &&
+        !(info.name !== null && info.phone !== null)
+      ) {
+        console.log(`[stateMachine] funnel: body-goal=${info.fitnessGoal} chưa probe nỗi đau → stay discovery`);
+        return "discovery";
       }
       // Fitness: mandatory Inbody funnel trước khi show gói
       if (flow === "fitness") {
@@ -1258,13 +1302,40 @@ export function buildNextState(
   // Dùng cho anti-loop guards / discovery guard trong flow hiện tại.
   const flowTurnCount = flow !== previous.flow ? 1 : (previous.flowTurnCount ?? 0) + 1;
 
+  // FUNNEL TL Fami — đã "chạm nỗi đau" chưa (cho discovery gate goal body-comp)? KHÔNG regex:
+  //  (a) bot đã hỏi nỗi đau lượt trước  → so id template TẤT ĐỊNH (ask_pain_after_goal_*), id mình kiểm soát
+  //  (b) khách đã khai chỉ số cơ thể     → slot bodyStats (classifier/LLM trích, không bắt số bằng regex)
+  //  (c) đã biết thói quen/lịch sử tập    → slot pastMethod
+  const botAskedPain = (previous.lastTemplateId ?? "").startsWith("ask_pain_after_goal");
+  const gaveBodyStats = knownInfo.bodyStats !== null;
+  const painProbed = botAskedPain || gaveBodyStats || knownInfo.pastMethod !== null;
+
+  // SAFETY topics covered — sticky union toàn cuộc thoại. Tín hiệu từ LLM CLASSIFIER (intentTopic
+  // của lượt TRƯỚC), KHÔNG regex bóc text reply. Lượt trước classifier nhận diện chủ đề an toàn nào
+  // (postpartum/prenatal/...) tức bot vừa trấn an chủ đề đó → nhớ luôn để template KHÔNG bắn lại
+  // NGUYÊN VĂN đoạn trấn an dài ở lượt sau (lỗi HARD-LOOP lộ máy) — nhường LLM trả lời ngắn, sát.
+  const SAFETY_TOPIC_BY_INTENT: Record<string, string> = {
+    ask_postpartum_safety: "postpartum",
+    ask_prenatal_safety: "prenatal",
+    ask_senior_safety: "senior",
+    ask_post_surgery: "post_surgery",
+    ask_teen_safety: "teen",
+  };
+  const safetyTopicsCovered = (() => {
+    const set = new Set(previous.safetyTopicsCovered ?? []);
+    const prevSafety = SAFETY_TOPIC_BY_INTENT[previous.intentTopic ?? ""];
+    if (prevSafety) set.add(prevSafety);
+    return [...set];
+  })();
+
   const stage = computeNextStage(
     baseStage,
     knownInfo,
     intent,
     flow,
     llm.llmStage,
-    flowTurnCount   // dùng flowTurnCount cho discovery guard (relative đến flow hiện tại)
+    flowTurnCount,  // dùng flowTurnCount cho discovery guard (relative đến flow hiện tại)
+    painProbed
   );
 
   const temperature = computeTemperature(knownInfo, intent, stage);
@@ -1299,6 +1370,11 @@ export function buildNextState(
     lastUserMessage: previous.lastUserMessage,
     askedHistory: previous.askedHistory ?? [],
     mentionedFacts: previous.mentionedFacts ?? [],
+    safetyTopicsCovered,
+    // lastTemplateId / recentBotReplies: được cập nhật ở updateStateAfterReply (sau khi có reply),
+    // KHÔNG đổi trong buildNextState → carry-forward để không mất khi save nextState giữa chừng.
+    lastTemplateId: previous.lastTemplateId ?? null,
+    recentBotReplies: previous.recentBotReplies ?? [],
   };
 }
 
@@ -1324,6 +1400,7 @@ export const DEFAULT_STATE: ConversationState = {
     durationMonths: null,
     schedule: null,
     fitnessGoal: null,
+    bodyStats: null,
     painArea: null,
     painSpread: null,
     painDuration: null,
@@ -1342,4 +1419,7 @@ export const DEFAULT_STATE: ConversationState = {
   rescheduleFromTime: null,
   askedHistory: [],
   mentionedFacts: [],
+  safetyTopicsCovered: [],
+  lastTemplateId: null,
+  recentBotReplies: [],
 };

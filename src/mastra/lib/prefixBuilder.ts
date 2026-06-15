@@ -22,6 +22,7 @@ import {
 } from "./stateMachine";
 import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
+import { buildGoalConsultHint } from "./goalConsult";
 import { buildDateContext, suggestDatePair, hasConcreteDate, hasDateWindow } from "./dateHelper";
 import { decideFitnessQuestion, formatDecision, isEmotionSoftSkipId } from "./questionFlow";
 
@@ -121,6 +122,47 @@ export function isTerseMessage(message?: string): boolean {
     .split(/\s+/)
     .filter(Boolean);
   return words.length >= 1 && words.length <= 4;
+}
+
+/**
+ * Tin CHỈ là lời chào / gọi trống — KHÔNG mang thông tin mới (vd "hiii e", "alo",
+ * "ê em ơi", "chào shop", "em ơi"). Strip hết từ chào + đại từ gọi + tiểu từ; còn
+ * lại ≤1 ký tự → coi là bare greeting. Dùng cho GUARD re-greeting (chặn pitch lại).
+ *
+ * CỐ Ý KHÔNG bắt "ok/ừ/được/dạ vâng" (có thể là CÂU TRẢ LỜI selecting, không phải chào)
+ * và KHÔNG bắt tin có bộ môn/mục tiêu/số ("hi gym", "giảm cân") — chỉ chặn chào suông.
+ */
+export function isBareGreetingOrFiller(message?: string): boolean {
+  const t = (message || "").toLowerCase().trim();
+  if (!t || t.length > 25) return false;
+  const tokens = t
+    .replace(/[^\p{L}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 5) return false;
+
+  // ⚠️ KHÔNG dùng \b (vô hiệu với ký tự tiếng Việt) — phân loại theo TOKEN.
+  // HELLO = từ chào; PING = gọi trống ("ơi", "ê"); FILLER = đại từ/tiểu từ vô nghĩa.
+  const isHello = (w: string) =>
+    /^(h+i+|h+e+l+o+|hello|helo|h[eế]l[oô]|a?l[oô]+|l[oô]+|chào|chao|hế|gm|good|morning|xin)$/u.test(w);
+  const isPing = (w: string) => /^(ơi|oi|ới|ê+|êi)$/u.test(w);
+  const FILLER = new Set([
+    "em","e","anh","a","chị","chi","mình","minh","tôi","toi","bạn","ban",
+    "ad","admin","shop","ạ","dạ","da","vâng","vang","nhé","nha","với","voi",
+  ]);
+
+  let hasHook = false;
+  for (const w of tokens) {
+    if (isHello(w) || isPing(w)) {
+      hasHook = true;
+      continue;
+    }
+    if (FILLER.has(w)) continue;
+    // Token lạ (bộ môn/mục tiêu/số/câu trả lời) → KHÔNG phải chào suông.
+    return false;
+  }
+  // Cần ÍT NHẤT 1 từ chào/gọi → tránh bắt nhầm "dạ vâng"/"ạ" (có thể là câu trả lời).
+  return hasHook;
 }
 
 /**
@@ -643,7 +685,9 @@ export function computeSuggestedMediaKey(state: ConversationState): string | nul
     const mapGoal: Record<string, string> = {
       "giam-mo": "fitness-gym",
       "tang-co": "fitness-gym",
+      "tang-can": "fitness-gym",
       "suc-khoe": "fitness-gym",
+      "giu-dang": "fitness-gym",
       "thu-gian": "fitness-yoga",
       "hoc-boi": "fitness-pool",
     };
@@ -698,6 +742,24 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const mediaShownKeys = state.mediaShownKeys ?? [];
   const hints: string[] = [];
 
+  // ── SAFETY ĐÃ TRẤN AN: tránh LLM nhại lại NGUYÊN VĂN đoạn an toàn dài đã nói lượt trước
+  // (T1 đã giải thích postpartum → T3 khách hỏi tiếp cùng chủ đề, LLM hay copy lại y hệt → lộ máy).
+  // Tín hiệu từ classifier (intentTopic) + state.safetyTopicsCovered (sticky), KHÔNG regex.
+  const SAFETY_TOPIC_BY_INTENT: Record<string, string> = {
+    ask_postpartum_safety: "postpartum",
+    ask_prenatal_safety: "prenatal",
+    ask_senior_safety: "senior",
+    ask_post_surgery: "post_surgery",
+    ask_teen_safety: "teen",
+  };
+  const curSafety = SAFETY_TOPIC_BY_INTENT[state.intentTopic ?? ""];
+  if (curSafety && (state.safetyTopicsCovered ?? []).includes(curSafety)) {
+    hints.push(
+      "[GATE safety-đã-trấn-an: chủ đề an toàn này em đã giải thích rồi. TUYỆT ĐỐI KHÔNG lặp lại nguyên đoạn cũ. " +
+        "Trả lời NGẮN, xác nhận đúng ý khách vừa hỏi (1-2 câu), rồi tiến funnel (gợi đo InBody/qua thử/hỏi lịch).]",
+    );
+  }
+
   // ── CROSS-CUTTING: media đã gửi rồi → cấm gọi lại
   // EXCEPT (a) khách EXPLICIT xin xem hoặc (b) khách mention DỊCH VỤ MỚI chưa gửi media.
   const customerAskingMedia = state.intentTopic === "media_request";
@@ -717,12 +779,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const heldName = knownInfo.name ? ` ${state.honorific} ${knownInfo.name}` : "";
     const heldTime = knownInfo.preferredTime ? ` (lịch đã giữ: ${knownInfo.preferredTime})` : "";
     hints.push(
-      `[GATE retention — ĐƠN ĐÃ CHỐT${heldTime}. KH${heldName} đã đặt lịch xong, giờ chỉ trò chuyện/hỏi thêm.\n` +
-        `  • Answer-first: trả ĐÚNG câu khách hỏi, ngắn gọn ấm áp như đã là khách quen. KHÔNG mở lại bằng "Dạ em chào... cảm ơn đã quan tâm".\n` +
-        `  • TUYỆT ĐỐI KHÔNG xin lại tên/SĐT/giờ đã có; KHÔNG nhắc lại "giữ slot... DỪNG"; KHÔNG pitch lại gói vừa chốt.\n` +
-        `  • Upsell NHẸ: chỉ khi khách lộ tín hiệu quan tâm (hỏi môn khác, hỏi giá, khen, rảnh thêm) mới gợi 1 ý liên quan (vd thêm Yoga thư giãn sau khi đạt mục tiêu). KHÔNG chèo kéo, không spam gói.\n` +
-        `  • Nếu khách muốn ĐẶT THÊM (môn khác / buổi khác / cho người thân) → vui vẻ tiếp nhận, hỏi gọn thông tin còn thiếu cho đơn mới.\n` +
-        `  • Dặn dò hữu ích nếu hợp ngữ cảnh: mang đồ tập/đồ bơi, đến sớm 10p, hỏi đường... Giữ giọng sale Việt thật, tự nhiên.]`,
+      `[GATE retention — ĐƠN ĐÃ CHỐT${heldTime}. KH${heldName} đặt lịch xong, giờ chỉ trò chuyện. ` +
+        `Answer-first ngắn ấm như khách quen, KHÔNG mở lại "Dạ em chào... cảm ơn đã quan tâm". ` +
+        `TUYỆT ĐỐI KHÔNG xin lại tên/SĐT/giờ đã có, KHÔNG nhắc "giữ slot... DỪNG", KHÔNG pitch lại gói vừa chốt. ` +
+        `Chỉ upsell NHẸ 1 ý khi khách lộ tín hiệu quan tâm (hỏi môn khác/giá/khen). Muốn đặt thêm → hỏi gọn info còn thiếu cho đơn mới. ` +
+        `Dặn dò hữu ích nếu hợp cảnh (mang đồ tập, đến sớm 10p).]`,
     );
     // Khách lộ cue "đặt thêm" → hướng dẫn thu thập đơn MỚI (hỏi giờ/môn còn thiếu) rồi xác nhận
     // giữ slot mới. KHÔNG nhầm sang xác nhận lại đơn cũ.
@@ -1346,31 +1407,31 @@ function buildFitnessPricing(info: KnownInfo): string {
 
   // ── Goal-based filter ──
   // Mục tiêu mạnh hơn serviceType khi pick anchor:
-  //   giam-mo  → Full (cardio+gym) + Gym + PT (đốt mỡ nhanh). Bỏ Pilates/Yoga lẻ trừ khi svc=yoga.
-  //   tang-co  → Gym + PT (xây cơ). Bỏ Yoga/Zumba/Bơi.
-  //   thu-gian → Yoga/Zumba + Pilates. Bỏ Gym/PT trừ khi svc=gym.
-  //   hoc-boi  → Học bơi + Bơi NL. Bỏ Gym/Yoga/Pilates.
-  //   suc-khoe / null → Full + service đã chọn (nếu có).
+  //   giam-mo          → Full (cardio+gym) + Gym + PT (đốt mỡ nhanh). Bỏ Pilates/Yoga lẻ trừ khi svc=yoga.
+  //   tang-co/tang-can → Gym + PT (xây/tăng cơ). Bỏ Yoga/Zumba/Bơi. (tang-can dùng chung nhánh tang-co.)
+  //   thu-gian         → Yoga/Zumba + Pilates. Bỏ Gym/PT trừ khi svc=gym.
+  //   hoc-boi          → Học bơi + Bơi NL. Bỏ Gym/Yoga/Pilates.
+  //   suc-khoe/giu-dang/null → Full + service đã chọn (nếu có). (giu-dang dùng chung nhánh suc-khoe.)
 
-  const showGym = goal === "giam-mo" || goal === "tang-co" || goal === "suc-khoe" || goal === null
+  const showGym = goal === "giam-mo" || goal === "tang-co" || goal === "tang-can" || goal === "suc-khoe" || goal === "giu-dang" || goal === null
     ? !svc || svc === "gym" || svc === "full"
     : svc === "gym";
-  const showPT = goal === "giam-mo" || goal === "tang-co"
+  const showPT = goal === "giam-mo" || goal === "tang-co" || goal === "tang-can"
     ? !svc || svc === "gym" || svc === "full"
     : false;
-  const showYogaZumba = goal === "thu-gian" || goal === "suc-khoe" || goal === null
+  const showYogaZumba = goal === "thu-gian" || goal === "suc-khoe" || goal === "giu-dang" || goal === null
     ? !svc || svc === "yoga" || svc === "zumba" || svc === "full"
     : svc === "yoga" || svc === "zumba";
-  const showBoi = goal === "hoc-boi" || goal === "suc-khoe" || goal === null
+  const showBoi = goal === "hoc-boi" || goal === "suc-khoe" || goal === "giu-dang" || goal === null
     ? !svc || svc === "boi" || svc === "full"
     : svc === "boi";
-  const showPilates = goal === "thu-gian" || goal === "tang-co" || goal === null
+  const showPilates = goal === "thu-gian" || goal === "tang-co" || goal === "tang-can" || goal === null
     ? svc === "pilates"
     : svc === "pilates";
 
   // Anchor "FULL 4 dịch vụ" — chỉ ưu tiên khi không phải single-service hard-lock.
   const fullIsAnchor =
-    goal === "giam-mo" || goal === "suc-khoe" || goal === null;
+    goal === "giam-mo" || goal === "suc-khoe" || goal === "giu-dang" || goal === null;
   if (fullIsAnchor && (!svc || svc === "full" || svc === "gym")) {
     lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr ← anchor chính");
   }
@@ -1408,7 +1469,7 @@ function buildFitnessPricing(info: KnownInfo): string {
 
 function buildFitnessObjections(h: string): string {
   return `[OBJECTIONS:
-  "Đắt quá" → Reframe bằng VALUE: "Full 7tr/12 tháng đi kèm phòng gym 700m2 máy chuẩn QT, bể bơi 4 mùa duy nhất Vĩnh Yên, Yoga & Zumba GV người Ấn Độ ${h}. Hội viên bên em hay gắn bó dài và rủ thêm bạn bè vào tập cùng — anh/chị qua thử 1 buổi cảm nhận thực tế nha". KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
+  "Đắt quá" → Reframe bằng VALUE: "Full 7tr/12 tháng đi kèm phòng gym 700m2 máy chuẩn QT, bể bơi 4 mùa duy nhất Vĩnh Yên, Yoga & Zumba GV người Ấn Độ, lại có bãi đỗ xe rộng cả ô tô & xe máy đi tập thoải mái ${h}. Hội viên bên em hay gắn bó dài và rủ thêm bạn bè vào tập cùng — anh/chị qua thử 1 buổi cảm nhận thực tế nha". KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
   "Tập 1 môn" → "Thẻ Full chỉ hơn chút mà dùng cả 4 ${h} — tập 1 môn lâu chán, thêm Yoga/Bơi duy trì động lực"
   "Tháng lẻ thôi" → "Tháng lẻ 1.2tr ${h}, mà gói năm 7tr lại bảo lưu được khi bận và chuyển nhượng được trong gia đình — đa số chọn năm để chủ động hơn"
   "Chờ KM" → "Giá bên em xu hướng chỉ tăng ${h} — đợt này đang mức tốt nhất. Em giữ chỗ trước nha"
@@ -1490,7 +1551,8 @@ function buildKnowledgeBlock(
         `  Bơi → Bể 4 mùa 350m2 DUY NHẤT Vĩnh Yên, nước nóng quanh năm, lọc ozone\n` +
         `  Gym → 700m2 trong nhà + 300m2 ngoài có mái che, chứa 100 người\n` +
         `  Yoga/Zumba → GV người Ấn Độ chuyên nghiệp, 4 ca/ngày\n` +
-        `  Pilates → 13 máy chuẩn quốc tế, GV chứng chỉ QT (từ 12/2024)]`,
+        `  Pilates → 13 máy chuẩn quốc tế, GV chứng chỉ QT (từ 12/2024)\n` +
+        `  Tiện ích → bãi đỗ xe rộng (cả ô tô & xe máy), không gian thoáng không chen chúc giờ cao điểm]`,
       );
     }
     if (showPricing) blocks.push(buildFitnessPricing(knownInfo));
@@ -1750,10 +1812,12 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     // Goal-specific value hint
     const goalHint: Record<string, string> = {
       "tang-co": `Tăng cơ cần tập có hệ thống + kỹ thuật đúng giai đoạn đầu → nhấn PT cá nhân, cộng thêm Yoga/Pilates để phục hồi cơ. KHÔNG chỉ nhấn diện tích phòng.`,
+      "tang-can": `Tăng cân khoa học = tăng cơ nạc, KHÔNG tích mỡ bụng/tích nước → nhấn PT lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn, InBody đo lượng cơ thiếu + chuyển hóa cơ bản để nạp dinh dưỡng chính xác.`,
       "giam-mo": `Giảm mỡ hiệu quả = cardio + weight training kết hợp → nhấn thẻ Full (Gym + Zumba/Bơi dùng chung), bể bơi 4 mùa duy nhất Vĩnh Yên. KHÔNG chỉ nhấn diện tích phòng.`,
       "thu-gian": `Thư giãn → nhấn Yoga GV Ấn Độ 4 ca/ngày linh hoạt lịch + không gian rộng không chen chúc.`,
       "hoc-boi": `Học bơi → nhấn bể 4 mùa duy nhất Vĩnh Yên + cam kết biết bơi sau khóa (học lại miễn phí).`,
       "suc-khoe": `Sức khỏe tổng thể → nhấn thẻ Full 4 dịch vụ trong 1 thẻ, dùng cả năm bảo lưu được khi bận.`,
+      "giu-dang": `Giữ dáng = duy trì vóc dáng săn chắc + tinh chỉnh vùng chưa ưng → nhấn thẻ Full đa năng đổi môn cho đỡ chán, InBody theo dõi định kỳ.`,
     };
     const specificHint =
       goalHint[goal] ??
@@ -1769,6 +1833,10 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
         `PT 20 buổi (2 tháng) 6tr — HLV 1-1 xây kỹ thuật nền đúng, tránh chấn thương\n` +
         `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
         `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập theo lịch dài hơi`,
+      "tang-can":
+        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn\n` +
+        `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
+        `Gym fulltime 12 tháng 5tr — tự tập tập trung nhóm cơ ngực/xô/mông/đùi`,
       "thu-gian":
         `Full 12 tháng 7tr — Gym + Yoga + Zumba + Bơi trong 1 thẻ\n` +
         `Yoga/Zumba fulltime 12 tháng 5.8tr — không giới hạn ca, GV Ấn Độ 4 ca/ngày\n` +
@@ -1781,6 +1849,10 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
         `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, toàn diện nhất\n` +
         `Full 6 tháng 4.5tr — đủ 4 dịch vụ, thử 6 tháng trước\n` +
         `Gym 3 buổi/tuần 12 tháng 4.5tr — chỉ gym nếu muốn đơn giản`,
+      "giu-dang":
+        `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, đổi môn duy trì vóc dáng đỡ chán\n` +
+        `Full 6 tháng 4.5tr — đủ 4 dịch vụ, thử 6 tháng trước\n` +
+        `Gym 3 buổi/tuần 12 tháng 4.5tr — giữ form gọn nhẹ nếu muốn đơn giản`,
     };
     const concretePackages =
       goalPackages[goal] ??
@@ -2024,6 +2096,39 @@ export function buildPrefixWithMeta(
   // NHỊP hint — KH nhắn cụt → reply ngắn, append vào cả 3 mode (đặt cuối cho salience cao).
   const terseHint = buildTerseHint(state, message);
 
+  // ─── GUARD: RE-GREETING / FILLER GIỮA CHỪNG ───
+  // KH chỉ chào lại / nhắn trống ("hiii e", "alo", "ê em ơi") khi cuộc thoại ĐÃ đi xa
+  // (stage qua opening, đã có context) mà KHÔNG có thông tin mới → KHÔNG được bung lại
+  // PITCH (lặp InBody/gói/giá = lộ máy + nhàm). Sale thật: "Dạ em đây ạ" + 1 câu re-hook nhẹ.
+  // Bug thực tế: "hiii e" ở stage=evaluation (gym+giảm-mỡ) → bot pitch lại InBody y PREV.
+  // Bỏ qua retention (concierge GATE riêng) & lúc đang chốt (đủ tên+SĐT — câu xác nhận vốn ngắn).
+  if (
+    message &&
+    isBareGreetingOrFiller(message) &&
+    state.turnCount > 1 &&
+    state.stage !== "opening" &&
+    state.stage !== "retention" &&
+    state.stage !== "commitment" &&
+    !(state.knownInfo.name && state.knownInfo.phone)
+  ) {
+    console.log(`[prefix] MODE=GATE re-greeting ("${message.trim().slice(0, 16)}") → reply nhẹ, KHÔNG pitch`);
+    // Bare greeting giữa cuộc = sale thật chỉ "Dạ em đây ạ" rồi chờ. KHÔNG ép re-hook,
+    // KHÔNG nhồi KNOWN/services/PREV (chỉ tổ bloat → model nói thừa, lộ máy).
+    // Xưng hô chưa rõ ("anh/chị") → BỎ luôn, "Dạ em đây ạ" không cần hô vẫn tự nhiên.
+    const hg = h === "anh/chị" ? "" : h;
+    const example = hg ? `"Dạ em đây ${hg} ạ" / "Dạ ${hg} ơi"` : `"Dạ em đây ạ" / "Dạ em nghe ạ"`;
+    const lines = [
+      `[GATE re-greeting: KH chỉ "ới"/chào trống, CHƯA hỏi gì. Trả lời ĐÚNG 1 câu CỰC NGẮN ` +
+        `(≤6 chữ) kiểu nhắn nhanh: ${example}. ` +
+        `❌ KHÔNG hỏi thêm, KHÔNG pitch gói/giá/InBody, KHÔNG nhắc nội dung cũ, KHÔNG xin tên/SĐT.]`,
+    ];
+    return {
+      prefix: lines.filter(Boolean).join("\n"),
+      mode: "GATE",
+      templateId: null,
+    };
+  }
+
   // ─── MODE = SCRIPT (template match) ───
   // Bỏ qua trong retention: sau chốt để GATE concierge điều phối tự nhiên, không dùng template cứng.
   if (state.flow === "fitness" && message && state.stage !== "retention") {
@@ -2050,7 +2155,7 @@ export function buildPrefixWithMeta(
       const lines: string[] = [
         `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
         `[TACTIC: ƯU TIÊN ANSWER_LOCK ở dưới — viết theo template, KHÔNG pitch/list/nhảy chủ đề khác.]`,
-        `[RULES: Text thuần, KHÔNG markdown, KHÔNG link [text](url). Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết bằng "ạ?" hoặc "?". 2 câu kết "ạ" liên tiếp PHẢI có dấu "." giữa. CẤM khen đáp án khách. CẤM "tuyệt vời/quá/chắc chắn rồi". CẤM "nha?".]`,
+        `[RULES: Văn nói NGẮN GỌN, text thuần KHÔNG markdown/link. Tối đa 1 câu hỏi, kết "?"/"ạ?". CẤM khen đáp án khách, "tuyệt vời/chắc chắn rồi", "nha?".]`,
         buildKnownSummary(state.knownInfo, state.flow),
         formatDecision(decision),
         servicesContextHint,
@@ -2066,6 +2171,9 @@ export function buildPrefixWithMeta(
   }
 
   let tactic = getTactic(state.flow, state.stage, state.emotion);
+  // Cờ: TACTIC override theo cảm xúc (hesitant/anxious) đã ôm trọn nội dung SALE-SENSE
+  // → skip saleSenseHint để KHÔNG inject 2 block trùng (model nhỏ cover cả 2 = reply dài, lặp).
+  let emotionTacticApplied = false;
 
   // Override TACTIC: khách PHÂN VÂN/LO (hesitant/anxious) ở stage pitch sớm (Nhánh 3, 2026-06-08 tối).
   // Đặt SỚM (ngay sau getTactic) làm BASELINE → các override cụ thể sau (đã-chấp-nhận / cold-lead /
@@ -2087,6 +2195,7 @@ export function buildPrefixWithMeta(
         : "Khách đang PHÂN VÂN (chưa chắc có hợp / còn lăn tăn). Gãi ĐÚNG điều khách băn khoăn + đưa 1 lý do an tâm cụ thể. ") +
       "Rồi MỜI thử 1 buổi / đo InBody miễn phí KHÔNG cam kết ('thử xem có hợp không rồi quyết cũng được'). " +
       "❌ KHÔNG hỏi 'sáng hay chiều' máy móc, KHÔNG ép chốt/xin info dồn, KHÔNG bung giá/gói. Hỏi nhẹ 1 điều khách còn lăn tăn.";
+    emotionTacticApplied = true;
   }
 
   // Override TACTIC khi khách đã chấp nhận ở negotiation
@@ -2188,6 +2297,12 @@ export function buildPrefixWithMeta(
             "  - Tự tập: Gym fulltime 12 tháng 5tr\n" +
             "  - HLV cá nhân 1-1: PT 20 buổi 6tr (2 tháng), xây kỹ thuật nền\n" +
             "  - Combo nhóm: thẻ Full 7tr/12 tháng kèm Yoga hồi phục";
+        } else if (goal === "tang-can") {
+          pricing =
+            "Pitch 3 HÌNH THỨC — XUỐNG DÒNG mỗi mục:\n" +
+            "  - HLV cá nhân 1-1: PT 20 buổi 6tr (2 tháng), giáo án tăng khối cơ + thực đơn 5-6 bữa\n" +
+            "  - Đa dịch vụ: thẻ Full 7tr/12 tháng kèm Yoga/Pilates phục hồi cơ\n" +
+            "  - Tự tập: Gym fulltime 12 tháng 5tr";
         } else if (goal === "thu-gian") {
           pricing =
             "Pitch THẲNG: 'Yoga GV Ấn Độ 5.8tr/12 tháng fulltime hoặc 4.5tr (3 buổi/tuần)'";
@@ -2215,6 +2330,10 @@ export function buildPrefixWithMeta(
         pitch = "RECOMMEND dứt khoát: Gym kết hợp Zumba (đốt mỡ + vui nên dễ theo lâu)";
       } else if (goal === "tang-co") {
         pitch = "RECOMMEND dứt khoát: Gym kèm PT 1-1 (HLV xây kỹ thuật nền, tránh sai tư thế)";
+      } else if (goal === "tang-can") {
+        pitch = "RECOMMEND dứt khoát: Gym kèm PT 1-1 (giáo án tăng khối cơ + thực đơn 5-6 bữa, tăng cân khoa học không tích mỡ)";
+      } else if (goal === "giu-dang") {
+        pitch = "RECOMMEND dứt khoát: thẻ Full 4 dịch vụ (đổi môn duy trì vóc dáng, InBody theo dõi định kỳ)";
       } else if (goal === "thu-gian") {
         pitch = "RECOMMEND dứt khoát: Yoga GV người Ấn Độ (giãn cơ, ngủ ngon, hợp người căng thẳng)";
       } else if (goal === "hoc-boi") {
@@ -2276,7 +2395,7 @@ export function buildPrefixWithMeta(
           "KHÔNG pitch InBody/dẫn dắt mục tiêu trước.";
       } else if (state.intentTopic === "price_objection") {
         tactic =
-          "Khách phản đối giá. Reframe bằng VALUE: máy móc xịn (phòng gym 700m2, bể bơi 4 mùa duy nhất Vĩnh Yên), GV/HLV chất lượng (Yoga & Zumba GV người Ấn Độ), social proof (nhiều hội viên gắn bó nhiều năm và giới thiệu thêm bạn bè vào tập). " +
+          "Khách phản đối giá. Reframe bằng VALUE: máy móc xịn (phòng gym 700m2, bể bơi 4 mùa duy nhất Vĩnh Yên), GV/HLV chất lượng (Yoga & Zumba GV người Ấn Độ), tiện lợi (bãi đỗ xe rộng cả ô tô & xe máy, không gian thoáng), social proof (nhiều hội viên gắn bó nhiều năm và giới thiệu thêm bạn bè vào tập). " +
           "Mời ghé trải nghiệm thực tế: 'Anh/chị qua thử 1 buổi cho cảm nhận, em giữ slot HLV miễn phí ạ'. " +
           "KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG pitch InBody, KHÔNG hạ giá.";
       } else if (state.intentTopic === "media_request") {
@@ -2328,7 +2447,7 @@ export function buildPrefixWithMeta(
     const lines: string[] = [
       `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
       `[TACTIC: ƯU TIÊN [GATE] ở dưới — viết theo đúng GATE, KHÔNG pitch/list/nhảy chủ đề khác.]`,
-      `[RULES: Text thuần, KHÔNG markdown. Câu mềm, MAX 1 câu hỏi/reply. Câu hỏi kết "ạ?" hoặc "?". CẤM "tuyệt vời/quá/chắc chắn rồi", "nha?", khen đáp án khách.]`,
+      `[RULES: Văn nói NGẮN GỌN, text thuần KHÔNG markdown. Tối đa 1 câu hỏi, kết "?"/"ạ?". CẤM khen đáp án khách, "tuyệt vời/chắc chắn rồi", "nha?".]`,
       antiLoopHint,
       buildKnownSummary(state.knownInfo, state.flow),
       gateOutput,
@@ -2379,12 +2498,17 @@ export function buildPrefixWithMeta(
 
   // SALE-SENSE: điều tiết nhịp chốt theo cảm xúc khách — chỉ ở PITCH (bot có tự do diễn đạt).
   // Tin cụt thì terseHint đã ghì độ dài; sale-sense vẫn hữu ích nhưng nhường terse nếu trùng hướng.
-  const saleSenseHint = buildSaleSenseHint(state, message);
+  // Skip nếu TACTIC override hesitant/anxious đã fire (cùng nội dung → tránh 2 block trùng).
+  const saleSenseHint = emotionTacticApplied ? "" : buildSaleSenseHint(state, message);
+
+  // TƯ VẤN MỤC TIÊU: nội dung funnel 5 bước theo goal (giảm cân/tăng cân/giữ dáng),
+  // slice theo stage. Đặt cạnh saleSenseHint (cùng tầng advisory, defer cho GATE/TACTIC).
+  const goalConsultHint = buildGoalConsultHint(state);
 
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: 1 ý ngắn ≤200 chars / 2-3 câu liền 1 dòng. Khi liệt kê 3+ lựa chọn → XUỐNG DÒNG mỗi mục với "(1)/(2)/(3)" hoặc "-" (≤350 chars tổng). CẤM markdown **bold**/*italic*. CẤM viết tắt giá nội bộ ra cho khách: "12m=5tr", "3b/t", dấu "|" và "=" — phải đổi sang "12 tháng 5 triệu", "3 buổi/tuần", phẩy hoặc \\n. CẤM "tuyệt vời/quá/chắc chắn rồi", "em gửi hình" mà không gọi tool, "em có thể tư vấn thêm" sáo rỗng. CẤM khen đáp án của khách: "rất tốt / tốt quá / tốt rồi / ổn lắm / ổn rồi / hợp lý / tần suất tốt / lý tưởng / phù hợp lắm / vậy là chuẩn / lựa chọn đúng" — ACK ngắn TRUNG TÍNH ("Dạ vâng anh/chị"), KHÔNG đọc lại nguyên văn cả cụm thông tin khách vừa nói, KHÔNG "em note / em ghi nhận", rồi vào thẳng value. CẤM kết câu hỏi bằng "nha?" / "nha ạ?" / "ạ nha?" — câu hỏi kết bằng "?" hoặc "ạ?". "nha" chỉ dùng cho câu khẳng định ("Dạ vâng nha"). KHÔNG lặp nội dung TACTIC/GATE/KNOWLEDGE — đọc rồi tự viết.]`,
+    `[RULES: Nhắn như sale thật đang chat — văn nói, NGẮN GỌN, text thuần KHÔNG markdown. Mặc định 1-2 câu (≤200 chữ); CHỈ khi liệt kê 3+ gói mới xuống dòng "-" mỗi mục (≤350 chữ). Giá viết bằng chữ ("12 tháng 5 triệu", "3 buổi/tuần") — KHÔNG để "12m=5tr","|","=". ACK trung tính ("Dạ vâng ${h}") rồi vào ý chính: CẤM khen đáp án khách (tuyệt vời/tốt quá/hợp lý/chuẩn rồi/lý tưởng...), CẤM đọc lại nguyên văn lời khách, CẤM "em note/ghi nhận", CẤM "em gửi hình" khi không gọi tool. Tối đa 1 câu hỏi, kết "?" hoặc "ạ?" (KHÔNG "nha?"). Đọc TACTIC/GATE/KNOWLEDGE rồi TỰ viết — KHÔNG chép lại.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     missingSlotHint,
@@ -2393,6 +2517,7 @@ export function buildPrefixWithMeta(
     gateOutput,
     fewShotBlock,
     saleSenseHint,
+    goalConsultHint,
     servicesContextHint,
     multiIntentHint,
     terseHint,

@@ -168,6 +168,7 @@ const classifierSchema = z.object({
       pastMethod:     z.string().nullable().optional(),
       sessionPackage: z.string().nullable().optional(),
       preferredTime:  z.string().nullable().optional(),
+      bodyStats:      z.string().nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -261,7 +262,7 @@ export async function classify(
   // Vd: turn 1 "muốn học bơi" → goal=hoc-boi; turn 3 "và mình muốn giảm cân" → cập nhật giam-mo.
   // Slot lock cứng làm bot stuck pitching service cũ → cần update khi có cue mục tiêu rõ.
   const fitnessGoalCue =
-    /(giảm\s*(cân|mỡ|béo)|đốt\s*mỡ|tăng\s*(cơ|cân|chiều\s*cao)|to\s*hơn|thư\s*giãn|giảm\s*stress|mất\s*ngủ|chỉnh\s*dáng|cải\s*thiện\s*tư\s*thế|học\s*bơi|biết\s*bơi)/i;
+    /(giảm\s*(cân|mỡ|béo)|đốt\s*mỡ|tăng\s*(cơ|cân|chiều\s*cao)|to\s*hơn|lên\s*cân|mập\s*lên|không\s*(lên\s*cân|béo|mập)|thư\s*giãn|giảm\s*stress|mất\s*ngủ|chỉnh\s*dáng|giữ\s*(dáng|form|cân)|duy\s*trì\s*(vóc\s*)?dáng|cải\s*thiện\s*tư\s*thế|học\s*bơi|biết\s*bơi)/i;
   if (
     fitnessGoalCue.test(message) &&
     !slotsToExtract.includes("fitnessGoal")
@@ -338,6 +339,7 @@ function buildPrompt(
   if (knownInfo.pastMethod)     knownParts.push(`đã_thử=${knownInfo.pastMethod}`);
   if (knownInfo.sessionPackage) knownParts.push(`gói=${knownInfo.sessionPackage}`);
   if (knownInfo.preferredTime)  knownParts.push(`giờ_muốn=${knownInfo.preferredTime}`);
+  if (knownInfo.bodyStats)      knownParts.push(`chỉ_số=${knownInfo.bodyStats}`);
 
   const knownSummary = knownParts.join(", ") || "chưa có gì";
 
@@ -609,13 +611,22 @@ SLOTS cho fitness:
                   không có cue → null (đừng đoán "ca-nhan")
   durationMonths = số tháng muốn đăng ký
   schedule      = khung giờ / số buổi mỗi tuần (VD: "sáng" → "sáng", "chiều tối" → "chiều-tối", "3 buổi/tuần" → "3-buoi-tuan")
-  fitnessGoal   = giam-mo/tang-co/thu-gian/hoc-boi/suc-khoe/linh-hoat
+  fitnessGoal   = giam-mo/tang-co/tang-can/thu-gian/hoc-boi/suc-khoe/giu-dang/linh-hoat
                   PHẢI extract ngay khi khách đề cập mục tiêu, dù ngầm hiểu:
                   "giảm mỡ" / "giảm cân" / "đốt mỡ" → "giam-mo"
                   "tăng cơ" / "tăng cơ bắp" / "to hơn" → "tang-co"
+                  "tăng cân" / "lên cân" / "mập lên" / "gầy quá muốn tăng" / "ăn mãi không béo" / "khó tăng cân" → "tang-can"
                   "thư giãn" / "giải stress" / "cho khỏe" → "thu-gian"
                   "học bơi" / "muốn biết bơi" → "hoc-boi"
+                  "giữ dáng" / "duy trì vóc dáng" / "giữ form" / "giữ cân" / "săn chắc duy trì" → "giu-dang"
+                  Phân biệt: "tăng cơ" (cơ bắp, gym thuần) = tang-co; "tăng cân" (người gầy muốn lên cân) = tang-can.
                   VD: "muốn tập gym giảm mỡ" → serviceType="gym", fitnessGoal="giam-mo"
+  bodyStats     = chỉ số cơ thể khách TỰ KHAI (chiều cao / cân nặng / số cân muốn giảm-tăng).
+                  Ghi NGUYÊN VĂN gọn những gì khách nói, để null nếu không nhắc.
+                  "cao 1m65 nặng 72 muốn giảm 8 cân" → "cao 1m65, nặng 72kg, giảm 8kg"
+                  "1m75 mà có 58kg" → "cao 1m75, nặng 58kg"
+                  "85kg muốn xuống 70" → "nặng 85kg, mục tiêu 70kg"
+                  KHÔNG suy diễn nếu khách chưa cho số — hỏi giá/buổi tập KHÔNG phải bodyStats.
 
 SLOTS cho giai-co:
   painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau

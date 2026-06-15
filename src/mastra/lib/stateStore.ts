@@ -93,6 +93,7 @@ export async function loadState(
         painSpread: m.knownInfo?.painSpread ?? null,
         pastMethod: m.knownInfo?.pastMethod ?? null,
         fitnessGoal: m.knownInfo?.fitnessGoal ?? null,
+        bodyStats: m.knownInfo?.bodyStats ?? null,
       },
       turnCount: m.turnCount ?? 0,
       flowTurnCount: (m as any).flowTurnCount ?? 0,
@@ -107,6 +108,9 @@ export async function loadState(
       lastUserMessage: (m as any).lastUserMessage,
       askedHistory: (m as any).askedHistory ?? [],
       mentionedFacts: (m as any).mentionedFacts ?? [],
+      safetyTopicsCovered: (m as any).safetyTopicsCovered ?? [],
+      lastTemplateId: (m as any).lastTemplateId ?? null,
+      recentBotReplies: (m as any).recentBotReplies ?? [],
     };
 
     // MIGRATION: lead cũ đã chốt dưới code cũ (sheetsWritten=true) nhưng chưa có

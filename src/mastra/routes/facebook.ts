@@ -13,8 +13,16 @@
 import { Hono } from "hono";
 import { routerWorkflow } from "../workflows/routerWorkflow";
 import { scheduleFollowup, cancelFollowup } from "../lib/followup";
+import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
 import { memory } from "../config/memory";
 import "dotenv/config";
+
+// NGƯỜI HOÁ output: tách reply thành 2-3 bóng ngắn + "đang soạn tin…" + độ trễ gõ
+// (sale Zalo thật gửi nhiều bóng ngắn, không gửi 1 đoạn dài hoàn chỉnh).
+// Tắt từng phần qua env khi cần (test / debug): HUMANIZE_BUBBLES=0, HUMANIZE_TYPING=0.
+const HUMANIZE_BUBBLES = process.env.HUMANIZE_BUBBLES !== "0";
+const HUMANIZE_TYPING = process.env.HUMANIZE_TYPING !== "0";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const FB_VERIFY_TOKEN      = process.env.FB_VERIFY_TOKEN!;
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN!;
@@ -440,7 +448,7 @@ async function handleMessage(
 
   const sentUrls = new Set<string>();
   if (reply) {
-    await sendText(senderId, reply);
+    await sendReplyHumanized(senderId, reply);
   }
   if (mediaUrls?.length) {
     for (const rawUrl of mediaUrls) {
@@ -471,6 +479,39 @@ async function sendText(recipientId: string, text: string) {
     recipient: { id: recipientId },
     message:   { text },
   });
+}
+
+/**
+ * Gửi "đang soạn tin…" (typing indicator) để khách thấy bot đang gõ — như người thật.
+ * Typing indicator là phụ → lỗi KHÔNG được chặn việc gửi tin chính.
+ */
+async function sendTypingOn(recipientId: string) {
+  try {
+    await callSendAPI({
+      recipient:     { id: recipientId },
+      sender_action: "typing_on",
+    });
+  } catch (e) {
+    console.warn("[fb] typing_on failed (bỏ qua):", (e as Error)?.message);
+  }
+}
+
+/**
+ * Gửi reply theo nhịp NGƯỜI THẬT: tách 2-3 bóng ngắn (splitIntoBubbles), mỗi bóng
+ * có "đang soạn tin…" + độ trễ gõ tỉ lệ độ dài. Nội dung KHÔNG đổi 1 ký tự — chỉ
+ * thay đổi CÁCH gửi. Tắt qua HUMANIZE_BUBBLES=0 / HUMANIZE_TYPING=0.
+ */
+async function sendReplyHumanized(recipientId: string, reply: string) {
+  const bubbles = HUMANIZE_BUBBLES ? splitIntoBubbles(reply) : [reply];
+  for (let i = 0; i < bubbles.length; i++) {
+    const bubble = bubbles[i];
+    if (!bubble) continue;
+    if (HUMANIZE_TYPING) {
+      await sendTypingOn(recipientId);
+      await sleep(typingDelayMs(bubble, i === 0));
+    }
+    await sendText(recipientId, bubble);
+  }
 }
 
 const VIDEO_EXTS = /\.(mp4|mov|webm|avi)(\?.*)?$/i;

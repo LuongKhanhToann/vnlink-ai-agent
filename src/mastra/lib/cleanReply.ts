@@ -187,6 +187,9 @@ export function cleanReply(
   hasMedia: boolean = false,
   prevReply: string = "",
   customerMessage: string = "",
+  // recentReplies: vài reply gần nhất (KHÔNG chỉ liền kề) — chống model nhỏ nhại lại NGUYÊN VĂN
+  // câu cũ cách 1-2 lượt (vd trấn an mẹ bỉm T1 lặp ở T3). So similarity, KHÔNG regex.
+  recentReplies: string[] = [],
 ): string {
   if (!text) return text;
 
@@ -295,28 +298,37 @@ export function cleanReply(
     // HARD-LOOP DETECTION: nếu toàn bộ reply gần như identical với prev
     // (jaccard >= 0.85 trên ngôn ngữ toàn câu, hoặc char overlap >= 0.80) →
     // bot stuck. Replace bằng safe pivot để tránh khách thấy 2 tin trùng.
+    // So với prev LIỀN KỀ *và* vài reply gần nhất (recentReplies) → bắt cả nhại KHÔNG liền kề
+    // (vd trấn an mẹ bỉm T1 lặp ở T3). Đây là so similarity, KHÔNG regex.
     const tokensCur = tokenize(r);
-    const tokensPrev = tokenize(prevReply);
-    const fullSim = jaccardSim(tokensCur, tokensPrev);
-    // Normalize chars: bỏ whitespace + lowercase + diacritics-insensitive (approx).
     const normChars = (s: string) =>
       s.toLowerCase().normalize("NFC").replace(/\s+/g, "");
     const cn = normChars(r);
-    const pn = normChars(prevReply);
-    const charOverlap =
-      cn.length > 0 && pn.length > 0
-        ? (cn.length === pn.length && cn === pn
-            ? 1
-            : cn.includes(pn) || pn.includes(cn)
-              ? Math.min(cn.length, pn.length) / Math.max(cn.length, pn.length)
-              : 0)
+    const charSimTo = (p: string): number => {
+      const pn = normChars(p);
+      if (cn.length === 0 || pn.length === 0) return 0;
+      if (cn === pn) return 1;
+      return cn.includes(pn) || pn.includes(cn)
+        ? Math.min(cn.length, pn.length) / Math.max(cn.length, pn.length)
         : 0;
-    if ((fullSim >= 0.92 || charOverlap >= 0.90) && r.length >= 40) {
+    };
+    const priors = [prevReply, ...recentReplies].filter(
+      (p, i, a) => p && a.indexOf(p) === i,
+    );
+    let maxSim = 0;
+    let maxChar = 0;
+    for (const p of priors) {
+      maxSim = Math.max(maxSim, jaccardSim(tokensCur, tokenize(p)));
+      maxChar = Math.max(maxChar, charSimTo(p));
+    }
+    if ((maxSim >= 0.92 || maxChar >= 0.90) && r.length >= 40) {
       console.warn(
-        `[cleanReply] HARD-LOOP detected (jaccard=${fullSim.toFixed(2)} charOverlap=${charOverlap.toFixed(2)}) — replacing with safe pivot`,
+        `[cleanReply] HARD-LOOP detected (jaccard=${maxSim.toFixed(2)} charOverlap=${maxChar.toFixed(2)}, vs ${priors.length} prior) — replacing with safe pivot`,
       );
+      // Pivot ấm, TIẾN tới (không "cho em xin thêm thông tin" trơ máy móc): thừa nhận đã nói
+      // rồi + mời bước tiếp. Hợp cả ca nhại (đúng là vừa nói) lẫn ca stuck.
       r =
-        "Dạ vâng, anh/chị cho em xin thêm thông tin để em tư vấn cụ thể hơn ạ.";
+        "Dạ phần này em vừa chia sẻ ở trên rồi ạ, mình cứ yên tâm nha. Anh/chị còn băn khoăn gì nữa không để em hỗ trợ thêm ạ?";
     }
   }
 

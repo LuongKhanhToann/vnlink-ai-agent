@@ -168,9 +168,11 @@ const SERVICE_LABEL: Record<string, string> = {
 const GOAL_LABEL: Record<string, string> = {
   "giam-mo": "giảm mỡ",
   "tang-co": "tăng cơ",
+  "tang-can": "tăng cân",
   "thu-gian": "thư giãn",
   "hoc-boi": "học bơi",
   "suc-khoe": "sức khỏe tổng thể",
+  "giu-dang": "giữ dáng",
 };
 
 // Phát hiện những gì bot đã pitch ở tin trước → tránh lặp.

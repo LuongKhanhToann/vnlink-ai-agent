@@ -32,6 +32,17 @@ function alreadyRecommendedSolution(prev: string): boolean {
   );
 }
 
+/**
+ * Anti-repeat cho các template SAFETY (postpartum/prenatal/senior/post-surgery/teen):
+ * 1 đoạn trấn an dài CHỈ nói 1 lần. Lượt sau khách hỏi follow-up cùng chủ đề mà lại
+ * bắn NGUYÊN VĂN đoạn cũ → lộ máy rõ nhất (HARD-LOOP). Đọc state.safetyTopicsCovered (sticky
+ * TOÀN cuộc thoại, không chỉ turn liền trước) → nếu đã trấn an chủ đề này thì skip để engine
+ * rớt xuống PITCH cho LLM trả lời ngắn, sát ngữ cảnh.
+ */
+function safetyAlreadyCovered(ctx: TemplateContext, topic: string): boolean {
+  return (ctx.state.safetyTopicsCovered ?? []).includes(topic);
+}
+
 // ─────────────────────────────────────────────
 // FITNESS TEMPLATES — stage-aware
 // ─────────────────────────────────────────────
@@ -105,8 +116,10 @@ export const FITNESS_TEMPLATES: Template[] = [
         const reaffirm: Record<string, { pick: string; must: string[] }> = {
           "giam-mo": { pick: "Gym kết hợp Zumba", must: ["Gym", "Zumba"] },
           "tang-co": { pick: "Gym kèm PT 1-1", must: ["Gym", "PT"] },
+          "tang-can": { pick: "Gym kèm PT 1-1", must: ["Gym", "PT"] },
           "thu-gian": { pick: "Yoga", must: ["Yoga"] },
           "hoc-boi": { pick: "lớp bơi 1-1", must: ["bơi"] },
+          "giu-dang": { pick: "thẻ Full đa năng (Gym, Bơi, Yoga, Zumba dùng chung 1 thẻ)", must: ["Full"] },
         };
         const r = (goal && reaffirm[goal]) || {
           pick: "thẻ Full đa năng (Gym, Bơi, Yoga, Zumba dùng chung 1 thẻ)",
@@ -136,6 +149,24 @@ export const FITNESS_TEMPLATES: Template[] = [
             `Dạ với mục tiêu tăng cơ, em gợi ${h} tập Gym kèm PT 1-1 giai đoạn đầu ạ — HLV xây kỹ thuật nền chuẩn, tránh sai tư thế rồi quen tay ${h} tự tập sau. ` +
             `${h} ghé đo InBody miễn phí 1 buổi để HLV xem thể trạng rồi tư vấn lộ trình nha, ${h} tiện sáng hay chiều ạ?`,
           mustInclude: ["PT", "Gym"],
+        };
+      }
+      if (goal === "tang-can") {
+        return {
+          id: "indecisive_recommend_tang_can",
+          template:
+            `Dạ với mục tiêu tăng cân, em gợi ${h} tập Gym kèm PT 1-1 ạ — HLV lên giáo án tăng khối cơ nạc + thực đơn 5-6 bữa dễ ăn, tăng cân khoa học không tích mỡ bụng. ` +
+            `${h} ghé đo InBody miễn phí 1 buổi để HLV xem lượng cơ thiếu rồi tư vấn lộ trình nha, ${h} tiện sáng hay chiều ạ?`,
+          mustInclude: ["PT", "Gym"],
+        };
+      }
+      if (goal === "giu-dang") {
+        return {
+          id: "indecisive_recommend_giu_dang",
+          template:
+            `Dạ với mục tiêu giữ dáng, em gợi ${h} thẻ Full đa năng ạ — Gym, Bơi, Yoga, Zumba dùng chung 1 thẻ, đổi môn cho đỡ chán mà duy trì vóc dáng săn chắc. ` +
+            `${h} ghé thử 1 buổi cảm nhận phòng tập rồi mình tính gói sau cũng được, ${h} tiện sáng hay chiều ạ?`,
+          mustInclude: ["Full"],
         };
       }
       if (goal === "thu-gian") {
@@ -259,6 +290,13 @@ export const FITNESS_TEMPLATES: Template[] = [
       ) {
         return { skip: true, reason: "past discovery — đã có slot" };
       }
+      // GUARD A0: mục tiêu KHÔNG phải giảm cân (vd tăng cân/giữ dáng/tăng cơ) → KHÔNG hỏi
+      // "biện pháp giảm cân" (sai + ngượng). classifier mini hay gắn nhầm attribute=goal_lose_weight
+      // cho tin "tăng cân" (đều có chữ "cân"). fitnessGoal slot đã extract đúng → tin cậy goal.
+      // Skip → tin rơi xuống PITCH mode → goalConsult khai thác đúng theo goal.
+      if (ki.fitnessGoal !== null && ki.fitnessGoal !== "giam-mo") {
+        return { skip: true, reason: `goal=${ki.fitnessGoal} không phải giảm cân` };
+      }
       // GUARD B: health context (postpartum/prenatal/đau lưng) → để LLM handle natural
       const isHealthContext =
         /(mới\s*sinh|sau\s*sinh|đang\s*bầu|mang\s*thai|sinh\s*con|cho\s*con\s*bú|cao\s*tuổi|bệnh\s*nền|huyết\s*áp|tiểu\s*đường|phẫu\s*thuật|chấn\s*thương|đau\s*(lưng|gối|khớp))/i;
@@ -299,19 +337,11 @@ export const FITNESS_TEMPLATES: Template[] = [
         /tư\s*vấn|báo\s*(giá|chi\s*phí|phí)|gợi\s*ý|chọn\s*(giúp|hộ|cho)|môn\s*nào\s*phù\s*hợp|dịch\s*vụ\s*phù\s*hợp/.test(
           m,
         );
-      // (2a) KH nêu GOAL rõ ("muốn/cần + giảm cân/mỡ/stress/săn chắc/vóc dáng...") mà KHÔNG nhắc
-      // đang-dùng-phương-pháp → recommend value-first NGAY, KHÔNG hỏi history. Turn "em muốn giảm
-      // cân với giảm stress" từng bị grader chấm 2/10 vì hỏi info không cần thiết thay vì build value.
-      const usingMethodCue =
-        /đang\s*(tập|dùng|ăn\s*kiêng|chạy|nhịn|uống|áp\s*dụng|theo)|đã\s*(tập|thử|dùng)/.test(
-          m,
-        );
-      const statesGoalClearly =
-        /(muốn|cần|mong(\s*muốn)?)[^.]*?(giảm\s*(cân|mỡ|stress|béo)|săn\s*chắc|vóc\s*dáng|cải\s*thiện|tăng\s*cơ|khỏe|đẹp)/.test(
-          m,
-        );
+      // FUNNEL TL Fami: KH nêu GOAL rõ → KHAI THÁC NỖI ĐAU/lịch sử TRƯỚC (xuống block ask_history),
+      // KHÔNG recommend value-first ngay (nhảy bước = bỏ cớ tư vấn sâu, lộ máy). CHỈ recommend NGAY khi
+      // khách CHỦ ĐỘNG xin tư vấn/chọn giúp (askingRecommend) hoặc đang trong mạch tham quan.
       const inThamQuanContext = /Tổ\s*hợp\s*thể\s*thao/i.test(prev);
-      if (inThamQuanContext || askingRecommend || (statesGoalClearly && !usingMethodCue)) {
+      if (inThamQuanContext || askingRecommend) {
         return {
           id: "giam_can_recommend_solution",
           template:
@@ -1090,6 +1120,12 @@ export const FITNESS_TEMPLATES: Template[] = [
       domain: "safety_concern",
       attribute: "postpartum",
     },
+    guards: (ctx) => {
+      if (safetyAlreadyCovered(ctx, "postpartum")) {
+        return { skip: true, reason: "đã trấn an postpartum → để LLM trả lời ngắn, sát" };
+      }
+      return true;
+    },
     render: (ctx) => ({
       id: "ask_postpartum_safety",
       template:
@@ -1107,6 +1143,12 @@ export const FITNESS_TEMPLATES: Template[] = [
       domain: "safety_concern",
       attribute: "prenatal",
     },
+    guards: (ctx) => {
+      if (safetyAlreadyCovered(ctx, "prenatal")) {
+        return { skip: true, reason: "đã trấn an prenatal" };
+      }
+      return true;
+    },
     render: (ctx) => ({
       id: "ask_prenatal_safety",
       template:
@@ -1123,6 +1165,12 @@ export const FITNESS_TEMPLATES: Template[] = [
       stages: ["opening", "discovery", "evaluation"],
       domain: "safety_concern",
       attribute: "senior",
+    },
+    guards: (ctx) => {
+      if (safetyAlreadyCovered(ctx, "senior")) {
+        return { skip: true, reason: "đã trấn an senior" };
+      }
+      return true;
     },
     render: (ctx) => ({
       id: "ask_senior_safety",
@@ -1163,6 +1211,9 @@ export const FITNESS_TEMPLATES: Template[] = [
       const hasSurgeryCue =
         /(phẫu\s*thuật|mổ|đứt\s*dây\s*chằng|gãy\s*xương|tai\s*nạn|chấn\s*thương\s*(cần|phải|đang)|bác\s*sĩ\s*(kêu|bảo|nói|chỉ\s*định))/i.test(m);
       if (!hasSurgeryCue) return { skip: true, reason: "thiếu surgery cue" };
+      if (safetyAlreadyCovered(ctx, "post_surgery")) {
+        return { skip: true, reason: "đã trấn an post-surgery" };
+      }
       return true;
     },
     render: (ctx) => ({
@@ -1181,6 +1232,12 @@ export const FITNESS_TEMPLATES: Template[] = [
       stages: ["opening", "discovery", "evaluation"],
       domain: "safety_concern",
       attribute: "teen",
+    },
+    guards: (ctx) => {
+      if (safetyAlreadyCovered(ctx, "teen")) {
+        return { skip: true, reason: "đã trấn an teen" };
+      }
+      return true;
     },
     render: (ctx) => ({
       id: "ask_teen_safety",
