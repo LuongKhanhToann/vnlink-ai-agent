@@ -2299,7 +2299,7 @@ function buildPrefixLegacy(
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
     `[TACTIC: ${tactic}]`,
-    `[RULES: Nhắn như sale thật đang chat — văn nói, NGẮN GỌN, text thuần KHÔNG markdown. Mặc định 1-2 câu (≤200 chữ); CHỈ khi liệt kê 3+ gói mới xuống dòng "-" mỗi mục (≤350 chữ). Giá viết bằng chữ ("12 tháng 5 triệu", "3 buổi/tuần") — KHÔNG để "12m=5tr","|","=". ACK trung tính ("Dạ vâng ${h}") rồi vào ý chính: CẤM khen đáp án khách (tuyệt vời/tốt quá/hợp lý/chuẩn rồi/lý tưởng...), CẤM đọc lại nguyên văn lời khách, CẤM "em note/ghi nhận", CẤM "em gửi hình" khi không gọi tool. Tối đa 1 câu hỏi, kết "?" hoặc "ạ?" (KHÔNG "nha?"). Đọc TACTIC/GATE/KNOWLEDGE rồi TỰ viết — KHÔNG chép lại.]`,
+    `[RULES: Nhắn như sale thật đang chat — văn nói, NGẮN GỌN, text thuần KHÔNG markdown. Mặc định 1-2 câu (≤200 chữ); CHỈ khi liệt kê 3+ gói mới xuống dòng "-" mỗi mục (≤350 chữ). Giá viết bằng chữ ("12 tháng 5 triệu", "3 buổi/tuần") — KHÔNG để "12m=5tr","|","=". ACK trung tính NGẮN rồi vào ý chính, ĐỔI cách mở mỗi tin (đừng đóng đinh "Dạ vâng ${h}" mọi lượt — lặp opener nghe như máy; có thể vào thẳng nội dung): CẤM khen đáp án khách (tuyệt vời/tốt quá/hợp lý/chuẩn rồi/lý tưởng...), CẤM đọc lại nguyên văn lời khách, CẤM "em note/ghi nhận", CẤM "em gửi hình" khi không gọi tool. Tối đa 1 câu hỏi, kết "?" hoặc "ạ?" (KHÔNG "nha?"). Đọc TACTIC/GATE/KNOWLEDGE rồi TỰ viết — KHÔNG chép lại.]`,
     antiLoopHint,
     buildKnownSummary(state.knownInfo, state.flow),
     missingSlotHint,

@@ -71,6 +71,18 @@ export function safeFallback(state: ConversationState, message?: string): string
   // Default: discovery / opening — câu DỨT KHOÁT, KHÔNG mơ hồ "xin thêm chi tiết".
   // Đã biết bộ môn (state HOẶC keyword tin khách) → hỏi lịch; chưa biết → hỏi bộ môn.
   if (serviceType) {
+    // FUNNEL TL Fami: khách mục tiêu body-comp (giảm/tăng cân, tăng cơ, giữ dáng) đang discovery →
+    // KHÔNG chốt lịch "sáng hay chiều" sớm. Fallback an toàn = đào nỗi đau: chưa có chỉ số cơ thể
+    // thì hỏi cao/nặng; có rồi thì hỏi thói quen sinh hoạt. (đọc slot classifier + FSM stage, KHÔNG regex)
+    const goal = state.knownInfo.fitnessGoal;
+    const isBodyGoal =
+      goal === "giam-mo" || goal === "tang-can" || goal === "tang-co" || goal === "giu-dang";
+    if (state.stage === "discovery" && isBodyGoal) {
+      if (!state.knownInfo.bodyStats) {
+        return `Dạ ${h} cho em hỏi chiều cao với cân nặng hiện tại của mình đang khoảng bao nhiêu ạ.`;
+      }
+      return `Dạ ${h} ơi, sinh hoạt ăn uống ngủ nghỉ hằng ngày của mình đang thế nào ạ.`;
+    }
     // ĐÃ biết buổi tập (schedule sáng/chiều/tối) → KHÔNG hỏi lại "sáng hay chiều";
     // mời ghé thử 1 buổi + hỏi ngày để tiến tới chốt slot.
     if (state.knownInfo.schedule) {
