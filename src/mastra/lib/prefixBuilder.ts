@@ -727,8 +727,26 @@ function buildMediaHint(state: ConversationState): string {
   const key = computeSuggestedMediaKey(state);
   if (!key) return "";
 
+  // Ảnh before-after (hội viên lột xác) chỉ hợp khi khách có mục tiêu đổi vóc dáng. Khi khách đang
+  // NGHI NGỜ kết quả / từng thất bại (đọc emotion từ classifier — frustrated/anxious/hesitant) →
+  // before-after là ảnh CHỨNG MINH KẾT QUẢ, hợp hơn ảnh cơ sở → để nó làm key chính.
+  const goal = state.knownInfo.fitnessGoal;
+  const bodyGoal =
+    goal === "giam-mo" || goal === "tang-co" || goal === "tang-can" || goal === "giu-dang";
+  const doubtful =
+    state.emotion === "frustrated" || state.emotion === "anxious" || state.emotion === "hesitant";
+
+  let primary = key;
+  let baNote = "";
+  if (bodyGoal && doubtful) {
+    primary = "fitness-before-after";
+    baNote = ` (khách đang nghi ngờ/từng thất bại → ảnh hội viên lột xác thuyết phục hơn ảnh cơ sở).`;
+  } else if (bodyGoal) {
+    baNote = ` Nếu khách nghi ngờ kết quả thật, dùng key="fitness-before-after" thay cho ảnh cơ sở.`;
+  }
+
   return (
-    `[MEDIA: chưa gửi. suggestedKey="${key}". TỰ QUYẾT gọi get-media nếu khách đang phân vân/build-value/xin xem trực tiếp. KHÔNG gửi khi chào hỏi/đang chốt/đang thăm dò. Max 1 lần/conv.]`
+    `[MEDIA: chưa gửi. suggestedKey="${primary}".${baNote} TỰ QUYẾT gọi get-media nếu khách đang phân vân/build-value/xin xem trực tiếp. KHÔNG gửi khi chào hỏi/đang chốt/đang thăm dò. Max 1 lần/conv.]`
   );
 }
 
@@ -2308,7 +2326,7 @@ function buildPrefixLegacy(
 //   • Fact an toàn (giá thật, lịch, địa chỉ) vẫn bơm để model khỏi bịa.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const BODY_GOAL_SET = new Set(["giam-mo", "tang-can", "giu-dang"]);
+const BODY_GOAL_SET = new Set(["giam-mo", "tang-can", "tang-co", "giu-dang"]);
 
 function goalLabelVi(goal: string | null): string {
   switch (goal) {
@@ -2338,7 +2356,12 @@ function buildFitnessStageFocus(state: ConversationState): string {
   if (stage === "discovery") {
     // CRUX FIX: body-goal → khai thác nỗi đau, CẤM chốt sớm.
     if (goal && BODY_GOAL_SET.has(goal)) {
-      const dir = goal === "tang-can" ? "tăng" : goal === "giu-dang" ? "muốn săn chắc/gọn" : "giảm";
+      const dir =
+        goal === "tang-can" || goal === "tang-co"
+          ? "tăng"
+          : goal === "giu-dang"
+            ? "muốn săn chắc/gọn"
+            : "giảm";
       return (
         `[BƯỚC: KHAI THÁC] Khách muốn ${goalLabelVi(goal)}. Đang HIỂU khách, chưa chốt. ` +
         `Hỏi gọn từng ý (1 câu/tin), khai thác dần: cao–nặng & số kg muốn ${dir}; vùng tự ti; thói quen sinh hoạt; đã thử cách nào chưa hiệu quả. ` +
@@ -2355,6 +2378,7 @@ function buildFitnessStageFocus(state: ConversationState): string {
     return (
       `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã khai thác đủ → GIỜ giới thiệu đo InBody MIỄN PHÍ như GIÁ TRỊ tự nhiên ` +
       `(máy bóc tách mỡ/cơ thật, HLV lên lộ trình chuẩn thay vì tập mù). Nói value 1-2 câu rồi hỏi 1 câu MỞ bám mục tiêu/động lực của khách. ` +
+      `Cá nhân hóa theo trải nghiệm khách (đọc lịch sử chat, đừng hỏi lại nếu đã rõ): khách CHƯA biết tập → nhấn cần HLV/PT lên giáo án + thực đơn cho đúng, tránh tập mù; khách ĐÃ biết tập → nhấn tối ưu chi phí bằng thẻ hội viên + tự dựa chỉ số InBody chọn máy/vùng tập. ` +
       `⛔ KHÔNG hỏi "sáng hay chiều", KHÔNG rủ đặt lịch / chọn buổi, CHƯA báo giá — đặt lịch là việc của bước CHỐT khi khách đã muốn đến.`
     );
   }
@@ -2363,6 +2387,7 @@ function buildFitnessStageFocus(state: ConversationState): string {
     return (
       `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] CHỦ ĐỘNG dẫn dắt, đừng trả lời xong để lửng. Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
       `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. Gợi đo InBody / thử 1 buổi như bước trải nghiệm value. ` +
+      `Có thể thúc nhẹ bằng 2 đòn (chỉ khi tự nhiên, KHÔNG ép, KHÔNG mỗi tin một lần): suất trải nghiệm miễn phí có GIỚI HẠN theo tuần (tạo lý do hành động sớm); rủ thêm bạn/người thân tập cùng có ƯU ĐÃI nhóm + đỡ ngại, dễ duy trì. ⛔ KHÔNG bịa con số cụ thể (còn mấy suất, giảm bao nhiêu %) — nói chung "đang giới hạn suất" / "có ưu đãi nhóm" thôi. ` +
       `Khi mời chốt buổi: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi mới hỏi giờ — ĐỪNG hỏi trống "tiện qua hôm nào". ` +
       `⛔ CHỈ chốt buổi khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
     );

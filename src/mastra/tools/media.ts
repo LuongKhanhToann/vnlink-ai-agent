@@ -18,6 +18,7 @@ const KEY_TO_FOLDER: Record<string, string> = {
   "fitness-yoga":     "fitness/yoga",
   "fitness-zumba":    "fitness/zumba",
   "fitness-pool":     "fitness/pool",
+  "fitness-before-after": "fitness/before-after",
 };
 
 type MediaItem = { type: "image" | "video"; url: string };
@@ -62,7 +63,8 @@ export const getMediaTool = createTool({
   description:
     "Lấy ảnh/video giới thiệu dịch vụ để gửi cho khách. " +
     "GiảiCo (mr-*): mr-sport / mr-neck-shoulder / mr-female / mr-general. " +
-    "Fitness: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool.",
+    "Fitness: fitness-gym / fitness-yoga / fitness-zumba / fitness-pool. " +
+    "fitness-before-after: ảnh hội viên lột xác (gửi khi pitch kết quả / khách phân vân về hiệu quả).",
   inputSchema: z.object({
     key: z.enum([
       "mr-sport",
@@ -73,6 +75,7 @@ export const getMediaTool = createTool({
       "fitness-yoga",
       "fitness-zumba",
       "fitness-pool",
+      "fitness-before-after",
     ]),
   }),
   outputSchema: z.object({ data: z.string() }),
