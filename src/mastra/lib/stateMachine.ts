@@ -884,10 +884,11 @@ export function computeNextStage(
       // Sale TL Fami đào ÍT NHẤT 2 lớp: (1) chỉ số cơ thể (cao/nặng/số kg) VÀ
       // (2) thói quen/lịch sử đã thử. Chỉ có mỗi bodyStats = mới hỏi 1 câu → CHƯA đủ,
       // ở lại discovery hỏi tiếp. painProbed cũ (chỉ cần 1 tín hiệu) chính là chỗ gây
-      // "đo InBody + sáng hay chiều" ngay turn 2. Anti-stuck: sau 4 lượt trong flow thì thả.
+      // "đo InBody + sáng hay chiều" ngay turn 2. Anti-stuck: nâng ngưỡng lên 5 lượt (cũ 4 — đẩy
+      // sang InBody hơi sớm, cắt ngắn khai thác nỗi đau ở turn 4) để có thêm 1 lớp đào trước khi thả.
       const painExploredDeep =
         info.bodyStats !== null &&
-        (info.pastMethod !== null || turnCount >= 4);
+        (info.pastMethod !== null || turnCount >= 5);
       if (
         flow === "fitness" &&
         isBodyGoal &&

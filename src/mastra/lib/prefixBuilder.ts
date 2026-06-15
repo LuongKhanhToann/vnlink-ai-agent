@@ -19,6 +19,7 @@ import {
   Stage,
   detectAddBookingIntent,
   detectRescheduleIntent,
+  isPreferredTimeSpecific,
 } from "./stateMachine";
 import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
@@ -1974,17 +1975,26 @@ Khi xử lý đúng điểm đó thì sáng dậy ${visualHint} ${h}.
 Bên em có KTV chuyên giải cơ chuyên sâu, ${h} có thể thử 1 buổi trước để cảm nhận thực tế. ${closingLine}"`;
   }
 
-  // ── GIẢI CƠ / FITNESS: commitment — hỏi GỘP 3 thứ, xác nhận và dừng ──
+  // ── GIẢI CƠ / FITNESS: commitment — CHỐT NGÀY trước → xin liên hệ → xác nhận → dừng ──
   if (stage === "commitment") {
-    return `[EXAMPLE — COMMITMENT: HỎI GỘP → XÁC NHẬN → DỪNG]
+    // CHƯA chốt được NGÀY cụ thể (null / chỉ buổi / cửa sổ mơ hồ "cuối tuần") → ưu tiên CHỐT NGÀY,
+    // CHƯA xin tên/SĐT. isPreferredTimeSpecific coi "thứ 7"/"chủ nhật" là ĐÃ chốt ngày (khác hasConcreteDate ngặt DD/MM).
+    if (!isPreferredTimeSpecific(knownInfo.preferredTime)) {
+      const { options } = suggestDatePair(knownInfo.preferredTime);
+      return `[EXAMPLE — COMMITMENT chưa chốt NGÀY: chốt 1 ngày cụ thể TRƯỚC, CHƯA xin tên/SĐT]
+Khách nói cửa sổ mơ hồ ("cuối tuần"/"tuần sau") → ĐÚNG: "Dạ ${h} qua ${options[0]} hay ${options[1]} tiện hơn ạ"
+Khách chưa nói ngày → ĐÚNG: "Dạ ${h} tiện qua hôm nào ạ"
+SAI: hỏi "buổi sáng/chiều/tối" thay cho NGÀY; xin tên/SĐT khi chưa chốt được ngày; dồn ngày+tên+SĐT 1 câu.`;
+    }
+    return `[EXAMPLE — COMMITMENT đã có ngày: xin liên hệ → XÁC NHẬN → DỪNG]
 ⚠️ Không lặp "KTV đánh giá thực tế / tư vấn lộ trình". Không đẩy QR trừ khi khách hỏi.
 
-CHƯA đủ 3 (tên+SĐT+giờ):
-ĐÚNG: "Cho em xin tên, SĐT với ${h} muốn đến buổi sáng, chiều hay tối ạ"
-SAI:  thiếu giờ; xác nhận khi chưa có tên/SĐT.
+CHƯA đủ tên+SĐT (đã có ngày=${knownInfo.preferredTime}):
+ĐÚNG: "Dạ ${h} cho em xin tên với SĐT để em giữ slot ${knownInfo.preferredTime} cho mình ạ"
+SAI:  hỏi lại ngày/buổi đã có; xác nhận khi chưa có tên/SĐT.
 
-ĐÃ đủ 3:
-ĐÚNG: "Dạ em giữ slot [giờ] cho mình rồi nha ${h} [tên], hẹn gặp ${h} ạ" → DỪNG HẲN.
+ĐÃ đủ tên+SĐT+ngày:
+ĐÚNG: "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${h} [tên], hẹn gặp ${h} ạ" → DỪNG HẲN.
 SAI:  hỏi thêm "cọc trước không".`;
   }
 
@@ -2398,8 +2408,9 @@ function buildFitnessStageFocus(state: ConversationState): string {
       `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] CHỦ ĐỘNG dẫn dắt, đừng trả lời xong để lửng. Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
       `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. Gợi đo InBody / thử 1 buổi như bước trải nghiệm value. ` +
       `Có thể thúc nhẹ bằng 2 đòn (chỉ khi tự nhiên, KHÔNG ép, KHÔNG mỗi tin một lần): suất trải nghiệm miễn phí có GIỚI HẠN theo tuần (tạo lý do hành động sớm); rủ thêm bạn/người thân tập cùng có ƯU ĐÃI nhóm + đỡ ngại, dễ duy trì. ⛔ KHÔNG bịa con số cụ thể (còn mấy suất, giảm bao nhiêu %) — nói chung "đang giới hạn suất" / "có ưu đãi nhóm" thôi. ` +
-      `Khi mời chốt buổi: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi mới hỏi giờ — ĐỪNG hỏi trống "tiện qua hôm nào". ` +
-      `⛔ CHỈ chốt buổi khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
+      `★ Khi khách TỰ nhắc rủ bạn / đi cùng người thân / đi 2 người → BÁM NGAY: xác nhận có ƯU ĐÃI NHÓM (đi đông tiết kiệm hơn, đỡ ngại) — đừng để trôi cơ hội này. ` +
+      `Khi mời chốt: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi hỏi NGÀY khách qua (hôm nào; nếu khách mơ hồ thì gợi 2 ngày cụ thể) — ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" khi CHƯA chốt được NGÀY (ngày mới là cái giữ slot). ` +
+      `⛔ CHỈ chốt khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
     );
   }
 
@@ -2407,9 +2418,18 @@ function buildFitnessStageFocus(state: ConversationState): string {
     if (ki.name && ki.phone && ki.preferredTime) {
       return `[VIỆC CẦN LÀM — CHỐT XONG] Đã đủ tên+SĐT+giờ → xác nhận giữ slot 1 câu NGẮN rồi DỪNG. KHÔNG hỏi lại thông tin đã có.`;
     }
+    // CHỐT NGÀY TRƯỚC, rồi mới xin liên hệ — tránh dồn ngày+tên+SĐT 1 câu (dồn dập).
+    // Dùng isPreferredTimeSpecific (nhận THỨ-trong-tuần "thứ 7"/"chủ nhật" là ĐÃ chốt ngày);
+    // hasConcreteDate quá ngặt (đòi DD/MM) → "thứ 7" bị coi chưa chốt → loop hỏi ngày.
+    if (!isPreferredTimeSpecific(ki.preferredTime)) {
+      return (
+        `[VIỆC CẦN LÀM — CHỐT NGÀY] Khách sẵn sàng nhưng CHƯA chốt được NGÀY cụ thể → nêu 1 lý do giá trị ngắn (em giữ slot / HLV chuẩn bị lộ trình & InBody) rồi CHỐT NGÀY: khách nói mơ hồ ("cuối tuần"/"tuần sau") thì gợi 2 NGÀY cụ thể cho chọn; chưa nói ngày thì hỏi qua hôm nào. ` +
+        `⛔ CHƯA xin tên/SĐT ở tin này, ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" thay cho ngày — chốt được NGÀY rồi turn sau mới xin liên hệ.`
+      );
+    }
     return (
-      `[VIỆC CẦN LÀM — CHỐT HẸN] Khách sẵn sàng → CHỦ ĐỘNG dẫn: nêu 1 lý do giá trị ngắn cho việc ghé (em giữ slot / HLV chuẩn bị lộ trình & InBody) rồi mới xin thông tin còn thiếu (tên/SĐT/buổi tiện). ` +
-      `ĐỪNG hỏi trống "tiện hôm nào". Tách ngày khỏi tên+SĐT, KHÔNG dồn dập.`
+      `[VIỆC CẦN LÀM — XIN LIÊN HỆ] Đã chốt ngày (${ki.preferredTime}) → giờ xin tên+SĐT gọn 1 câu để giữ slot. ` +
+      `KHÔNG hỏi lại ngày/buổi đã có, KHÔNG dồn dập.`
     );
   }
 
