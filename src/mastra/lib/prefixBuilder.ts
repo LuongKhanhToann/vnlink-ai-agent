@@ -1058,9 +1058,9 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     !detectHoursQuestion(message) &&
     !knownInfo.name &&
     !knownInfo.phone &&
-    stage !== "retention" &&
     stage !== "commitment"
   ) {
+    // stage "retention" đã return sớm ở trên → không cần loại lại ở đây.
     const svc = knownInfo.serviceType ?? "bộ môn mình quan tâm";
     hints.push(
       `[GATE hỏi-có-không (availability): khách hỏi CÓ/KHÔNG về dịch vụ — TRẢ LỜI THẲNG "Dạ có ạ, bên em có ${svc}" + 1 câu value ngắn (hợp mục tiêu của khách), rồi hỏi 1 câu discovery (đã tập chưa / mục tiêu rõ hơn / tiện lịch nào). ` +
