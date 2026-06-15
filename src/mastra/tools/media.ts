@@ -22,15 +22,9 @@ const KEY_TO_FOLDER: Record<string, string> = {
 
 type MediaItem = { type: "image" | "video"; url: string };
 
-const _cache: Record<string, { items: MediaItem[]; ts: number }> = {};
-const CACHE_TTL = 10 * 60 * 1000;
-
+// CACHE ĐÃ GỠ HOÀN TOÀN (2026-06-15) — theo yêu cầu: cấm dùng cache ở mọi tầng.
+// Mỗi lần cần media là fetch trực tiếp từ Cloudinary, không lưu lại.
 async function listResources(folder: string, resourceType: "image" | "video"): Promise<MediaItem[]> {
-  const cacheKey = `${folder}::${resourceType}`;
-  const now = Date.now();
-  const cached = _cache[cacheKey];
-  if (cached && now - cached.ts < CACHE_TTL) return cached.items;
-
   try {
     const res = await cloudinary.search
       .expression(`folder:${folder}/* AND resource_type:${resourceType}`)
@@ -42,7 +36,6 @@ async function listResources(folder: string, resourceType: "image" | "video"): P
       url:  r.secure_url,
     }));
 
-    _cache[cacheKey] = { items, ts: now };
     return items;
   } catch (e: unknown) {
     console.error(`[getMedia] raw error:`, JSON.stringify(e), e);

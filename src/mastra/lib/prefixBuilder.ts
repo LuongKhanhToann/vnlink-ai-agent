@@ -24,7 +24,6 @@ import type { IntentSignal } from "./intent";
 import { getTactic } from "./playbook";
 import { buildGoalConsultHint } from "./goalConsult";
 import { buildDateContext, suggestDatePair, hasConcreteDate, hasDateWindow } from "./dateHelper";
-import { decideFitnessQuestion, formatDecision, isEmotionSoftSkipId } from "./questionFlow";
 
 // ─────────────────────────────────────────────
 // MULTI-INTENT HINT — render khi KH hỏi 2+ thứ trong 1 tin
@@ -2075,16 +2074,22 @@ export function buildPrefix(
   return buildPrefixWithMeta(state, message, prevBotReply).prefix;
 }
 
-export function buildPrefixWithMeta(
+// ─────────────────────────────────────────────────────────────
+// LEGACY prefix builder — GIỮ NGUYÊN cho flow GIAI-CO.
+// Fitness đã chuyển sang buildFitnessLeanPrefix (xem cuối file).
+// Tên đổi từ buildPrefixWithMeta → buildPrefixLegacy; dispatcher mới ở cuối file
+// route fitness → lean brief, giai-co → hàm này (zero-regression cho giai-co).
+// ─────────────────────────────────────────────────────────────
+function buildPrefixLegacy(
   state: ConversationState,
   message?: string,
   prevBotReply?: string,
 ): PrefixResult {
   const h = resolveHonorific(state.honorific);
 
-  // ═══════════ PREFIX MODE DISPATCH (Phase 3) ═══════════
-  // 3 mode tách biệt — mini chỉ đọc instruction của ĐÚNG 1 mode:
-  //   SCRIPT  = template match (decideFitnessQuestion hit) → ngắn nhất ~200 token
+  // ═══════════ PREFIX MODE DISPATCH (giai-co only) ═══════════
+  // SCRIPT mode (template engine) đã GỠ — fitness nay đi qua buildFitnessLeanPrefix.
+  // Còn lại 2 mode cho giai-co:
   //   GATE    = hard-override logic (done-slots / cold-lead / acute-injury / deposit / objection)
   //             → minimal prefix, GATE là single source of truth
   //   PITCH   = no template, no GATE override → full prefix với TACTIC + KNOWLEDGE + FEW-SHOT
@@ -2129,46 +2134,8 @@ export function buildPrefixWithMeta(
     };
   }
 
-  // ─── MODE = SCRIPT (template match) ───
-  // Bỏ qua trong retention: sau chốt để GATE concierge điều phối tự nhiên, không dùng template cứng.
-  if (state.flow === "fitness" && message && state.stage !== "retention") {
-    const decision = decideFitnessQuestion(state, message, prevBotReply);
-    // EMOTION-AWARE SCRIPT SKIP (Nhánh 3, 2026-06-08 tối): khách PHÂN VÂN/LO mà template match
-    // là INTENT-GUIDE (soft: discovery/recommend/schedule-ask) → template hỏi "sáng hay chiều"
-    // máy móc, BỎ QUA cảm xúc (root cause "cứng" ở khách hesitant/anxious). Nhường xuống PITCH
-    // nơi buildSaleSenseHint + getTactic(emotion) reframe/trấn an trước. Giữ FACT-LOCK (giá/chính
-    // sách — isIntentGuideId=false) LUÔN fire. Bảo thủ: chỉ skip khi CHƯA có commit signal
-    // (tên+SĐT / preferredTime) → đang chốt thì giữ template/flow cũ, không phá.
-    const noCommitSignal =
-      !(state.knownInfo.name && state.knownInfo.phone) &&
-      state.knownInfo.preferredTime === null;
-    const emotionSoftSkip =
-      decision !== null &&
-      (state.emotion === "hesitant" || state.emotion === "anxious") &&
-      noCommitSignal &&
-      isEmotionSoftSkipId(decision.id);
-    if (emotionSoftSkip && decision) {
-      console.log(`[prefix] SCRIPT skip (emotion=${state.emotion}, soft id=${decision.id}) → nhường PITCH reframe`);
-    }
-    if (decision && !emotionSoftSkip) {
-      console.log(`[prefix] MODE=SCRIPT id=${decision.id}`);
-      const lines: string[] = [
-        `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
-        `[TACTIC: ƯU TIÊN ANSWER_LOCK ở dưới — viết theo template, KHÔNG pitch/list/nhảy chủ đề khác.]`,
-        `[RULES: Văn nói NGẮN GỌN, text thuần KHÔNG markdown/link. Tối đa 1 câu hỏi, kết "?"/"ạ?". CẤM khen đáp án khách, "tuyệt vời/chắc chắn rồi", "nha?".]`,
-        buildKnownSummary(state.knownInfo, state.flow),
-        formatDecision(decision),
-        servicesContextHint,
-        multiIntentHint,
-        terseHint,
-      ];
-      return {
-        prefix: lines.filter(Boolean).join("\n"),
-        mode: "SCRIPT",
-        templateId: decision.id,
-      };
-    }
-  }
+  // MODE = SCRIPT (template engine) đã GỠ (refactor 2026-06-15) — chỉ giai-co dùng hàm này,
+  // và template engine vốn chỉ phục vụ fitness. Fitness nay đi qua buildFitnessLeanPrefix.
 
   let tactic = getTactic(state.flow, state.stage, state.emotion);
   // Cờ: TACTIC override theo cảm xúc (hesitant/anxious) đã ôm trọn nội dung SALE-SENSE
@@ -2528,4 +2495,217 @@ export function buildPrefixWithMeta(
     mode: "PITCH",
     templateId: null,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEAN BRIEF (fitness) — REFACTOR 2026-06-15
+// ───────────────────────────────────────────────────────────────────────────
+// Bỏ toàn bộ máy SCRIPT/GATE/PITCH nhồi lời thoại mẫu ("đo InBody… sáng hay
+// chiều"). Thay bằng 1 "bản tin tình huống" gọn: nói cho model BIẾT đang ở đâu
+// trong funnel + cần KHAI THÁC gì tiếp — KHÔNG đưa câu mẫu để chép.
+// Văn phong + funnel chi tiết đã nằm ở system prompt (agents/fitness.ts).
+//
+// NGUYÊN TẮC:
+//   • "Rule" = stage focus của funnel (deterministic, từ FSM). LLM tự viết lời.
+//   • Mọi quyết-định-hiểu-ý đọc classifier (intentSignal.domain) — KHÔNG regex.
+//   • Discovery + body-goal: CẤM mời InBody/đặt lịch/báo giá → ép khai thác nỗi đau.
+//   • Fact an toàn (giá thật, lịch, địa chỉ) vẫn bơm để model khỏi bịa.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const BODY_GOAL_SET = new Set(["giam-mo", "tang-can", "giu-dang"]);
+
+function goalLabelVi(goal: string | null): string {
+  switch (goal) {
+    case "giam-mo": return "giảm cân/giảm mỡ";
+    case "tang-can": return "tăng cân";
+    case "tang-co": return "tăng cơ";
+    case "giu-dang": return "giữ dáng/săn chắc";
+    case "thu-gian": return "thư giãn/giảm stress";
+    case "hoc-boi": return "học bơi";
+    default: return "tập luyện";
+  }
+}
+
+/**
+ * VIỆC CẦN LÀM theo bước funnel hiện tại (state.stage do FSM tính).
+ * Đây là "luật" mềm: hướng model làm đúng nhịp, KHÔNG ép lời.
+ */
+function buildFitnessStageFocus(state: ConversationState): string {
+  const { stage, knownInfo: ki } = state;
+  const goal = ki.fitnessGoal;
+  const svc = ki.serviceType;
+
+  if (stage === "opening") {
+    return "[VIỆC CẦN LÀM — MỞ ĐẦU] Chào ấm 1 câu rồi hỏi khách quan tâm bộ môn nào / mục tiêu gì. Mỗi tin 1 ý, chưa pitch gì vội.";
+  }
+
+  if (stage === "discovery") {
+    // CRUX FIX: body-goal → khai thác nỗi đau, CẤM chốt sớm.
+    if (goal && BODY_GOAL_SET.has(goal)) {
+      const dir = goal === "tang-can" ? "tăng" : goal === "giu-dang" ? "muốn săn chắc/gọn" : "giảm";
+      return (
+        `[VIỆC CẦN LÀM — KHAI THÁC NỖI ĐAU] Khách muốn ${goalLabelVi(goal)}. ĐÂY LÀ BƯỚC HIỂU KHÁCH, CHƯA PHẢI BƯỚC CHỐT.\n` +
+        `Hỏi TỰ NHIÊN từng ý một (1 câu hỏi/tin) để khai thác: chiều cao–cân nặng hiện tại & số kg muốn ${dir}; ` +
+        `vùng đang tự ti; thói quen sinh hoạt liên quan; đã từng thử cách nào mà chưa hiệu quả chưa.\n` +
+        `⛔ TIN NÀY: KHÔNG mời đo InBody, KHÔNG rủ đặt lịch / hỏi "sáng hay chiều", KHÔNG báo giá, KHÔNG recommend gói. ` +
+        `Chỉ khai thác để hiểu khách — chốt là việc của các bước SAU.`
+      );
+    }
+    if (svc && !goal) {
+      return (
+        `[VIỆC CẦN LÀM — KHAI THÁC] Khách quan tâm ${svc}. Hỏi đã từng tập ${svc} chưa + mục tiêu mong muốn (1 ý/tin). ` +
+        `Chưa báo giá / chưa rủ đặt lịch ở tin này.`
+      );
+    }
+    return (
+      `[VIỆC CẦN LÀM — KHAI THÁC] Hỏi mục tiêu / bộ môn khách quan tâm để định hướng (1 ý/tin). ` +
+      `Chưa báo giá / chưa rủ đặt lịch ở tin này.`
+    );
+  }
+
+  if (stage === "inbody") {
+    return (
+      `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã hiểu khách đủ → GIỜ mới giới thiệu đo InBody MIỄN PHÍ như bước tự nhiên ` +
+      `để cá nhân hóa lộ trình (bóc tách mỡ/cơ, không làm mù quáng). Mời nhẹ ghé trải nghiệm, tối đa 1 câu hỏi. KHÔNG ép, chưa cần báo giá.`
+    );
+  }
+
+  if (stage === "evaluation" || stage === "negotiation") {
+    return (
+      `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
+      `Mời thử 1 buổi / đo InBody miễn phí, nhấn nhẹ ưu đãi/khan hiếm để khách quyết. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
+    );
+  }
+
+  if (stage === "commitment") {
+    if (ki.name && ki.phone && ki.preferredTime) {
+      return `[VIỆC CẦN LÀM — CHỐT XONG] Đã đủ tên+SĐT+giờ → xác nhận giữ slot 1 câu NGẮN rồi DỪNG. KHÔNG hỏi lại thông tin đã có.`;
+    }
+    return `[VIỆC CẦN LÀM — CHỐT HẸN] Khách sẵn sàng → xin thông tin còn thiếu gọn gàng (tên/SĐT/buổi tiện). Tách ngày khỏi tên+SĐT, KHÔNG dồn dập.`;
+  }
+
+  if (stage === "retention") {
+    return `[VIỆC CẦN LÀM — SAU CHỐT] Đơn đã đặt → chăm khách như khách quen, answer-first mọi câu hỏi. KHÔNG xin lại thông tin đã có, KHÔNG pitch lại gói vừa chốt.`;
+  }
+  if (stage === "recovery" || stage === "objection") {
+    return `[VIỆC CẦN LÀM — GỠ BĂN KHOĂN] Khách đang chững/lưỡng lự → gãi đúng điều khách lăn tăn, lùi nhẹ. KHÔNG ép xin info/đặt lịch ở tin này.`;
+  }
+  return "";
+}
+
+/**
+ * ANSWER-FIRST theo intent của khách (đọc classifier domain — KHÔNG regex).
+ * Khách hỏi thẳng cái gì thì trả thẳng cái đó trước, rồi mới dẫn funnel.
+ */
+function buildFitnessAnswerFirst(state: ConversationState): string {
+  const sig = state.intentSignal;
+  const domain = sig?.domain ?? null;
+  const attr = sig?.attribute ? ` (${sig.attribute})` : "";
+  switch (domain) {
+    case "pricing":
+      return `[KHÁCH ĐANG HỎI GIÁ: trả thẳng vào giá theo bảng PRICING dưới — gói phù hợp NHẤT trước (1 anchor + giá) rồi mới hé gói nhẹ hơn. KHÔNG hỏi lại "muốn tập gì", KHÔNG né sang InBody.]`;
+    case "scheduling":
+      return `[KHÁCH HỎI LỊCH/GIỜ: trả lịch sơ bộ (Yoga/Zumba 4 ca/ngày sáng-trưa-chiều-tối; Gym & Bơi mở 5h–20h30) — KHÔNG trả bằng bảng giá.]`;
+    case "safety_concern":
+      return `[KHÁCH LO AN TOÀN${attr}: trấn an cụ thể + lưu ý an toàn (có HLV kèm chỉnh động tác/điều chỉnh theo sức; bệnh nền thì khuyên giấy khám/hỏi HLV trước). KHÔNG ép gói.]`;
+    case "objection":
+      return `[KHÁCH PHÂN VÂN/CHÊ GIÁ: ghi nhận ngắn → reframe bằng GIÁ TRỊ (cơ sở 700m2 + bể 4 mùa duy nhất + GV Ấn Độ + hội viên gắn bó) + mời thử 1 buổi. KHÔNG hạ giá, KHÔNG chia nhỏ giá/ví dụ ly cà phê.]`;
+    case "service_inquiry":
+      return `[KHÁCH HỎI VỀ DỊCH VỤ/CƠ SỞ${attr}: trả THẲNG đúng câu hỏi (địa chỉ, giờ mở, cơ sở vật chất, có/không bộ môn, bảo lưu/đổi gói…) rồi mới dẫn tiếp. ĐỪNG pivot sang "quan tâm bộ môn nào" khi khách chưa hỏi.]`;
+    case "media_request":
+      return `[KHÁCH XIN XEM ẢNH: gọi tool get-media rồi 1 câu dẫn ngắn.]`;
+    case "commitment":
+      return `[KHÁCH MUỐN ĐĂNG KÝ/CHỐT: xin thông tin còn thiếu gọn gàng, KHÔNG pitch lại gói nữa.]`;
+    default:
+      return "";
+  }
+}
+
+/** Nhắc tin trước để khỏi lặp — KHÔNG regex, chỉ cắt chuỗi. */
+function buildAntiRepeatHint(prevBotReply?: string): string {
+  if (!prevBotReply) return "";
+  const trim = prevBotReply.slice(0, 90).split("\n").join(" ");
+  return `[TIN TRƯỚC EM ĐÃ NHẮN: "${trim}…" — đừng lặp lại ý này; khách trả lời rồi thì ack 1 câu rồi đi bước tiếp.]`;
+}
+
+/**
+ * Bản tin tình huống GỌN cho fitness. Thay buildPrefixLegacy ở flow fitness.
+ */
+function buildFitnessLeanPrefix(
+  state: ConversationState,
+  message?: string,
+  prevBotReply?: string,
+): PrefixResult {
+  const h = resolveHonorific(state.honorific);
+  const ki = state.knownInfo;
+  const domain = state.intentSignal?.domain ?? null;
+
+  // ── Re-greeting giữa chừng (classifier domain="greeting") → "Dạ em đây ạ", KHÔNG pitch lại.
+  if (
+    domain === "greeting" &&
+    state.turnCount > 1 &&
+    state.stage !== "opening" &&
+    state.stage !== "retention" &&
+    state.stage !== "commitment" &&
+    !(ki.name && ki.phone)
+  ) {
+    const hg = h === "anh/chị" ? "" : h;
+    const example = hg ? `"Dạ em đây ${hg} ạ" / "Dạ ${hg} ơi"` : `"Dạ em đây ạ" / "Dạ em nghe ạ"`;
+    return {
+      prefix:
+        `[GATE re-greeting: KH chỉ chào trống, CHƯA hỏi gì. Trả ĐÚNG 1 câu CỰC NGẮN (≤6 chữ): ${example}. ` +
+        `❌ KHÔNG hỏi thêm, KHÔNG pitch gói/giá/InBody, KHÔNG nhắc nội dung cũ, KHÔNG xin tên/SĐT.]`,
+      mode: "GATE",
+      templateId: null,
+    };
+  }
+
+  // Pricing facts: chỉ bơm khi khách hỏi giá / chê giá → tránh nhồi bảng giá lúc đang khai thác.
+  const pricingBlock =
+    domain === "pricing" || domain === "objection" ? buildFitnessPricing(ki) : "";
+
+  // Media: helper đã tự chặn ở opening/discovery/commitment; chỉ gợi khi đúng moment + khách không nhắn cụt.
+  const customerAskingMedia =
+    domain === "media_request" || (message ? detectMediaRequest(message) : false);
+  const mediaHint =
+    isTerseMessage(message) && !customerAskingMedia ? "" : buildMediaHint(state);
+
+  const lines: string[] = [
+    `[HON: ${h}] [BƯỚC FUNNEL: ${state.stage}] [CẢM XÚC KHÁCH: ${state.emotion}]`,
+    buildKnownSummary(ki, state.flow),
+    buildFitnessStageFocus(state),
+    buildFitnessAnswerFirst(state),
+    pricingBlock,
+    buildAntiRepeatHint(prevBotReply),
+    mediaHint,
+    buildServicesContextHint(state),
+    buildMultiIntentHint(state),
+    buildTerseHint(state, message),
+    `[CÁCH VIẾT: đọc các gợi ý trên rồi TỰ nhắn như một sale Việt thật đang chat Zalo — KHÔNG chép lại câu mẫu. ` +
+      `Văn nói, ngắn gọn (mặc định 1-2 câu), tối đa 1 câu hỏi/tin, kết "ạ?". Đừng máy móc, đừng dồn nhiều ý vào 1 tin.]`,
+  ];
+
+  // mode: GATE khi đang khóa theo intent cụ thể (giá/chốt) — chỉ để telemetry, không đổi hành vi.
+  const mode: PrefixResult["mode"] =
+    domain === "pricing" || domain === "commitment" ? "GATE" : "PITCH";
+
+  return {
+    prefix: lines.filter(Boolean).join("\n"),
+    mode,
+    templateId: null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// DISPATCHER — fitness → lean brief, giai-co → legacy (zero-regression).
+// ─────────────────────────────────────────────────────────────
+export function buildPrefixWithMeta(
+  state: ConversationState,
+  message?: string,
+  prevBotReply?: string,
+): PrefixResult {
+  if (state.flow === "fitness") {
+    return buildFitnessLeanPrefix(state, message, prevBotReply);
+  }
+  return buildPrefixLegacy(state, message, prevBotReply);
 }
