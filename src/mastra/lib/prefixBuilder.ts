@@ -2430,6 +2430,18 @@ function buildFitnessAnswerFirst(state: ConversationState): string {
   const sig = state.intentSignal;
   const domain = sig?.domain ?? null;
   const attr = sig?.attribute ? ` (${sig.attribute})` : "";
+  // HỌC SINH / SINH VIÊN: hệ thống CÓ bảng giá HS/SV thật (Full 1m=700k|3m=2tr|6m=3tr|12m=4tr,
+  // bơm qua PRICING khi memberType="hoc-sinh"). → BÁO ĐÚNG giá đó (theo lựa chọn user 2026-06-16),
+  // KHÔNG né sang "xin SĐT". Doanh nghiệp thì KHÔNG có bảng → mới xin SĐT cho sale.
+  if (
+    state.intentTopic === "ask_student_pricing" ||
+    sig?.attribute === "ask_price_student"
+  ) {
+    return `[KHÁCH HỎI GIÁ HỌC SINH/SINH VIÊN: bên em CÓ gói Full HS/SV riêng — báo THẲNG theo bảng PRICING (anchor 1 gói hợp nhất + giá, rồi hé gói rẻ hơn). KHÔNG né "xin SĐT để sale báo", KHÔNG bịa số ngoài bảng.]`;
+  }
+  if (state.intentTopic === "ask_corporate" || sig?.attribute === "corporate") {
+    return `[KHÁCH HỎI GÓI DOANH NGHIỆP/CÔNG TY: hệ thống KHÔNG có bảng giá công ty cố định → nói "bên em có ưu đãi riêng cho nhóm/công ty ạ" rồi xin SĐT để sale báo mức chính xác. KHÔNG bịa số.]`;
+  }
   switch (domain) {
     case "pricing":
       return `[KHÁCH ĐANG HỎI GIÁ: trả thẳng vào giá theo bảng PRICING dưới — gói phù hợp NHẤT trước (1 anchor + giá) rồi mới hé gói nhẹ hơn. KHÔNG hỏi lại "muốn tập gì", KHÔNG né sang InBody.]`;
