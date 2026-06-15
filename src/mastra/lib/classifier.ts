@@ -119,6 +119,8 @@ const classifierSchema = z.object({
     "neutral", "excited", "anxious", "frustrated", "hesitant", "trusting",
   ]),
   intent: z.enum(["explore", "compare", "selecting", "ready"]),
+  // Xưng hô KH tự nhận: "anh"/"a" → anh, "chị"/"c" → chị. Không rõ → null (giữ cũ).
+  honorific: z.enum(["anh", "chị"]).nullable().optional(),
   intentSignal: z
     .object({
       domain: z.enum([
@@ -368,6 +370,7 @@ Trả JSON thuần:
   ${flowInstruction}
   "emotion": "neutral"|"excited"|"anxious"|"frustrated"|"hesitant"|"trusting",
   "intent": "explore"|"compare"|"selecting"|"ready",
+  "honorific": "anh"|"chị"|null,
   "intentSignal": {
     "domain": "<1 trong 11 domain bên dưới>",
     "service": "gym"|"yoga"|"zumba"|"boi"|"pilates"|"full"|null,
@@ -383,6 +386,12 @@ EMOTION: suy luận từ cách viết, dấu câu, từ ngữ. Mặc định "ne
   - hesitant: phân vân/chưa quyết, "để nghĩ thêm", "chưa chắc", "hơi lăn tăn", "không biết có hợp không", "tham khảo đã", "từ từ".
   - anxious: lo lắng về bản thân, "sợ tập sai", "sợ đau", "không theo kịp", "mới tập có sao không", "có nguy hiểm không", "lớn tuổi tập được không".
   - frustrated: khó chịu/bực, gắt, đòi hỏi lặp, "sao lâu thế", "nãy giờ hỏi mãi", "trả lời thẳng đi", "lại nữa à".
+
+HONORIFIC (xưng hô KH TỰ NHẬN trong tin — để bot gọi khách đúng "anh"/"chị"):
+  - KH tự xưng nam → "anh". Tín hiệu: tự gọi mình "anh" hoặc viết tắt "a" ("a muốn giảm cân", "cho a hỏi", "a đăng ký gym"), hoặc tên nam rõ ("anh Hùng").
+  - KH tự xưng nữ → "chị". Tín hiệu: "chị"/"c" ("c muốn tập", "cho chị xem"), bối cảnh nữ rõ ("mới sinh muốn lấy dáng", "đang bầu").
+  - KHÔNG rõ giới → null (giữ xưng hô cũ). Đừng đoán bừa.
+  - ⚠ Phân biệt: "a"/"c" đứng đầu câu nói về CHÍNH khách = xưng hô. Còn "em" KH dùng để tự gọi mình thì vẫn để null (bot luôn gọi khách bằng anh/chị, không gọi "em").
 
 FLOW DISAMBIGUATION:
   - "sauna/xông hơi/spa/jacuzzi" khi hỏi về amenity của trung tâm → flow=fitness (KHÔNG phải giai-co).
@@ -747,6 +756,11 @@ function mapToClassification(
     ? parsed.intent
     : "explore";
 
+  const honorific: "anh" | "chị" | null =
+    parsed.honorific === "anh" || parsed.honorific === "chị"
+      ? parsed.honorific
+      : null;
+
   // Parse intentSignal (3-axis output) + validate. Domain bắt buộc; service/attribute optional.
   const parseSignal = (raw: any): IntentSignal | null => {
     if (!raw || !isValidDomain(raw.domain)) return null;
@@ -824,6 +838,7 @@ function mapToClassification(
     llmStage: "discovery",
     emotion,
     intent,
+    honorific,
     intentTopic,
     intentSignal,
     secondaryIntents,
@@ -842,6 +857,7 @@ function getDefaultClassification(
     llmStage: previousStage,
     emotion: "neutral",
     intent: "explore",
+    honorific: null,
     intentTopic: null,
     intentSignal: null,
     secondaryIntents: [],

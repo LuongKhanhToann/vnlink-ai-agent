@@ -419,11 +419,9 @@ export function cleanReply(
     }
   }
 
-  // 7. Dấu "?" — NỚI (Nhánh D 2026-06-08): trước đây strip TOÀN BỘ "?" → mọi câu hỏi đọc thành
-  //    "...ạ" mất ngữ điệu hỏi (góp phần bot "cứng"). Giờ GIỮ ĐÚNG 1 dấu "?" ở câu hỏi CUỐI để tự
-  //    nhiên hơn; strip mọi "?" nội bộ còn lại. An toàn với grader (chỉ phạt khi >1 "?"). "?" trong
-  //    URL (?id=) vẫn giữ qua (?!\w). Restore dấu "?" cuối ở bước 8d-bis (sau khi chuẩn hoá particle).
-  const endedWithQuestion = /\?\s*$/.test(r.trim());
+  // 7. Dấu "?" — BỎ HẾT (yêu cầu 2026-06-15): style Zalo sale Việt kết câu hỏi bằng "ạ" mềm,
+  //    KHÔNG dùng "?" ("...mình tiện sáng hay chiều ạ"). Strip mọi "?" (giữ "?" trong URL ?id= qua (?!\w)).
+  //    KHÔNG khôi phục "?" ở cuối nữa (bước 8d-bis cũ đã gỡ).
   r = r.replace(/\?(?!\w)/g, "");
 
   // 8. Whitespace cleanup — bảo toàn \n để render list xuống dòng
@@ -484,19 +482,15 @@ export function cleanReply(
     }
   }
 
-  // 8d-bis. NỚI (Nhánh D): khôi phục 1 dấu "?" cuối nếu reply gốc là câu hỏi (xem bước 7).
-  //         Chạy SAU 8c/8d (đã chuẩn hoá "ạ"/"nha") → cho ra dạng tự nhiên "...ạ?". Chỉ thêm khi
-  //         hiện chưa kết bằng "?" (tránh "??"). KHÔNG thêm nếu câu cuối kết bằng số/giá.
-  if (endedWithQuestion && !/\?\s*$/.test(r.trim()) && !/[\d%]\s*$/.test(r.trim())) {
-    r = r.replace(/\s*$/, "?");
-  }
+  // (8d-bis cũ — khôi phục "?" cuối — ĐÃ GỠ theo yêu cầu bỏ hết dấu "?".)
 
-  // 8e. Strip duplicate honorific kế cận trong cùng 1 câu.
+  // 8e. Strip duplicate honorific kế cận TRONG CÙNG 1 CÂU (cách nhau dấu phẩy/space).
   //     Vd: "Dạ anh/chị, anh/chị thấy hướng..." → "Dạ anh/chị, thấy hướng..."
-  //     "anh/chị, anh/chị" / "chị, chị" / "anh, anh" — pattern: <h>[,.]?\s+<h>\s+ trong cùng câu.
-  //     Bot hay sinh ra do template `Dạ ${h}, ${h} thấy...` — đọc lặp lại ngỡ ngẩn.
+  //     ⚠️ KHÔNG bắc qua DẤU CHẤM: "...rồi anh. Anh đang muốn..." — "Anh" thứ 2 là CHỦ NGỮ
+  //     của câu mới, KHÔNG phải lặp vocative. Trước đây separator gồm "." → nuốt chủ ngữ →
+  //     câu hỏi "trống không" ("Đang muốn giảm mấy ký ạ"). Nay chỉ cho phẩy/space, BỎ ".".
   r = r.replace(
-    /\b(anh\/chị|anh|chị)([,.]?\s+)\1\s+/gi,
+    /\b(anh\/chị|anh|chị)(,?\s+)\1\s+/gi,
     (_m, h, sep) => `${h}${sep}`,
   );
 

@@ -13,7 +13,9 @@ export const mastra = new Mastra({
   storage,
   logger: new ConsoleLogger({ name: "Vinalink", level: "info" }),
   server: {
-    port: 4111,
+    // Railway/hosting cấp PORT động qua env — PHẢI nghe đúng port đó, nếu không edge trả 404/502.
+    // Fallback 4112 cho chạy local.
+    port: Number(process.env.PORT) || 4112,
     middleware: [
       async (c, next) => {
         const url = new URL(c.req.url);

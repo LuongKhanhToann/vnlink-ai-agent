@@ -880,16 +880,24 @@ export function computeNextStage(
       // Khách chủ động commit (selecting/ready), đã có giờ, hoặc đã có tên+SĐT → bỏ qua, không nài.
       const BODY_GOALS = ["giam-mo", "tang-can", "giu-dang"];
       const isBodyGoal = info.fitnessGoal !== null && BODY_GOALS.includes(info.fitnessGoal);
+      // KHAI THÁC NỖI ĐAU phải ĐỦ SÂU — không nhảy InBody sau 1 câu trả lời.
+      // Sale TL Fami đào ÍT NHẤT 2 lớp: (1) chỉ số cơ thể (cao/nặng/số kg) VÀ
+      // (2) thói quen/lịch sử đã thử. Chỉ có mỗi bodyStats = mới hỏi 1 câu → CHƯA đủ,
+      // ở lại discovery hỏi tiếp. painProbed cũ (chỉ cần 1 tín hiệu) chính là chỗ gây
+      // "đo InBody + sáng hay chiều" ngay turn 2. Anti-stuck: sau 4 lượt trong flow thì thả.
+      const painExploredDeep =
+        info.bodyStats !== null &&
+        (info.pastMethod !== null || turnCount >= 4);
       if (
         flow === "fitness" &&
         isBodyGoal &&
-        !painProbed &&
+        !painExploredDeep &&
         intent !== "selecting" &&
         intent !== "ready" &&
         info.preferredTime === null &&
         !(info.name !== null && info.phone !== null)
       ) {
-        console.log(`[stateMachine] funnel: body-goal=${info.fitnessGoal} chưa probe nỗi đau → stay discovery`);
+        console.log(`[stateMachine] funnel: body-goal=${info.fitnessGoal} khai thác chưa đủ sâu (bodyStats=${info.bodyStats !== null} pastMethod=${info.pastMethod !== null} turn=${turnCount}) → stay discovery`);
         return "discovery";
       }
       // Fitness: mandatory Inbody funnel trước khi show gói
@@ -988,6 +996,8 @@ export interface LLMClassification {
   emotion: Emotion;
   intent: Intent;
   intentTopic: IntentTopic | null;
+  /** Xưng hô KH tự nhận (anh/chị) — LLM classifier hiểu "a"/"c"/ngữ cảnh. null = chưa rõ. */
+  honorific?: "anh" | "chị" | null;
   /** Phase 1: classifier output 3-trục. Optional để backward compat. */
   intentSignal?: import("./intent").IntentSignal | null;
   /** Multi-intent: secondary intents (max 2). Empty hoặc undefined = single-intent. */
@@ -1006,7 +1016,12 @@ export function buildNextState(
   message: string,
   llm: LLMClassification
 ): ConversationState {
-  const honorific = detectHonorific(message, previous.honorific);
+  // Xưng hô: lấy từ classifier (LLM hiểu "a"→anh, "c"→chị, ngữ cảnh) — KHÔNG regex.
+  // Sticky: classifier cho giá trị mới thì cập nhật, không thì giữ previous.
+  const honorific: "anh" | "chị" | "anh/chị" =
+    llm.honorific === "anh" || llm.honorific === "chị"
+      ? llm.honorific
+      : previous.honorific;
 
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   let flow = keywordFlow ?? llm.flow ?? previous.flow;

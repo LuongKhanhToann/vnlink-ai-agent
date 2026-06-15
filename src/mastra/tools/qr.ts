@@ -12,7 +12,7 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
-const BASE_URL: string = process.env["BASE_URL"] ?? "http://localhost:4111";
+const BASE_URL: string = process.env["BASE_URL"] ?? "http://localhost:4112";
 
 const QR_URLS: Record<"fitness" | "muscle-release", string> = {
   "fitness":        `${BASE_URL}/public/qr/fitness-qr.png`,

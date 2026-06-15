@@ -194,15 +194,66 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
 
     scheduleFollowup(
       senderId,
-      state,
       {
         sendText: (text) => sendText(senderId, text),
         sendMedia: (url) => sendMedia(senderId, url),
+        generate: (attempt) => generateFollowupReply(senderId, attempt),
       },
       mediaUrls,
     );
   } catch (e) {
     console.error("[followup] scheduleFollowupWithMedia failed:", e);
+  }
+}
+
+/**
+ * Sinh tin follow-up bằng LLM (KHÔNG template/regex): nạp state hiện tại, dựng prefix
+ * theo đúng bước funnel + 1 chỉ thị "khách im, chủ động nhắc + tiến bước", rồi chạy chính
+ * agent (có memory thread) → cleanReply. Trả null nếu đã chốt / LLM fail → followup bỏ qua lần đó.
+ */
+async function generateFollowupReply(senderId: string, attempt: number): Promise<string | null> {
+  try {
+    const { mastra } = await import("../index");
+    const { loadState } = await import("../lib/stateStore");
+    const { buildPrefixWithMeta } = await import("../lib/prefixBuilder");
+    const { cleanReply } = await import("../lib/cleanReply");
+    const { fitnessAgent } = await import("../agents/fitness");
+    const { giaiCoAgent } = await import("../agents/giaiCo");
+
+    const state = await loadState(mastra, senderId, senderId);
+
+    // Đã chốt (tên+SĐT+giờ) → không nhắc nữa.
+    if (state.knownInfo.name && state.knownInfo.phone && state.knownInfo.preferredTime) return null;
+
+    const agent = state.flow === "giai-co" ? giaiCoAgent : fitnessAgent;
+    const { prefix } = buildPrefixWithMeta(state, "", state.lastBotReply);
+
+    const nudgeTone =
+      attempt === 0
+        ? "nhắc nhẹ, hỏi tiếp đúng bước đang dở"
+        : "nhắc thêm 1 lần, gợi 1 lý do/giá trị để khách quay lại, vẫn nhẹ nhàng";
+    const followupInstruction =
+      `[FOLLOW-UP — khách CHƯA trả lời tin trước của em (im 1 lúc). CHỦ ĐỘNG nhắn 1 tin NGẮN kéo khách tiếp tục: ${nudgeTone}. ` +
+      `KHÔNG lặp y nguyên tin trước, KHÔNG xin lỗi vì nhắn lại, KHÔNG spam, KHÔNG gọi tool gửi ảnh/QR. ` +
+      `1 ack/đỡ lời nhẹ + tiến đúng bước funnel hiện tại (hoặc 1 câu hỏi), kết "ạ".]`;
+
+    const res: any = await agent.generate(`${followupInstruction}\n${prefix}`, {
+      maxSteps: 1,
+      modelSettings: { temperature: 0.7, topP: 0.95 },
+      memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
+    });
+
+    const cleaned = cleanReply(
+      res?.text ?? "",
+      false,
+      state.lastBotReply ?? "",
+      "",
+      state.recentBotReplies ?? [],
+    );
+    return cleaned && cleaned.trim().length >= 5 ? cleaned : null;
+  } catch (e) {
+    console.error("[followup] generateFollowupReply failed:", e);
+    return null;
   }
 }
 

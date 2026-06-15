@@ -2340,36 +2340,31 @@ function buildFitnessStageFocus(state: ConversationState): string {
     if (goal && BODY_GOAL_SET.has(goal)) {
       const dir = goal === "tang-can" ? "tăng" : goal === "giu-dang" ? "muốn săn chắc/gọn" : "giảm";
       return (
-        `[VIỆC CẦN LÀM — KHAI THÁC NỖI ĐAU] Khách muốn ${goalLabelVi(goal)}. ĐÂY LÀ BƯỚC HIỂU KHÁCH, CHƯA PHẢI BƯỚC CHỐT.\n` +
-        `Hỏi TỰ NHIÊN từng ý một (1 câu hỏi/tin) để khai thác: chiều cao–cân nặng hiện tại & số kg muốn ${dir}; ` +
-        `vùng đang tự ti; thói quen sinh hoạt liên quan; đã từng thử cách nào mà chưa hiệu quả chưa.\n` +
-        `⛔ TIN NÀY: KHÔNG mời đo InBody, KHÔNG rủ đặt lịch / hỏi "sáng hay chiều", KHÔNG báo giá, KHÔNG recommend gói. ` +
-        `Chỉ khai thác để hiểu khách — chốt là việc của các bước SAU.`
+        `[BƯỚC: KHAI THÁC] Khách muốn ${goalLabelVi(goal)}. Đang HIỂU khách, chưa chốt. ` +
+        `Hỏi gọn từng ý (1 câu/tin), khai thác dần: cao–nặng & số kg muốn ${dir}; vùng tự ti; thói quen sinh hoạt; đã thử cách nào chưa hiệu quả. ` +
+        `⛔ KHÔNG InBody, KHÔNG đặt lịch/"sáng hay chiều", KHÔNG báo giá, KHÔNG recommend gói.`
       );
     }
     if (svc && !goal) {
-      return (
-        `[VIỆC CẦN LÀM — KHAI THÁC] Khách quan tâm ${svc}. Hỏi đã từng tập ${svc} chưa + mục tiêu mong muốn (1 ý/tin). ` +
-        `Chưa báo giá / chưa rủ đặt lịch ở tin này.`
-      );
+      return `[BƯỚC: KHAI THÁC] Khách quan tâm ${svc}. Hỏi đã tập ${svc} chưa + mục tiêu (1 ý/tin). Chưa báo giá/đặt lịch.`;
     }
-    return (
-      `[VIỆC CẦN LÀM — KHAI THÁC] Hỏi mục tiêu / bộ môn khách quan tâm để định hướng (1 ý/tin). ` +
-      `Chưa báo giá / chưa rủ đặt lịch ở tin này.`
-    );
+    return `[BƯỚC: KHAI THÁC] Hỏi mục tiêu / bộ môn khách quan tâm (1 ý/tin). Chưa báo giá/đặt lịch.`;
   }
 
   if (stage === "inbody") {
     return (
-      `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã hiểu khách đủ → GIỜ mới giới thiệu đo InBody MIỄN PHÍ như bước tự nhiên ` +
-      `để cá nhân hóa lộ trình (bóc tách mỡ/cơ, không làm mù quáng). Mời nhẹ ghé trải nghiệm, tối đa 1 câu hỏi. KHÔNG ép, chưa cần báo giá.`
+      `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã khai thác đủ → GIỜ giới thiệu đo InBody MIỄN PHÍ như GIÁ TRỊ tự nhiên ` +
+      `(máy bóc tách mỡ/cơ thật, HLV lên lộ trình chuẩn thay vì tập mù). Nói value 1-2 câu rồi hỏi 1 câu MỞ bám mục tiêu/động lực của khách. ` +
+      `⛔ KHÔNG hỏi "sáng hay chiều", KHÔNG rủ đặt lịch / chọn buổi, CHƯA báo giá — đặt lịch là việc của bước CHỐT khi khách đã muốn đến.`
     );
   }
 
   if (stage === "evaluation" || stage === "negotiation") {
     return (
-      `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
-      `Mời thử 1 buổi / đo InBody miễn phí, nhấn nhẹ ưu đãi/khan hiếm để khách quyết. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
+      `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] CHỦ ĐỘNG dẫn dắt, đừng trả lời xong để lửng. Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
+      `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. Gợi đo InBody / thử 1 buổi như bước trải nghiệm value. ` +
+      `Khi mời chốt buổi: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi mới hỏi giờ — ĐỪNG hỏi trống "tiện qua hôm nào". ` +
+      `⛔ CHỈ chốt buổi khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
     );
   }
 
@@ -2377,7 +2372,10 @@ function buildFitnessStageFocus(state: ConversationState): string {
     if (ki.name && ki.phone && ki.preferredTime) {
       return `[VIỆC CẦN LÀM — CHỐT XONG] Đã đủ tên+SĐT+giờ → xác nhận giữ slot 1 câu NGẮN rồi DỪNG. KHÔNG hỏi lại thông tin đã có.`;
     }
-    return `[VIỆC CẦN LÀM — CHỐT HẸN] Khách sẵn sàng → xin thông tin còn thiếu gọn gàng (tên/SĐT/buổi tiện). Tách ngày khỏi tên+SĐT, KHÔNG dồn dập.`;
+    return (
+      `[VIỆC CẦN LÀM — CHỐT HẸN] Khách sẵn sàng → CHỦ ĐỘNG dẫn: nêu 1 lý do giá trị ngắn cho việc ghé (em giữ slot / HLV chuẩn bị lộ trình & InBody) rồi mới xin thông tin còn thiếu (tên/SĐT/buổi tiện). ` +
+      `ĐỪNG hỏi trống "tiện hôm nào". Tách ngày khỏi tên+SĐT, KHÔNG dồn dập.`
+    );
   }
 
   if (stage === "retention") {
@@ -2466,8 +2464,15 @@ function buildFitnessLeanPrefix(
   const mediaHint =
     isTerseMessage(message) && !customerAskingMedia ? "" : buildMediaHint(state);
 
+  // Giới tính SUY TỪ xưng hô đã biết (anh=nam, chị=nữ) — surface để model KHỎI hỏi lại "nam hay nữ".
+  const genderKnown =
+    state.honorific === "anh" ? "nam" : state.honorific === "chị" ? "nữ" : null;
+
   const lines: string[] = [
     `[HON: ${h}] [BƯỚC FUNNEL: ${state.stage}] [CẢM XÚC KHÁCH: ${state.emotion}]`,
+    genderKnown
+      ? `[ĐÃ BIẾT: khách là ${genderKnown} (xưng ${h}) → TUYỆT ĐỐI KHÔNG hỏi lại giới tính nam/nữ.]`
+      : "",
     buildKnownSummary(ki, state.flow),
     buildFitnessStageFocus(state),
     buildFitnessAnswerFirst(state),
@@ -2477,8 +2482,8 @@ function buildFitnessLeanPrefix(
     buildServicesContextHint(state),
     buildMultiIntentHint(state),
     buildTerseHint(state, message),
-    `[CÁCH VIẾT: đọc các gợi ý trên rồi TỰ nhắn như một sale Việt thật đang chat Zalo — KHÔNG chép lại câu mẫu. ` +
-      `Văn nói, ngắn gọn (mặc định 1-2 câu), tối đa 1 câu hỏi/tin, kết "ạ?". Đừng máy móc, đừng dồn nhiều ý vào 1 tin.]`,
+    `[CÁCH VIẾT: nói như sale Việt thật chat Zalo. Mỗi tin = 1 ack ngắn (nếu cần) + đúng việc cần làm + tối đa 1 câu hỏi, kết "ạ" (KHÔNG dấu "?"). ` +
+      `Ngắn, ấm, đi thẳng vào việc — KHÔNG độn câu xã giao/quảng cáo sáo rỗng, đừng dài dòng, đừng chép câu mẫu, đừng dồn nhiều ý 1 tin.]`,
   ];
 
   // mode: GATE khi đang khóa theo intent cụ thể (giá/chốt) — chỉ để telemetry, không đổi hành vi.
