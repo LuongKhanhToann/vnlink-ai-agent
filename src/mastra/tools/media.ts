@@ -58,6 +58,30 @@ function pickRandom<T>(arr: T[], count: number = 1): T[] {
   return a.slice(0, count);
 }
 
+/**
+ * Fetch media thuần (không qua tool wrapper) — dùng chung cho:
+ *   - getMediaTool (LLM tự gọi), và
+ *   - inject deterministic ở routerWorkflow (chống flaky tool-call của gpt-5.4-mini).
+ * Trả TỐI ĐA 2 items: 1 ảnh + 1 video. Fetch trực tiếp Cloudinary mỗi lần, KHÔNG cache.
+ */
+export async function fetchMedia(key: string): Promise<MediaItem[]> {
+  const folder = KEY_TO_FOLDER[key];
+  if (!folder) {
+    console.error(`[getMedia] key không hợp lệ: ${key}`);
+    return [];
+  }
+  const [images, videos] = await Promise.all([
+    listResources(`${folder}/img`, "image"),
+    listResources(`${folder}/video`, "video"),
+  ]);
+  const data: MediaItem[] = [
+    ...pickRandom(images, 1),
+    ...pickRandom(videos, 1),
+  ];
+  console.log(`[getMedia] key=${key} → images=${images.length} videos=${videos.length} picked=${data.length}`);
+  return data;
+}
+
 export const getMediaTool = createTool({
   id: "get-media",
   description:
@@ -80,22 +104,7 @@ export const getMediaTool = createTool({
   }),
   outputSchema: z.object({ data: z.string() }),
   execute: async (input) => {
-    const folder = KEY_TO_FOLDER[input.key];
-    console.log(`[getMedia] key=${input.key} folder=${folder}`);
-
-    const [images, videos] = await Promise.all([
-      listResources(`${folder}/img`, "image"),
-      listResources(`${folder}/video`, "video"),
-    ]);
-
-    // Trả TỐI ĐA 2 items: 1 ảnh + 1 video. Trước là 3 (2 ảnh + 1 vid) → đôi khi
-    // model gọi tool 2 lần → 6 items, dedup lỏng → khách thấy 3+ video trùng.
-    const data: MediaItem[] = [
-      ...pickRandom(images, 1),
-      ...pickRandom(videos, 1),
-    ];
-
-    console.log(`[getMedia] key=${input.key} → images=${images.length} videos=${videos.length} picked=${data.length}`);
+    const data = await fetchMedia(input.key);
     return { data: JSON.stringify(data) };
   },
 });

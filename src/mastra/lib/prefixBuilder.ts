@@ -211,6 +211,16 @@ function buildSaleSenseHint(state: ConversationState, _message?: string): string
       ? knownInfo.fitnessGoal !== null || knownInfo.serviceType !== null
       : knownInfo.painArea !== null;
 
+  // Giai-co discovery CHƯA đủ pain slots (painArea+painSpread+pastMethod) → CHƯA mời trial / gợi
+  // 'sáng hay chiều' (bug L3 T4: emotion anxious → SALE-SENSE mời thử buổi giữa lúc còn đào nỗi đau).
+  // Để discovery GATE hỏi xong painSpread/pastMethod đã. Defer cho GATE.
+  if (
+    flow === "giai-co" &&
+    stage === "discovery" &&
+    !(knownInfo.painArea && knownInfo.painSpread && knownInfo.pastMethod)
+  )
+    return "";
+
   // Opening/discovery + cảm xúc trung tính + chưa có gì → còn đang thăm dò, đừng chốt sớm.
   if (
     (stage === "opening" || stage === "discovery") &&
@@ -744,6 +754,66 @@ function buildMediaHint(state: ConversationState): string {
   );
 }
 
+/**
+ * Moment bung ảnh BEFORE-AFTER (hội viên lột xác): khách có mục tiêu ĐỔI VÓC DÁNG
+ * và đang NGHI NGỜ kết quả (emotion frustrated/anxious/hesitant — đọc thẳng từ classifier,
+ * KHÔNG regex/keyword). Đây là ảnh CHỨNG MINH KẾT QUẢ, tách khỏi ngân sách ảnh giới thiệu
+ * cơ sở — phải bung được kể cả khi đã lỡ gửi ảnh phòng tập trước đó (vũ khí chốt trust).
+ */
+export function isBeforeAfterMoment(state: ConversationState): boolean {
+  if (state.flow !== "fitness") return false;
+  // Chỉ hợp SAU khi đã pitch value (inbody/evaluation/negotiation). Ở opening/discovery bot còn
+  // đang đào nỗi đau → bung ảnh chứng minh là chen ngang, sai nhịp (giống guard proactive-media).
+  const stageOk =
+    state.stage === "inbody" || state.stage === "evaluation" || state.stage === "negotiation";
+  if (!stageOk) return false;
+  const g = state.knownInfo.fitnessGoal;
+  const bodyGoal =
+    g === "giam-mo" || g === "tang-co" || g === "tang-can" || g === "giu-dang";
+  const doubtful =
+    state.emotion === "frustrated" || state.emotion === "anxious" || state.emotion === "hesitant";
+  return bodyGoal && doubtful;
+}
+
+/** Emotion nghi ngờ kết quả (đọc thẳng classifier — KHÔNG regex). */
+function isDoubtfulEmotion(state: ConversationState): boolean {
+  return (
+    state.emotion === "frustrated" ||
+    state.emotion === "anxious" ||
+    state.emotion === "hesitant"
+  );
+}
+
+/**
+ * Key media DETERMINISTIC cần bung khi khách nghi ngờ kết quả — cho CẢ 2 flow.
+ * Trả `{ key, guardKey }` hoặc null. `guardKey` dùng để chống gửi lại (lưu trong mediaShownKeys):
+ *   - fitness: ảnh before-after (key=guardKey="fitness-before-after") — ngân sách RIÊNG với ảnh cơ sở.
+ *   - giai-co: media mr-* (theo painArea). guardKey="doubt:<key>" → tách budget khỏi clip giới thiệu
+ *     đã lỡ gửi sớm, để doubt-moment vẫn bung được ĐÚNG ca before-after thuyết phục.
+ * Quyết định gửi vẫn do classifier (emotion); chỉ thao tác gửi là deterministic.
+ */
+export function computeDoubtMediaKey(
+  state: ConversationState,
+): { key: string; guardKey: string } | null {
+  if (!isDoubtfulEmotion(state)) return null;
+
+  if (state.flow === "fitness") {
+    if (!isBeforeAfterMoment(state)) return null;
+    return { key: "fitness-before-after", guardKey: "fitness-before-after" };
+  }
+
+  // giai-co: cần đã pitch value (stage evaluation HOẶC đủ 3 slot pain) + biết painArea.
+  // guardKey = key THẬT (chung ngân sách proactive): các mr-* hiện cùng 1 folder content,
+  // nên nếu đã gửi clip giới thiệu rồi thì KHÔNG bung lại — tránh khách thấy trùng video.
+  const k = state.knownInfo;
+  const allPainSlots =
+    k.painArea !== null && k.painSpread !== null && k.pastMethod !== null;
+  if (state.stage !== "evaluation" && !allPainSlots) return null;
+  const key = computeSuggestedMediaKey(state);
+  if (!key) return null;
+  return { key, guardKey: key };
+}
+
 // ─────────────────────────────────────────────
 // LOGIC GATES
 // ─────────────────────────────────────────────
@@ -776,7 +846,20 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const customerAskingMedia = state.intentTopic === "media_request";
   const mentionedKey = message ? detectMentionedServiceKey(message) : null;
   const isNewServiceKey = mentionedKey !== null && !mediaShownKeys.includes(mentionedKey);
-  if (mediaShown && !customerAskingMedia && !isNewServiceKey) {
+
+  // ── BEFORE-AFTER: ngân sách RIÊNG, không bị ảnh giới thiệu cơ sở chặn ──
+  // Khách nghi ngờ kết quả (đọc emotion từ classifier) → ảnh hội viên lột xác là chốt trust.
+  // Gate CỨNG (không phải hint mềm "tự quyết") vì đây là moment quyết định: trước đây để LLM
+  // tự quyết + lại bị khóa "đã gửi ảnh" nên before-after thành cò quay (FB lúc gửi lúc không).
+  const needBeforeAfter =
+    isBeforeAfterMoment(state) && !mediaShownKeys.includes("fitness-before-after");
+  if (needBeforeAfter) {
+    hints.push(
+      `[GATE before-after (khách đang nghi ngờ kết quả): BẮT BUỘC gọi get-media key="fitness-before-after" 1 LẦN, copy URLs vào mediaUrls, nextStep="show_media" — bung kể cả khi đã gửi ảnh phòng tập trước đó (đây là ảnh CHỨNG MINH, khác ảnh cơ sở). Kèm 1-2 câu trấn an gốc rễ: ở nhà thiếu mức tải/lộ trình nên lâu thấy đổi, qua đây có InBody + HLV chỉnh đúng điểm yếu thì lên rõ.]`,
+    );
+  }
+
+  if (mediaShown && !customerAskingMedia && !isNewServiceKey && !needBeforeAfter) {
     hints.push(
       "[GATE media-shown: ĐÃ gửi ảnh. KHÔNG gọi lại get-media. Nếu khách xin thêm → text 'em đã gửi rồi nha, mời ghé trực tiếp xem'.]",
     );
@@ -837,6 +920,29 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     hasConcreteDate(knownInfo.preferredTime)
   ) {
     return `[GATE done-slots: ĐỦ tên=${knownInfo.name}, SĐT=${knownInfo.phone}, ngày=${knownInfo.preferredTime}. Reply 1 CÂU "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG. KHÔNG pitch/QR/hỏi thêm.]`;
+  }
+
+  // ── ƯU TIÊN: bot VỪA hỏi "qua hôm nào" + khách đáp bằng CỬA SỔ MƠ HỒ → ép CHỌN-1-TRONG-2 ──
+  // Robust trước nhiễu classifier: bug L4 T10 — date "đầu tuần sau" lọt slot 'schedule' (không phải
+  // 'preferredTime') + flow lật fitness → gate discovery bắn trước, DATE-PIN dưới không tới. Ở đây
+  // đọc window THẲNG từ message (date-parse THUẦN, không phân loại intent) ngay sau câu hỏi-ngày →
+  // ưu tiên chốt NGÀY. Chỉ fire đúng nhịp này (lastBotReply vừa hỏi "hôm nào/ngày nào").
+  if (
+    !(knownInfo.name && knownInfo.phone) &&
+    !hasConcreteDate(knownInfo.preferredTime) &&
+    !((state as any).qrShown ?? false) &&
+    state.lastBotReply &&
+    /hôm nào|ngày nào/i.test(state.lastBotReply) &&
+    ((message && hasDateWindow(message)) || hasDateWindow(knownInfo.preferredTime))
+  ) {
+    const windowSrc =
+      message && hasDateWindow(message) ? message : knownInfo.preferredTime;
+    const { options } = suggestDatePair(windowSrc);
+    return (
+      `[GATE chốt-ngày (ưu tiên): khách vừa nói cửa sổ mơ hồ ('${(windowSrc || "").trim()}') ngay sau khi em hỏi ngày → ` +
+      `chốt kiểu CHỌN-1-TRONG-2: hỏi '${state.honorific} qua ${options[0]} hay ${options[1]} tiện hơn ạ'. ` +
+      `⛔ TUYỆT ĐỐI CHƯA xin tên/SĐT — phải chốt được NGÀY cụ thể trước đã. Tối đa 1 câu hỏi.]`
+    );
   }
 
   // ── Khách đổi giờ (compact) ──
@@ -1269,7 +1375,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         `[GATE: biết vùng_đau=${knownInfo.painArea} nhưng chưa biết tính chất lan tỏa. ` +
           `Cấu trúc reply 2 câu: (1) ack triệu chứng + nhắc KTV bên em xử lý — vd "Dạ ${knownInfo.painArea} đau kiểu này thường là cơ co rút ở 1 điểm, KTV bên em xử lý nhiều rồi ạ". ` +
           "(2) Hỏi 1 LẦN duy nhất: 'Cơn đau lan ra xung quanh hay chỉ đau một điểm cố định thôi ạ'. " +
-          "Sau đó dù khách answer hay không, KHÔNG lặp lại câu hỏi này ở turn sau.]",
+          "Sau đó dù khách answer hay không, KHÔNG lặp lại câu hỏi này ở turn sau. " +
+          "⛔ ĐANG THĂM DÒ — CHƯA mời chốt giờ / hỏi 'sáng hay chiều' / 'qua hôm nào' (vượt bước, khách chưa đủ tin).]",
       );
     }
   }
@@ -1304,7 +1411,8 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     } else {
       hints.push(
         `[GATE: biết vùng_đau=${knownInfo.painArea}. ` +
-          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau.]`,
+          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau. ` +
+          `⛔ ĐANG THĂM DÒ — CHƯA mời chốt giờ / hỏi 'sáng hay chiều' / 'qua hôm nào'.]`,
       );
     }
   }
@@ -1333,36 +1441,58 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   //   BƯỚC 2 — khách nói cửa sổ mơ hồ ("đầu tháng sau"/"tuần sau"/"cuối tuần") hoặc đã
   //            được hỏi mở rồi mà vẫn chung chung → MỚI ÉP CHỌN-1-TRONG-2 ngày cụ thể.
   // Stage commitment có nhánh riêng bên dưới → loại ra đây để tránh 2 GATE trùng.
+  // Bắn khi: khách gật (intent selecting/ready) HOẶC đã nói cửa sổ mơ hồ ('đầu tuần sau',
+  // 'cuối tuần'...). Bug L4 T10: classifier ra intent=explore cho 'đầu tuần sau' → gate cũ
+  // (chỉ nhận selecting/ready) bỏ qua → bot xin thẳng tên/SĐT. hasDateWindow bắt được window.
+  // Window có thể nằm ở SLOT (classifier extract) HOẶC ngay trong message khách vừa nhắn.
+  // Bug L4 T10: classifier 4o-mini lỡ KHÔNG extract "đầu tuần sau" vào slot (flaky) → slot null.
+  // Fallback đọc window từ message (date-parse THUẦN, không phải phân loại intent) khi bot vừa
+  // hỏi "qua hôm nào" → vẫn pin được ngày, không lệ thuộc extraction chập chờn.
+  const prevAskedOpenDay = state.lastBotReply
+    ? /hôm nào|ngày nào/i.test(state.lastBotReply)
+    : false;
+  const slotWindow = hasDateWindow(knownInfo.preferredTime);
+  const msgWindow = message ? hasDateWindow(message) : false;
+  const windowSrc = slotWindow
+    ? knownInfo.preferredTime
+    : msgWindow
+      ? message
+      : knownInfo.preferredTime;
   if (
     stage !== "commitment" &&
-    (intent === "selecting" || intent === "ready") &&
+    (intent === "selecting" ||
+      intent === "ready" ||
+      slotWindow ||
+      (prevAskedOpenDay && msgWindow)) &&
     !hasConcreteDate(knownInfo.preferredTime) &&
     !((state as any).qrShown ?? false)
   ) {
-    const prevAskedOpenDay = state.lastBotReply
-      ? /hôm nào|ngày nào/i.test(state.lastBotReply)
-      : false;
-    if (!hasDateWindow(knownInfo.preferredTime) && !prevAskedOpenDay) {
+    if (!slotWindow && !msgWindow && !prevAskedOpenDay) {
       hints.push(
         `[GATE hỏi-ngày: khách muốn đến nhưng CHƯA nói ngày` +
           (knownInfo.preferredTime ? ` (mới có '${knownInfo.preferredTime}')` : "") +
           `. HỎI MỞ 1 câu 'Anh/chị tiện qua hôm nào ạ' để khách tự chọn ngày. ` +
-          `CHƯA ép chọn 1-trong-2 vội. Tối đa 1 câu hỏi.]`,
+          `CHƯA ép chọn 1-trong-2 vội. ⛔ CHƯA xin tên/SĐT (phải chốt NGÀY trước). Tối đa 1 câu hỏi.]`,
       );
+      // Return sớm: chốt NGÀY là việc DUY NHẤT cần làm lúc này — đừng để hint khác làm model
+      // nhảy sang xin tên/SĐT (bug L4 T10 / L5 T14: khách nói cửa sổ mơ hồ mà bot xin luôn info).
+      return hints.join("\n");
     } else {
-      const { options } = suggestDatePair(knownInfo.preferredTime);
+      const { options } = suggestDatePair(windowSrc);
       const prevAskedDate = state.lastBotReply
         ? /tiện hơn|xếp .{0,6}vào/i.test(state.lastBotReply)
         : false;
       hints.push(
         prevAskedDate
           ? `[GATE chốt-ngày (lần 2 — khách còn lưỡng lự): ĐỪNG lặp y nguyên câu trước, NÓI CÁCH KHÁC cho tự nhiên. ` +
-              `Dùng giả định chốt ấm áp 'Vậy em xếp anh/chị vào ${options[0]} cho chắc chỗ nha, thích ${options[1]} thì nhắn em đổi'. Gọn, dễ nghe, kích chốt. Tối đa 1 ý.]`
+              `Dùng giả định chốt ấm áp 'Vậy em xếp anh/chị vào ${options[0]} cho chắc chỗ nha, thích ${options[1]} thì nhắn em đổi'. Gọn, dễ nghe, kích chốt. ⛔ CHƯA xin tên/SĐT turn này. Tối đa 1 ý.]`
           : `[GATE chốt-ngày: khách đã nói cửa sổ mơ hồ` +
               (knownInfo.preferredTime ? ` ('${knownInfo.preferredTime}')` : "") +
               ` → chốt ngày kiểu CHỌN-1-TRONG-2: hỏi 'Anh/chị qua ${options[0]} hay ${options[1]} tiện hơn ạ?'. ` +
-              `Tối đa 1 câu hỏi. (Cửa sổ gần chỉ cần nói thứ, không cần kèm ngày.)]`,
+              `⛔ TUYỆT ĐỐI CHƯA xin tên/SĐT — phải chốt được NGÀY cụ thể trước đã. Tối đa 1 câu hỏi. (Cửa sổ gần chỉ cần nói thứ, không cần kèm ngày.)]`,
       );
+      // Return sớm vì lý do như trên.
+      return hints.join("\n");
     }
   }
 
@@ -1438,7 +1568,7 @@ function buildFitnessPricing(info: KnownInfo): string {
     // Đây là THẺ FULL dùng chung cả 4 dịch vụ, KHÔNG phải gym riêng.
     lines.push("  FULL HS/SV (14-22 tuổi, 1 thẻ dùng cả Gym+Bơi+Yoga+Zumba): 1 tháng 700k · 3 tháng 2 triệu · 6 tháng 3 triệu · 12 tháng 4 triệu ← anchor chính (báo 1 gói hợp nhất trước, vd '3 tháng 2 triệu', rồi hé gói ngắn '1 tháng 700k')");
     if (!svc || svc === "gym") {
-      lines.push("  PT: 10b=3tr|20b=5tr|20b(2m)=6tr (HLV 1-1)");
+      lines.push("  PT: 10b=3tr|20b(2m)=6tr (HLV 1-1)");
     }
     return `[PRICING:\n${lines.join("\n")}\n]`;
   }
@@ -1479,10 +1609,10 @@ function buildFitnessPricing(info: KnownInfo): string {
     lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr ← anchor chính");
   }
   if (showGym) {
-    lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr");
+    lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr (Gym KHÔNG bán lẻ theo tháng — khách hỏi 'gym 1 tháng' thì hướng sang Full 1.2tr/tháng hoặc gói gym dài, ĐỪNG bịa giá tháng)");
   }
   if (showPT) {
-    lines.push("  PT: 10b=3tr|15b=4tr|20b=5tr | 20b(2m)=6tr|30b(2m)=8tr|40b(2m)=10tr | 50b(3m)=12tr");
+    lines.push("  PT: 10b=3tr|15b=4tr|20b(2m)=6tr|30b(2m)=8tr|40b(2m)=10tr | 50b(3m)=12tr");
   }
   if (showYogaZumba) {
     lines.push("  Yoga/Zumba: fulltime-12m=5.8tr | 3b/t-12m=4.5tr (GV Ấn Độ, 4 ca/ngày)");
@@ -1686,7 +1816,7 @@ SAI: list lại "Gym 5tr | Full 7tr"; lặp y câu cũ; nói chung chung "tùy g
 Khách: "nhóm có rẻ hơn không" / "tập nhóm với cá nhân khác gì"
 ĐÚNG (kèm con số, không generic):
   "Dạ có ${h} — gym tập chung ai cũng tự tập như nhau, gói 3 buổi/tuần 12 tháng 4.5tr.
-   PT 1-1 thì kèm sát hơn, 20 buổi 5tr (~250k/buổi), HLV chỉnh kỹ thuật từng động tác.
+   PT 1-1 thì kèm sát hơn, 20 buổi (2 tháng) 6tr (~300k/buổi), HLV chỉnh kỹ thuật từng động tác.
    ${h} đang muốn nhanh thấy kết quả hay tiết kiệm hơn ạ?"
 SAI: "nhóm thường rẻ hơn cá nhân ạ" (mơ hồ, không số);
      hỏi tiếp "muốn tham gia nhóm hay tập riêng" mà chưa cho khách thấy chênh lệch.`;

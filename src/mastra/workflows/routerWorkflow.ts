@@ -21,7 +21,9 @@ import {
   detectMediaRequest,
   isTerseMessage,
   isBareGreetingOrFiller,
+  computeDoubtMediaKey,
 } from "../lib/prefixBuilder";
+import { fetchMedia } from "../tools/media";
 import { logTurn, type PrefixMode } from "../lib/observability";
 import { cleanReply } from "../lib/cleanReply";
 import { validateReply, safeFallback, offTopicFallback } from "../lib/validator";
@@ -249,6 +251,7 @@ async function updateStateAfterReply(
   botReply: string,
   customerMessage: string,
   templateId: string | null,
+  injectedGuardKey: string | null,
 ): Promise<void> {
   const needQR    = nextStep === "show_qr"    && !currentFlags.qrShown;
   // KHÔNG check !mediaShown ở đây — cho phép gửi media mới khi khách hỏi service khác.
@@ -257,15 +260,21 @@ async function updateStateAfterReply(
   try {
     const current = await loadState(mastra, threadId, resourceId);
     // Ghi key vừa gửi vào mediaShownKeys (per-service tracking).
-    // Ưu tiên key khách vừa mention (vd: "zumba") rồi mới fallback theo state.
     const currentKeys = current.mediaShownKeys ?? [];
-    const sentKey = needMedia
-      ? (detectMentionedServiceKey(customerMessage) ?? computeSuggestedMediaKey(current))
-      : null;
-    const updatedKeys =
-      sentKey && !currentKeys.includes(sentKey)
-        ? [...currentKeys, sentKey]
-        : currentKeys;
+    let updatedKeys = currentKeys;
+    if (injectedGuardKey) {
+      // Doubt-media inject (deterministic): ghi guard sentinel + key thật để turn sau không gửi lại.
+      const realKey = injectedGuardKey.startsWith("doubt:")
+        ? injectedGuardKey.slice("doubt:".length)
+        : injectedGuardKey;
+      for (const k of [injectedGuardKey, realKey]) {
+        if (!updatedKeys.includes(k)) updatedKeys = [...updatedKeys, k];
+      }
+    } else if (needMedia) {
+      // Media do LLM tự gửi: ưu tiên key khách vừa mention (vd "zumba") rồi fallback theo state.
+      const sentKey = detectMentionedServiceKey(customerMessage) ?? computeSuggestedMediaKey(current);
+      if (sentKey && !updatedKeys.includes(sentKey)) updatedKeys = [...updatedKeys, sentKey];
+    }
     // Phase 6: detect câu hỏi đã hỏi + fact đã pitch → cập nhật tracking sets.
     const tracking = updateTracking(current, botReply);
     // recentBotReplies: giữ tối đa 3 reply gần nhất (cho anti-parrot không-liền-kề ở cleanReply).
@@ -425,6 +434,45 @@ function buildAgentStep(
         dedupedMediaUrls = null;
       }
 
+      // ═══════ MEDIA ĐÃ GỬI — chặn cứng spam (model tự gọi get-media lại) ═══════
+      // Bug L5: model bơm media 3-4 lần dù mediaShown=true (block mềm trong prefix bị phớt).
+      // Drop media model tự thêm khi: ĐÃ từng gửi + khách KHÔNG xin xem + KHÔNG nhắc DỊCH VỤ MỚI.
+      // (Doubt-media inject chạy NGAY SAU vẫn tự bù đúng 1 lần cho moment nghi ngờ nếu cần.)
+      if (dedupedMediaUrls && stateBeforeReply.mediaShown && !customerWantsMedia) {
+        const mKey = detectMentionedServiceKey(message);
+        const isNewSvc = mKey !== null && !(stateBeforeReply.mediaShownKeys ?? []).includes(mKey);
+        if (!isNewSvc) {
+          console.log(`[media-spam] đã gửi media trước → drop ${dedupedMediaUrls.length} media model tự thêm`);
+          dedupedMediaUrls = null;
+        }
+      }
+
+      // ═══════ DOUBT-MEDIA DETERMINISTIC (chống flaky tool-call) — CẢ 2 FLOW ═══════
+      // Khách nghi ngờ kết quả (đọc emotion từ classifier) → media chứng minh là vũ khí chốt trust:
+      // fitness=ảnh before-after, giai-co=ca mr-* trước/sau. gpt-5.4-mini phớt lệnh gọi get-media
+      // (gửi khi không ai bảo, bỏ khi bảo gắt) → KHÔNG dựa vào LLM: fetch thẳng Cloudinary. Fetch
+      // KỸ THUẬT (không cache); QUYẾT ĐỊNH gửi nằm ở classifier (emotion nghi ngờ), không heuristic.
+      let effectiveNextStep = obj.nextStep;
+      let injectedGuardKey: string | null = null;
+      const doubtMedia = computeDoubtMediaKey(stateBeforeReply);
+      if (
+        doubtMedia &&
+        !(stateBeforeReply.mediaShownKeys ?? []).includes(doubtMedia.guardKey)
+      ) {
+        try {
+          const items = await fetchMedia(doubtMedia.key);
+          const urls = items.map((it) => it.url).filter(Boolean);
+          if (urls.length > 0) {
+            dedupedMediaUrls = urls;
+            effectiveNextStep = "show_media";
+            injectedGuardKey = doubtMedia.guardKey;
+            console.log(`[doubt-media] inject deterministic ${urls.length} media key=${doubtMedia.key} guard=${doubtMedia.guardKey}`);
+          }
+        } catch (e) {
+          console.error("[doubt-media] deterministic fetch failed:", e);
+        }
+      }
+
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,
       // pitch lặp (nếu prev đã list package).
       const hasMedia = !!(dedupedMediaUrls && dedupedMediaUrls.length > 0);
@@ -485,9 +533,15 @@ function buildAgentStep(
         // Validate reply — fail thì dùng safeFallback (3-layer pattern).
         // Re-greeting/filler (KH chỉ "ới"/chào trống): reply CỰC NGẮN là ĐÚNG → bỏ length floor,
         // và nếu fail vì lý do khác thì fallback cũng phải NGẮN (KHÔNG đè template pitch dài).
+        // allowShort cũng bật ở lượt ĐÓNG: retention (đã chốt) hoặc commitment khi khách nhắn cụt
+        // (cảm ơn/chào tạm biệt) → câu chào ấm NGẮN ("Dạ vâng anh ạ") là ĐÚNG, đừng để floor 20
+        // reject thành safeFallback lặp lại "giữ slot…" (bug L3 T18).
         const isReGreet = isBareGreetingOrFiller(message);
+        const isClosingTurn =
+          stateBeforeReply.stage === "retention" ||
+          (stateBeforeReply.stage === "commitment" && isTerseMessage(message));
         const validation = validateReply(cleanedText, stateBeforeReply, {
-          allowShort: isReGreet,
+          allowShort: isReGreet || isClosingTurn,
         });
         if (!validation.valid) {
           const reasonsStr = validation.reasons.join(", ");
@@ -503,11 +557,12 @@ function buildAgentStep(
         mastra,
         threadId,
         resourceId,
-        obj.nextStep,
+        effectiveNextStep,
         { qrShown, mediaShown },
         cleanedText,
         message,
         templateId,
+        injectedGuardKey,
       );
 
       // ═══════════ PHASE 7 — Per-turn structured log ═══════════
