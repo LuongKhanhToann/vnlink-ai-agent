@@ -2556,8 +2556,8 @@ function buildFitnessStageFocus(state: ConversationState): string {
   if (stage === "inbody") {
     return (
       `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã khai thác đủ → GIỜ giới thiệu đo InBody MIỄN PHÍ như GIÁ TRỊ tự nhiên ` +
-      `(máy bóc tách mỡ/cơ thật, HLV lên lộ trình chuẩn thay vì tập mù). Nói value 1-2 câu rồi hỏi 1 câu MỞ bám mục tiêu/động lực của khách. ` +
-      `Cá nhân hóa theo trải nghiệm khách (đọc lịch sử chat, đừng hỏi lại nếu đã rõ): khách CHƯA biết tập → nhấn cần HLV/PT lên giáo án + thực đơn cho đúng, tránh tập mù; khách ĐÃ biết tập → nhấn tối ưu chi phí bằng thẻ hội viên + tự dựa chỉ số InBody chọn máy/vùng tập. ` +
+      `(máy bóc tách mỡ/cơ thật, HLV lên lộ trình chuẩn thay vì tập sai). Nói value 1-2 câu rồi hỏi 1 câu MỞ bám mục tiêu/động lực của khách. ` +
+      `Cá nhân hóa theo trải nghiệm khách (đọc lịch sử chat, đừng hỏi lại nếu đã rõ): khách CHƯA biết tập → nhấn cần HLV/PT lên giáo án + thực đơn cho đúng, tránh tập sai; khách ĐÃ biết tập → nhấn tối ưu chi phí bằng thẻ hội viên + tự dựa chỉ số InBody chọn máy/vùng tập. ` +
       `⛔ Khách MỚI / chưa khẳng định biết tập (vd "chưa đi gym bao giờ", "sợ không biết dùng máy") → CHỈ hướng PT kèm, TUYỆT ĐỐI KHÔNG gợi "tự tập cho tiết kiệm" và KHÔNG đưa tự-tập thành 1 lựa chọn — người mới được mời tự tập sẽ càng hoang mang, phản tác dụng. Chỉ nói hướng tự-tập-bằng-thẻ khi khách ĐÃ nói rõ có nền tập rồi. ` +
       `⛔ KHÔNG hỏi "sáng hay chiều", KHÔNG rủ đặt lịch / chọn buổi, CHƯA báo giá — đặt lịch là việc của bước CHỐT khi khách đã muốn đến.`
     );
