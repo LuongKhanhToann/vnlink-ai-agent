@@ -237,7 +237,8 @@ function buildSaleSenseHint(state: ConversationState, _message?: string): string
     case "trusting":
       return (
         `[SALE-SENSE: khách đang ẤM/xuôi theo — đây là lúc TIẾN 1 nhịp, đừng hỏi lan man thêm. ` +
-        `Chốt mềm tự nhiên: mời ${trialWord} + gợi ghé "${flow === "fitness" ? "sáng hay chiều" : "buổi nào"} tiện" để giữ momentum. ` +
+        `Chốt mềm tự nhiên: mời ${trialWord} rồi giữ momentum bằng cách dẫn sang chốt NGÀY khách tiện (việc hỏi lịch để GATE chốt-ngày lo). ` +
+        `⚠ Nếu khách vừa HỎI 1 câu cụ thể (giá, ưu đãi SV, lộ trình, rủ bạn…) thì PHẢI trả thẳng câu đó TRƯỚC — đừng lấy lời mời/chốt lịch để né câu hỏi. ` +
         `Nếu GATE/TACTIC đã bảo xin tên/SĐT hoặc DỪNG → theo GATE.]`
       );
     case "hesitant":
@@ -1602,10 +1603,13 @@ function buildFitnessPricing(info: KnownInfo): string {
     ? svc === "pilates"
     : svc === "pilates";
 
-  // Anchor "FULL 4 dịch vụ" — chỉ ưu tiên khi không phải single-service hard-lock.
+  // Anchor "FULL 4 dịch vụ" cho body/health goal → LUÔN bơm số Full.
+  // BUG cũ: gate (!svc || full || gym) làm khách giảm-cân lỡ hỏi "bơi" (svc khóa = boi) rồi hỏi
+  // "gói full bao nhiêu" → block CHỈ có bảng Bơi, KHÔNG có số Full → model BỊA giá (vd "Full 700k",
+  // thực tế 1.2tr/tháng). Với các goal mà Full là anchor, hiện Full bất kể đang khóa môn lẻ nào.
   const fullIsAnchor =
     goal === "giam-mo" || goal === "suc-khoe" || goal === "giu-dang" || goal === null;
-  if (fullIsAnchor && (!svc || svc === "full" || svc === "gym")) {
+  if (fullIsAnchor) {
     lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr ← anchor chính");
   }
   if (showGym) {
@@ -1995,7 +1999,7 @@ SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy g
     // Goal-specific value hint
     const goalHint: Record<string, string> = {
       "tang-co": `Tăng cơ cần tập có hệ thống + kỹ thuật đúng giai đoạn đầu → nhấn PT cá nhân, cộng thêm Yoga/Pilates để phục hồi cơ. KHÔNG chỉ nhấn diện tích phòng.`,
-      "tang-can": `Tăng cân khoa học = tăng cơ nạc, KHÔNG tích mỡ bụng/tích nước → nhấn PT lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn, InBody đo lượng cơ thiếu + chuyển hóa cơ bản để nạp dinh dưỡng chính xác.`,
+      "tang-can": `Tăng cân khoa học = tăng cơ, KHÔNG tích mỡ bụng/tích nước → nhấn PT lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn, InBody đo lượng cơ thiếu + chuyển hóa cơ bản để nạp dinh dưỡng chính xác.`,
       "giam-mo": `Giảm mỡ hiệu quả = cardio + weight training kết hợp → nhấn thẻ Full (Gym + Zumba/Bơi dùng chung), bể bơi 4 mùa duy nhất Vĩnh Yên. KHÔNG chỉ nhấn diện tích phòng.`,
       "thu-gian": `Thư giãn → nhấn Yoga GV Ấn Độ 4 ca/ngày linh hoạt lịch + không gian rộng không chen chúc.`,
       "hoc-boi": `Học bơi → nhấn bể 4 mùa duy nhất Vĩnh Yên + cam kết biết bơi sau khóa (học lại miễn phí).`,
@@ -2554,6 +2558,7 @@ function buildFitnessStageFocus(state: ConversationState): string {
       `[VIỆC CẦN LÀM — CAM KẾT BẰNG SỐ LIỆU] Đã khai thác đủ → GIỜ giới thiệu đo InBody MIỄN PHÍ như GIÁ TRỊ tự nhiên ` +
       `(máy bóc tách mỡ/cơ thật, HLV lên lộ trình chuẩn thay vì tập mù). Nói value 1-2 câu rồi hỏi 1 câu MỞ bám mục tiêu/động lực của khách. ` +
       `Cá nhân hóa theo trải nghiệm khách (đọc lịch sử chat, đừng hỏi lại nếu đã rõ): khách CHƯA biết tập → nhấn cần HLV/PT lên giáo án + thực đơn cho đúng, tránh tập mù; khách ĐÃ biết tập → nhấn tối ưu chi phí bằng thẻ hội viên + tự dựa chỉ số InBody chọn máy/vùng tập. ` +
+      `⛔ Khách MỚI / chưa khẳng định biết tập (vd "chưa đi gym bao giờ", "sợ không biết dùng máy") → CHỈ hướng PT kèm, TUYỆT ĐỐI KHÔNG gợi "tự tập cho tiết kiệm" và KHÔNG đưa tự-tập thành 1 lựa chọn — người mới được mời tự tập sẽ càng hoang mang, phản tác dụng. Chỉ nói hướng tự-tập-bằng-thẻ khi khách ĐÃ nói rõ có nền tập rồi. ` +
       `⛔ KHÔNG hỏi "sáng hay chiều", KHÔNG rủ đặt lịch / chọn buổi, CHƯA báo giá — đặt lịch là việc của bước CHỐT khi khách đã muốn đến.`
     );
   }

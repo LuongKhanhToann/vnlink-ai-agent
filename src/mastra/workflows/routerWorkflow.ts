@@ -22,12 +22,21 @@ import {
   isTerseMessage,
   isBareGreetingOrFiller,
   computeDoubtMediaKey,
+  computeSuggestedMediaKey,
 } from "../lib/prefixBuilder";
 import { fetchMedia } from "../tools/media";
 import { logTurn, type PrefixMode } from "../lib/observability";
 import { cleanReply } from "../lib/cleanReply";
 import { validateReply, safeFallback, offTopicFallback } from "../lib/validator";
 import { updateTracking } from "../lib/tracking";
+import { resolveHonorific } from "../lib/stateMachine";
+import {
+  ensureMediaCaption,
+  stripStaleGreeting,
+  lockHonorific,
+  forceStudentPricing,
+  stripQrMention,
+} from "../lib/replyGuards";
 
 // ─────────────────────────────────────────────
 // SCHEMAS
@@ -440,9 +449,17 @@ function buildAgentStep(
       // (Doubt-media inject chạy NGAY SAU vẫn tự bù đúng 1 lần cho moment nghi ngờ nếu cần.)
       if (dedupedMediaUrls && stateBeforeReply.mediaShown && !customerWantsMedia) {
         const mKey = detectMentionedServiceKey(message);
-        const isNewSvc = mKey !== null && !(stateBeforeReply.mediaShownKeys ?? []).includes(mKey);
-        if (!isNewSvc) {
-          console.log(`[media-spam] đã gửi media trước → drop ${dedupedMediaUrls.length} media model tự thêm`);
+        const shownKeys = stateBeforeReply.mediaShownKeys ?? [];
+        const isNewSvc = mKey !== null && !shownKeys.includes(mKey);
+        // Ảnh before-after CHỈ gửi 1 lần/cuộc (ngân sách riêng). Nếu đã gửi rồi mà model TỰ gọi
+        // lại → vẫn DROP, KHÔNG cho ngoại lệ "dịch vụ mới" cứu ảnh trùng. Bug L5 T8: tin "vào tự bơi"
+        // (thành ngữ, không phải bộ môn Bơi) làm detectMentionedServiceKey match nhầm → isNewSvc=true
+        // → before-after thứ 2 lọt. Check theo PATH URL (parse kỹ thuật), không đoán nghĩa từ khoá.
+        const repeatBeforeAfter =
+          shownKeys.includes("fitness-before-after") &&
+          dedupedMediaUrls.some((u) => u.includes("/before-after/"));
+        if (!isNewSvc || repeatBeforeAfter) {
+          console.log(`[media-spam] đã gửi media trước → drop ${dedupedMediaUrls.length} media model tự thêm${repeatBeforeAfter ? " (before-after trùng)" : ""}`);
           dedupedMediaUrls = null;
         }
       }
@@ -516,6 +533,30 @@ function buildAgentStep(
         }
       }
 
+      // ═══════════ DETERMINISTIC OUTPUT GUARDS (replyGuards.ts) ═══════════
+      // Cưỡng chế các hành vi PHẢI đúng 100% — không phụ thuộc model có nghe prompt hay không.
+      // (xem replyGuards.ts: vì sao chuyển từ prompt-hint sang code).
+      const honorific = resolveHonorific(stateBeforeReply.honorific);
+      const isClosingTurnG =
+        stateBeforeReply.stage === "retention" ||
+        (stateBeforeReply.stage === "commitment" && isTerseMessage(message));
+      // G3 — chặn tái chào template turn-1 sau opening.
+      if (stateBeforeReply.stage !== "opening" && stateBeforeReply.turnCount > 1) {
+        cleanedText = stripStaleGreeting(cleanedText, isClosingTurnG, honorific);
+      }
+      // G1 — caption ảnh: nếu server đính ảnh mà text không dẫn ảnh → ghép câu dẫn.
+      if (hasMedia) {
+        const capKey = injectedGuardKey ?? computeSuggestedMediaKey(stateBeforeReply);
+        cleanedText = ensureMediaCaption(cleanedText, capKey, honorific);
+      }
+      // G5 — trả thẳng giá HS/SV khi classifier báo hỏi giá SV mà reply thiếu con số.
+      const studentPriceAsk =
+        stateBeforeReply.intentTopic === "ask_student_pricing" ||
+        stateBeforeReply.intentSignal?.attribute === "ask_price_student";
+      cleanedText = forceStudentPricing(cleanedText, studentPriceAsk, honorific);
+      // G4 — khóa xưng hô: hết "anh/chị" spam khi đã biết giới tính.
+      cleanedText = lockHonorific(cleanedText, honorific);
+
       // ═══════════ PHASE 5 — Output validator + graceful fallback ═══════════
       // Off-topic edge: classifier output edge/off_topic → fixed safe response, KHÔNG để bot bịa.
       const intentSig = stateBeforeReply.intentSignal;
@@ -553,6 +594,17 @@ function buildAgentStep(
         }
       }
 
+      // ═══════════ GUARD 2 — QR-TIMING GATE (deterministic) ═══════════
+      // get-qr là tool LLM tự gọi → đôi khi bắn QR TRƯỚC khi có tên+SĐT (sai bước, dồn dập).
+      // Chỉ cho đính QR khi đã đủ tên+SĐT; nếu không → drop attachment + gỡ câu nhắc "gửi QR".
+      let finalQrUrl = obj.qrUrl ?? null;
+      if (finalQrUrl && !(stateBeforeReply.knownInfo.name && stateBeforeReply.knownInfo.phone)) {
+        console.log(`[qr-gate] drop QR sớm (chưa đủ tên+SĐT) stage=${stateBeforeReply.stage}`);
+        finalQrUrl = null;
+        if (effectiveNextStep === "show_qr") effectiveNextStep = hasMedia ? "show_media" : "ask_info";
+        cleanedText = stripQrMention(cleanedText);
+      }
+
       await updateStateAfterReply(
         mastra,
         threadId,
@@ -588,7 +640,7 @@ function buildAgentStep(
         prefixChars: prefix.length,
         replyChars: cleanedText.length,
         hasMedia: hasMedia,
-        hasQR: !!obj.qrUrl,
+        hasQR: !!finalQrUrl,
         validator: validatorResult,
         trackingCounts: {
           askedHistory: (stateAfterReply.askedHistory ?? []).length,
@@ -600,8 +652,8 @@ function buildAgentStep(
       return {
         reply: cleanedText,
         mediaUrls: dedupedMediaUrls,
-        qrUrl: obj.qrUrl ?? null,
-        nextStep: obj.nextStep ?? null,
+        qrUrl: finalQrUrl,
+        nextStep: effectiveNextStep ?? null,
       };
     },
   });

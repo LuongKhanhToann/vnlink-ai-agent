@@ -392,12 +392,13 @@ export function cleanReply(
   );
 
   // 6c. Strip câu hỏi thứ 2+: rule "max 1 câu hỏi/reply" (sale Zalo/Messenger).
-  //     Strategy:
-  //       - Find tất cả câu kết "?" (sau khi strip dấu "?" còn "ạ" + sentence boundary).
-  //       - Vì step 7 sắp strip "?" → ta detect trước: tìm các sentence kết "?" và đếm.
-  //       - Nếu ≥2, giữ câu hỏi ĐẦU TIÊN, các câu hỏi sau đổi thành câu khẳng định:
-  //         strip toàn bộ câu hỏi thứ 2+ luôn.
-  //     Pattern câu hỏi: kết bằng "?" hoặc " ạ?" (sau khi đã normalize).
+  //     ⚠ Net này CHỈ bắt được reply CÓ dấu "?" (chạy TRƯỚC step 7 strip "?") → hiệu lực cho
+  //     flow giai-co (prompt giaiCo.ts cho dùng "?"). Flow FITNESS prompt cấm "?" (kết bằng "ạ"),
+  //     mà câu KỂ và câu HỎI đều kết "ạ" → KHÔNG có tín hiệu dấu câu để tách. Phân biệt câu hỏi
+  //     "ạ" cần marker ngữ nghĩa (gì/nào/không/hay…) = keyword list = vi phạm rule no-regex →
+  //     fitness ÉP max-1-câu-hỏi ở TẦNG PROMPT (agents/fitness.ts), KHÔNG ở đây. ĐỪNG thêm regex
+  //     đoán câu hỏi tiếng Việt vào net này.
+  //     Strategy (khi có "?"): giữ câu hỏi ĐẦU, drop các câu hỏi sau.
   const questionMarks = (r.match(/\?/g) || []).length;
   if (questionMarks >= 2) {
     const sentences = splitSentences(r);

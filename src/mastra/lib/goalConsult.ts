@@ -46,10 +46,10 @@ const DISCOVERY_PAIN: Record<string, string> = {
 const RESULT_COMMIT: Record<string, string> = {
   "giam-mo":
     "cam kết bằng số liệu: InBody bóc tách mỡ thừa & khối cơ — KHÔNG giảm mù quáng. " +
-    "Chưa biết tập → nhấn PT chỉnh form + thực đơn không bỏ bữa. Đã biết tập → nhấn thẻ hội viên tối ưu chi phí + máy hiện đại.",
+    "Chưa biết tập → nhấn PT chỉnh form + thực đơn không bỏ bữa (KHÔNG gợi tự-tập-tiết-kiệm, người mới cần kèm). Đã biết tập → nhấn thẻ hội viên tối ưu chi phí + máy hiện đại.",
   "tang-can":
     "cam kết bằng số liệu: InBody đo lượng cơ thiếu + chuyển hóa để nạp dinh dưỡng chuẩn — KHÔNG tăng mù quáng (tránh tích mỡ/nước). " +
-    "Chưa biết tập → nhấn PT giáo án tăng cơ + thực đơn 5-6 bữa. Đã biết tập → nhấn thẻ hội viên, InBody chọn nhóm cơ.",
+    "Chưa biết tập → nhấn PT giáo án tăng cơ + thực đơn 5-6 bữa (KHÔNG gợi tự-tập-tiết-kiệm, người mới cần kèm). Đã biết tập → nhấn thẻ hội viên, InBody chọn nhóm cơ.",
   "giu-dang":
     "cam kết bằng số liệu: InBody theo dõi định kỳ duy trì tỷ lệ cơ-mỡ. Nhấn thẻ Full đổi môn cho đỡ chán.",
 };

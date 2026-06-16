@@ -316,9 +316,14 @@ async function generateFollowupReply(senderId: string, attempt: number): Promise
       attempt === 0
         ? "nhắc nhẹ, hỏi tiếp đúng bước đang dở"
         : "nhắc thêm 1 lần, gợi 1 lý do/giá trị để khách quay lại, vẫn nhẹ nhàng";
+    // Follow-up phải BIẾT lượt trước vừa làm gì — nếu đã gửi ảnh thì đừng re-announce/mời lại
+    // (bug: bot gửi ảnh gym xong, 2p sau follow-up "em gửi mình xem khu tập trước..." → rời rạc, thô).
+    const mediaNote = state.mediaShown
+      ? `Em ĐÃ gửi ảnh ở lượt trước rồi, coi như khách đã xem: TUYỆT ĐỐI KHÔNG mời/nhắc/announce lại ảnh ("em gửi anh/chị xem..."), KHÔNG hỏi lại khu/loại ảnh nào, KHÔNG gọi tool gửi ảnh. Tiến thẳng bước kế của funnel. `
+      : `KHÔNG gọi tool gửi ảnh/QR. `;
     const followupInstruction =
       `[FOLLOW-UP — khách CHƯA trả lời tin trước của em (im 1 lúc). CHỦ ĐỘNG nhắn 1 tin NGẮN kéo khách tiếp tục: ${nudgeTone}. ` +
-      `KHÔNG lặp y nguyên tin trước, KHÔNG xin lỗi vì nhắn lại, KHÔNG spam, KHÔNG gọi tool gửi ảnh/QR. ` +
+      `KHÔNG lặp y nguyên tin trước (kể cả lặp lại câu hỏi cũ), KHÔNG xin lỗi vì nhắn lại, KHÔNG spam. ${mediaNote}` +
       `1 ack/đỡ lời nhẹ + tiến đúng bước funnel hiện tại (hoặc 1 câu hỏi), kết "ạ".]`;
 
     const res: any = await agent.generate(`${followupInstruction}\n${prefix}`, {
