@@ -2482,6 +2482,47 @@ function buildFitnessAnswerFirst(state: ConversationState): string {
   }
 }
 
+/**
+ * TACTIC TRỌNG TÂM đặt ĐẦU prefix (mini-model tuân directive ở ĐẦU tốt hơn ở giữa —
+ * xem MODEL_NOTES "TACTIC đầu > GATE giữa"). Chỉ fire ở 2 khúc model hay drift:
+ *   - inbody  → bot hay nhảy "sáng hay chiều" thay vì pitch InBody.
+ *   - objection (chê giá) → bot hay tụt giá / gợi "gói nhẹ hơn" thay vì reframe value.
+ * Cùng hướng với buildFitnessStageFocus/AnswerFirst (reinforce, không mâu thuẫn).
+ */
+function buildFitnessLeadTactic(state: ConversationState): string {
+  const domain = state.intentSignal?.domain ?? null;
+  const ki = state.knownInfo;
+
+  // Chê giá / phản đối giá → reframe VALUE, cấm tụt giá. (ưu tiên trên cả inbody)
+  if (domain === "objection") {
+    return (
+      `[TRỌNG TÂM TIN NÀY] Khách chê đắt / lăn tăn giá → ghi nhận 1 câu rồi REFRAME bằng GIÁ TRỊ ` +
+      `(cơ sở 700m2 + bể bơi 4 mùa + GV Ấn Độ + bãi đỗ xe rộng) + mời thử 1 buổi. ` +
+      `⛔ KHÔNG gợi "gói nhẹ hơn / rẻ hơn", KHÔNG hạ giá, KHÔNG chia nhỏ giá kiểu "ly cà phê".`
+    );
+  }
+
+  // Pitch InBody: chặn "sáng hay chiều" + cá nhân hóa theo đã/chưa biết tập, ngay ở đầu.
+  // CHỈ khi đang thực sự ở moment pitch InBody — KHÔNG fire khi KH đã cho liên hệ (name+phone)
+  // hoặc đang chốt/đặt lịch (domain=commitment/scheduling): lúc đó việc cần làm là hỏi giờ/giữ slot,
+  // không phải pitch InBody nữa (tránh đè "xin khung giờ").
+  if (
+    state.stage === "inbody" &&
+    !(ki.name && ki.phone) &&
+    domain !== "commitment" &&
+    domain !== "scheduling"
+  ) {
+    return (
+      `[TRỌNG TÂM TIN NÀY] Đây là lúc PITCH đo InBody MIỄN PHÍ (máy bóc tách mỡ/cơ thật) làm bước value. ` +
+      `Khách ĐÃ biết tập / tập lâu năm → nhấn tối ưu chi phí bằng THẺ HỘI VIÊN + tự dựa chỉ số InBody chọn máy/vùng tập, KHÔNG ép PT; ` +
+      `khách chưa biết tập → nhấn cần HLV lên giáo án cho đúng. ` +
+      `⛔ TUYỆT ĐỐI KHÔNG hỏi "sáng hay chiều" / rủ đặt lịch ở tin này.`
+    );
+  }
+
+  return "";
+}
+
 /** Nhắc tin trước để khỏi lặp — KHÔNG regex, chỉ cắt chuỗi. */
 function buildAntiRepeatHint(prevBotReply?: string): string {
   if (!prevBotReply) return "";
@@ -2537,6 +2578,7 @@ function buildFitnessLeanPrefix(
 
   const lines: string[] = [
     `[HON: ${h}] [BƯỚC FUNNEL: ${state.stage}] [CẢM XÚC KHÁCH: ${state.emotion}]`,
+    buildFitnessLeadTactic(state),
     genderKnown
       ? `[ĐÃ BIẾT: khách là ${genderKnown} (xưng ${h}) → TUYỆT ĐỐI KHÔNG hỏi lại giới tính nam/nữ.]`
       : "",

@@ -439,20 +439,32 @@ export function sanitizePreferredTime(
 ): string | null {
   if (!extracted) return extracted ?? null;
   const msg = (message || "").toLowerCase();
-  // Range-giờ kiểu "7-9h", "7h-9h", "19-21h", "7 - 9h" (KHÔNG khớp "3-4 buổi": cần "h" sau số cuối).
-  const hasHourRange = /\d{1,2}\s*h?\s*[-–—]\s*\d{1,2}\s*h/.test(msg);
-  if (!hasHourRange) return extracted;
+
+  // Cue NGÀY/THỨ khách CÓ nêu trong message.
   const msgHasDayOrDate =
     /(thứ\s*[2-7]|thứ\s*(hai|ba|tư|năm|sáu|bảy)|chủ\s*nhật|(?<!\p{L})cn(?!\p{L})|cuối\s*tuần|đầu\s*tuần)/iu.test(msg) ||
     /(\d{1,2}\s*\/\s*\d{1,2}|ngày\s*\d|hôm\s*nay|ngày\s*mai|(?<!\p{L})mai(?!\p{L})|(?<!\p{L})mốt(?!\p{L})|(?<!\p{L})kia(?!\p{L})|tuần\s*(sau|tới)|(?<!\p{L})nay(?!\p{L}))/iu.test(msg);
-  if (msgHasDayOrDate) return extracted; // khách CÓ cho thứ/ngày → giữ nguyên
-  // Message chỉ cho range-giờ → cắt "thứ N" + "DD/MM" BỊA trong extracted, giữ giờ/buổi.
-  const cleaned = extracted
-    .replace(/\s*(thứ\s*[2-7]|thứ\s*(hai|ba|tư|năm|sáu|bảy)|chủ\s*nhật|(?<!\p{L})cn(?!\p{L}))/giu, "")
-    .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  return cleaned.length >= 2 ? cleaned : extracted;
+  // Cue GIỜ ("8h", "17 giờ") / BUỔI ("sáng/trưa/chiều/tối/đêm" — KHÔNG tính "1 buổi" = 1 session).
+  const msgHasClock = /\d{1,2}\s*(h|giờ)/i.test(msg);
+  const msgHasDaypart = /(?<!\p{L})(sáng|trưa|chiều|tối|đêm)(?!\p{L})/iu.test(msg);
+
+  // FABRICATION 100%: message KHÔNG có BẤT KỲ cue thời gian nào mà classifier vẫn trả preferredTime
+  // (vd "ok qua thử" / "thử 1 buổi xem" → "17h chiều thứ 4 17/06") → BỊA hoàn toàn, cắt sạch.
+  // An toàn: mergeSlots vẫn giữ preferredTime CŨ trong state → chỉ chặn giá trị mới bịa, KHÔNG xoá lịch thật.
+  if (!msgHasDayOrDate && !msgHasClock && !msgHasDaypart) return null;
+
+  // Range-giờ kiểu "7-9h", "7h-9h", "19-21h", "7 - 9h" (KHÔNG khớp "3-4 buổi": cần "h" sau số cuối).
+  const hasHourRange = /\d{1,2}\s*h?\s*[-–—]\s*\d{1,2}\s*h/.test(msg);
+  // Range-giờ mà KHÔNG nêu thứ/ngày → cắt "thứ N" + "DD/MM" BỊA trong extracted, giữ giờ/buổi.
+  if (hasHourRange && !msgHasDayOrDate) {
+    const cleaned = extracted
+      .replace(/\s*(thứ\s*[2-7]|thứ\s*(hai|ba|tư|năm|sáu|bảy)|chủ\s*nhật|(?<!\p{L})cn(?!\p{L}))/giu, "")
+      .replace(/\s*\d{1,2}\s*\/\s*\d{1,2}/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return cleaned.length >= 2 ? cleaned : extracted;
+  }
+  return extracted;
 }
 
 export function detectNamePhoneInline(
