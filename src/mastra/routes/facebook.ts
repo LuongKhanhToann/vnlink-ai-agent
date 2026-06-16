@@ -16,6 +16,7 @@ import { scheduleFollowup, cancelFollowup } from "../lib/followup";
 import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
 import { recordUserActivity, isBotEnabled } from "../lib/botControl";
 import { memory } from "../config/memory";
+import { randomUUID } from "node:crypto";
 import "dotenv/config";
 
 // NGƯỜI HOÁ output: tách reply thành 2-3 bóng ngắn + "đang soạn tin…" + độ trễ gõ
@@ -96,6 +97,52 @@ export function resetAllFbSessionState(): void {
   console.log("[fb] resetAllFbSessionState: aborted inflight + cleared all senders");
 }
 
+/**
+ * Lưu 1 tin vào thread memory mà KHÔNG sinh reply — dùng khi AI đang tắt:
+ *   (1) Tin khách lúc AI bị admin tắt        → role=user
+ *   (2) Nhân viên trả tay từ inbox (echo)     → role=assistant
+ * Nhờ vậy khi admin BẬT lại, agent nạp lastMessages + semanticRecall sẽ thấy đủ đoạn
+ * hội thoại xảy ra trong lúc tắt → nối tiếp đúng ngữ cảnh, không bắt đầu lại từ điểm cũ.
+ * Tạo thread nếu chưa có (khách nhắn lần đầu lúc AI đang tắt). Best-effort — lỗi không chặn.
+ */
+async function logMessageToMemory(
+  senderId: string,
+  role: "user" | "assistant",
+  text: string,
+): Promise<void> {
+  try {
+    const existing = await memory.getThreadById({ threadId: senderId });
+    if (!existing) {
+      await memory.saveThread({
+        thread: {
+          id: senderId,
+          resourceId: senderId,
+          title: "fb-chat",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          metadata: {},
+        },
+      });
+    }
+    await memory.saveMessages({
+      messages: [
+        {
+          id: randomUUID(),
+          role,
+          type: "text",
+          threadId: senderId,
+          resourceId: senderId,
+          createdAt: new Date(),
+          content: { format: 2, parts: [{ type: "text", text }] },
+        },
+      ],
+    });
+    console.log(`[fb] logged ${role} msg to memory for ${senderId} (AI off, no reply)`);
+  } catch (e) {
+    console.error(`[fb] logMessageToMemory failed for ${senderId}:`, e);
+  }
+}
+
 export const facebookWebhook = new Hono();
 
 facebookWebhook.get("/webhook", (c) => {
@@ -118,10 +165,28 @@ facebookWebhook.post("/webhook", async (c) => {
 
   for (const entry of body.entry ?? []) {
     for (const event of entry.messaging ?? []) {
-      if (!event.message?.text || event.message?.is_echo) continue;
+      const msg = event.message;
+      if (!msg) continue;
+
+      // ── ECHO = tin GỬI ĐI từ page ──
+      //   có app_id  → do app (bot) tự gửi → agent đã lưu vào memory rồi → bỏ qua.
+      //   không app_id → NHÂN VIÊN trả tay từ inbox → lưu vào memory (vai assistant) để
+      //                  bot nắm được người thật đã nói gì. Thread = recipient (khách).
+      if (msg.is_echo) {
+        if (!msg.app_id && msg.text) {
+          const customerId = event.recipient?.id as string | undefined;
+          if (customerId) {
+            console.log(`[fb] human echo → log memory for ${customerId}: "${msg.text}"`);
+            void logMessageToMemory(customerId, "assistant", msg.text as string);
+          }
+        }
+        continue;
+      }
+
+      if (!msg.text) continue;
 
       const senderId = event.sender.id as string;
-      const text     = event.message.text as string;
+      const text     = msg.text as string;
 
       console.log(`[fb] from=${senderId} text="${text}"`);
 
@@ -130,7 +195,9 @@ facebookWebhook.post("/webhook", async (c) => {
 
       // CỔNG BẬT/TẮT AI: admin tắt user này → bot KHÔNG trả lời. Đọc cờ mỗi tin (không cache).
       if (!(await isBotEnabled(senderId))) {
-        console.log(`[fb] AI disabled for ${senderId} — bỏ qua (admin đã tắt)`);
+        // KHÔNG trả lời, nhưng VẪN lưu tin khách vào memory → bật lại bot có đủ ngữ cảnh.
+        console.log(`[fb] AI disabled for ${senderId} — lưu memory, không trả lời`);
+        void logMessageToMemory(senderId, "user", text);
         continue;
       }
 
