@@ -11,6 +11,10 @@
   - ⚠️ Gotcha gpt-5.x: bắt `max_completion_tokens` (không `max_tokens`). Code KHÔNG truyền `maxTokens` → không dính.
     **ĐỪNG thêm `maxTokens` vào modelSettings cho dòng gpt-5.**
 - **Classifier / grader**: `gpt-4o-mini` (OpenAI) — `CLASSIFIER_MODEL` default openai.
+  - **temperature = 0** (đổi từ 0.1, commit `f8a6841`): objection terse ("đắt thế e") ổn định, không flip null.
+  - ⚠️ **Zod schema PHẢI bọc `.catch(default)` mọi enum** (`classifierSchema`): gpt-4o-mini lâu lâu trả 1
+    field lệch enum (`honorific="em"`, `intent` lạ) → Zod throw → **vứt CẢ classification** về `domain=null`
+    (mất directive ~50%). `.catch` coerce field lệch về default, giữ phần còn lại. ĐỪNG bỏ `.catch` này.
 - **Lùi về DeepSeek**: set `LLM_PROVIDER=deepseek` (cần đã nạp số dư — hiện balance âm, `is_available:false`).
 - **Bảng "Models đã thử" bên dưới = lịch sử trên 4o-mini reply** (lỗi thời, giữ tham khảo). Số đo hiện tại đo trên `gpt-5.4-mini`.
 - **Context window**: 128K tokens (input)
@@ -126,3 +130,7 @@ Avg: ~580 tokens/turn (Phase A trim done).
 1. Đo prefix length: `npx tsx measure-prefix.mjs` (script trong README)
 2. Run scenarios: `npm run test:scenarios`
 3. Check JSON: `test-results/run-*.json` → field `score.turn_scores`
+4. **"directive lúc có lúc không" / `domain=null` vô lý** → nghi NGAY classifier rớt parse (Zod enum throw),
+   KHÔNG nghi prompt: `grep -c "structuredOutput trả về null\|classifier] LLM error" <log>`. Xem
+   `SALE_FUNNEL_FIXES_2026-06.md` §9.1.
+5. Smoke nguyên LUỒNG 2 (giảm cân, đã biết tập): `STORAGE_BACKEND=libsql npx tsx src/mastra/scripts/testLuong2GiamCan.ts`

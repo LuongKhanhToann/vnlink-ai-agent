@@ -42,9 +42,11 @@ routerWorkflow → classifier (LLM 3 trục: domain/service/attribute)
 (+ objection/recovery/retention). Nguyên tắc: **KHAI THÁC NỖI ĐAU đủ sâu TRƯỚC khi pitch InBody/gói**.
 
 **2 path dựng prefix cho FITNESS (quan trọng — biết để sửa đúng chỗ):**
-- **Lean prefix (mode=PITCH)** = path CHÍNH cho fitness. Dùng `buildFitnessStageFocus` (= "[VIỆC CẦN LÀM]")
-  + `buildFitnessAnswerFirst`. **KHÔNG chạy** `buildLogicGate`/`buildFewShot`.
-  → Muốn đổi hành vi fitness (chốt, ưu đãi nhóm, hỏi ngày…) thì sửa `buildFitnessStageFocus`.
+- **Lean prefix (mode=PITCH)** = path CHÍNH cho fitness. Thứ tự dòng: meta → **`buildFitnessLeadTactic`
+  (TACTIC đầu, §9.2)** → known → `buildFitnessStageFocus` (= "[VIỆC CẦN LÀM]") → `buildFitnessAnswerFirst`.
+  **KHÔNG chạy** `buildLogicGate`/`buildFewShot`.
+  → Đổi hành vi fitness (chốt, ưu đãi nhóm, hỏi ngày…): sửa `buildFitnessStageFocus`; muốn FORCE 1 khúc
+  hay drift (inbody/objection): sửa `buildFitnessLeadTactic` (ở ĐẦU, mini-model tuân tốt hơn).
 - **Legacy path** (`buildLogicGate` + `buildFewShot` few-shot) — dùng cho giai-co và 1 số nhánh.
 
 ---
@@ -61,6 +63,7 @@ routerWorkflow → classifier (LLM 3 trục: domain/service/attribute)
 | `634f499` | **Nới opener** (bỏ lặp "Dạ vâng anh") + fallback body-goal không chốt lịch sớm |
 | `e426437` | **Báo đúng bảng giá HS/SV thật**, doanh nghiệp → xin SĐT |
 | `f36e2ad` | **Siết 3 chỗ**: đào sâu thêm 1 lớp (turn≥5), ưu đãi nhóm, chốt NGÀY trước |
+| `f8a6841` | **Siết LUỒNG 2 (giảm cân, đã biết tập)**: gốc rễ classifier `.catch()` (parse-fail 7→0) + lead-tactic đầu prefix (InBody/objection) + cắt preferredTime bịa. Xem **§9** |
 
 ### Chi tiết 3 fix cuối (f36e2ad)
 1. **Đào nỗi đau sâu hơn**: `stateMachine.painExploredDeep` ngưỡng chống-kẹt `turnCount >= 4 → >= 5`
@@ -145,3 +148,67 @@ Smoke LLM nguyên luồng 22 lượt (tăng cân, khách chưa biết tập) —
 
 **Sạn nhỏ còn lại (không gãy luồng):** thỉnh thoảng pitch InBody sớm 1 lượt; câu nghi-ngờ đôi khi bị
 validator reject → fallback (đã giảm); wording lặt vặt ("20h chiều"). Có thể tinh chỉnh tiếp nếu cần.
+
+---
+
+## 9. Đợt siết LUỒNG 2 — giảm cân · khách ĐÃ biết tập (16/06, commit `f8a6841`)
+
+> Test 1 mạch 21 lượt kịch bản "🅱️ LUỒNG 2": giảm cân + SAU SINH + đã tập gym/chạy bộ 2 năm (yo-yo)
+> → InBody → thẻ hội viên (KHÔNG ép PT) → before-after → đa môn (zumba+bơi) → giá → reframe value
+> → ưu đãi nhóm → chốt NGÀY → xin SĐT → giữ slot → after-close.
+> **Test script tái dùng:** `src/mastra/scripts/testLuong2GiamCan.ts`
+> Chạy: `STORAGE_BACKEND=libsql npx tsx src/mastra/scripts/testLuong2GiamCan.ts`
+
+### 9.1 ⭐ GỐC RỄ — classifier rớt nguyên classification (BUG NẶNG, ẩn lâu)
+
+**Triệu chứng:** directive RỚT ngẫu nhiên ~50% — vd "đắt thế e" lúc `domain=objection` (reframe value đúng),
+lúc `domain=null` (cả signal trống, emotion=neutral) → bot tụt giá "gói nhẹ hơn". KHÔNG phải teaching gap,
+KHÔNG phải temperature, KHÔNG phải prompt.
+
+**Root cause:** `classify()` dùng Mastra structuredOutput + Zod schema STRICT enum. gpt-4o-mini thỉnh thoảng
+trả 1 field lệch enum (`honorific="em"`, `intent` lạ, emotion lạ) → Zod **throw** `MastraError: Structured
+output validation failed` → catch → `getDefaultClassification` (domain=null) → **MẤT TOÀN BỘ classification**.
+Đếm được **4–7 lần / 21 lượt**.
+- **Phát hiện:** `grep -c "structuredOutput trả về null\|classifier] LLM error" <log>`.
+- **Bẫy:** isolated probe gọi `classify("đắt thế e")` ra `objection` 11/11 → tưởng đã fix; nhưng trong
+  luồng thật vẫn rớt vì field KHÁC (honorific/intent) lệch enum, không liên quan message.
+
+**Fix (`classifier.ts` `classifierSchema`):** bọc `.catch(default)` MỌI enum — `emotion→"neutral"`,
+`intent→"explore"`, `honorific/flow/intentSignal/secondaryIntents/service→null`. Field lệch coerce về
+default, **GIỮ** phần còn lại (domain/slots) thay vì vứt hết. Sau fix: **0 parse-fail/run**, objection ổn định.
+→ Đây là "harden parse step" (hợp HARD RULE no-regex), KHÔNG phải keyword guard.
+**Quy tắc debug mới:** "directive lúc có lúc không" / "domain=null vô lý" → **nghi NGAY Zod enum throw, KHÔNG nghi prompt.**
+
+### 9.2 Lead-tactic đặt ĐẦU prefix (`prefixBuilder.buildFitnessLeadTactic`)
+
+Theo MODEL_NOTES "TACTIC đầu > GATE giữa": mini-model tuân directive ở ĐẦU prefix tốt hơn ở giữa. Hoist 1
+dòng sắc ở đầu cho 2 khúc hay drift (insert ngay sau dòng meta trong `buildFitnessLeanPrefix`):
+- **inbody** → "PITCH InBody + khách ĐÃ biết tập → thẻ hội viên + tự dựa InBody chọn máy (KHÔNG ép PT);
+  chưa biết → HLV lên giáo án. ⛔ KHÔNG hỏi 'sáng hay chiều'/đặt lịch." (trước đây bot nhảy "sáng hay
+  chiều" ở turn 7 vì directive này nằm GIỮA prefix, ⛔ bị chôn cuối block).
+- **objection** → "reframe GIÁ TRỊ (700m2 + bể 4 mùa + GV Ấn Độ + bãi xe) + mời thử. ⛔ KHÔNG 'gói nhẹ hơn/rẻ hơn', không tụt giá."
+- **Guard quan trọng:** lead-tactic inbody TẮT khi `ki.name && ki.phone` hoặc `domain=commitment/scheduling`
+  — lúc đó việc cần làm là hỏi giờ/giữ slot, đừng đè "xin khung giờ" bằng pitch InBody.
+
+### 9.3 Cắt preferredTime BỊA (`stateMachine.sanitizePreferredTime` — tổng quát hóa)
+
+Classifier bịa `preferredTime` từ tin KHÔNG có thời gian (vd "ok qua thử" / "thử 1 buổi xem" →
+"17h chiều thứ 4 17/06") → bot xác nhận **SAI NGÀY** (chốt thứ 4 trong khi khách nói "sáng chủ nhật").
+- Guard cũ chỉ chặn khi message có **range-giờ** ("7-9h") → bỏ sót case "không có cue gì".
+- **Mới:** nếu message KHÔNG có BẤT KỲ cue thời gian nào (không thứ/ngày/DD-MM + không giờ `\d+h` + không
+  buổi sáng/trưa/chiều/tối/đêm — "1 buổi" KHÔNG tính) → cắt sạch preferredTime (return null).
+- **An toàn:** `mergeSlots` vẫn giữ preferredTime CŨ trong state → chỉ chặn giá trị MỚI bịa, KHÔNG xoá lịch
+  thật. Test: "8h sáng mai"/"chiều 17h"/"buổi tối" vẫn giữ slot đúng (regression pass).
+
+### 9.4 Phụ trợ
+- `classifier.ts` **temperature 0.1 → 0**: objection terse ("đắt thế e") ổn định; tác dụng phụ bịa ngày đã
+  chặn ở §9.3 nên temp 0 an toàn.
+- `classifier.ts` thêm example objection terse ("đắt thế", "đắt v", "mắc v"...) + FOLLOW-UP CONTEXT rule:
+  "tin trước bot vừa BÁO GIÁ → KH phản ứng ngắn tiêu cực → objection/price_too_high".
+
+### 9.5 Kết quả run cuối (v9) — sạch, ổn định
+- parse-fail **7→0** · turn 7 InBody + đã-biết-tập (không "sáng hay chiều") ✅ · turn 13 objection →
+  reframe đủ 4 value point, không tụt giá ✅ · closing không bịa ngày → chốt đúng "sáng chủ nhật 21/06" ✅.
+- `npm run build` OK · regression closing (8h sáng mai/chiều 17h/buổi tối) giữ slot đúng ✅.
+- **Sạn nhỏ:** câu xác nhận tên+SĐT đôi khi hơi cụt (state vẫn đủ, turn sau chốt lại đúng); xưng "anh/chị"
+  1–2 lượt đầu trước khi khóa "chị" (nhiễu mini-model, tự sửa).
