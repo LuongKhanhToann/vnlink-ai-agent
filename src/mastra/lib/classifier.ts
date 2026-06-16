@@ -32,7 +32,7 @@ import {
   signalToLegacyTopic,
 } from "./intent";
 import { buildDateContext, verifyWeekdayInTime } from "./dateHelper";
-import { classifierModel } from "../config/openai";
+import { classifierModel, openai } from "../config/openai";
 
 // Single source of truth: list giá trị topic được phép — dùng cho cả zod enum + map output.
 const INTENT_TOPICS = [
@@ -100,12 +100,27 @@ const INTENT_TOPICS = [
   "ask_teen_safety",
 ] as const satisfies readonly IntentTopic[];
 
+const CLASSIFIER_INSTRUCTIONS =
+  `Bạn phân tích tin nhắn khách hàng. Trả JSON theo schema, không markdown, không giải thích.`;
+
 const classifierAgent = new Agent({
   name: "classifier",
   id: "val-classifier",
   model: classifierModel,
-  instructions: `Bạn phân tích tin nhắn khách hàng. Trả JSON theo schema, không markdown, không giải thích.`,
+  instructions: CLASSIFIER_INSTRUCTIONS,
 });
+
+// Hook A/B: override model để đo head-to-head (vd 4o-mini vs 5.4-mini). Prod KHÔNG
+// truyền modelId → dùng singleton classifierModel y như cũ (hành vi không đổi).
+function classifierAgentFor(modelId?: string) {
+  if (!modelId) return classifierAgent;
+  return new Agent({
+    name: "classifier",
+    id: `val-classifier-${modelId}`,
+    model: openai.chat(modelId),
+    instructions: CLASSIFIER_INSTRUCTIONS,
+  });
+}
 
 // Schema tĩnh: tất cả field nullable. Cho phép gpt-4o-mini bỏ qua slot không cần.
 //
@@ -198,6 +213,8 @@ export interface ClassifyInput {
   previousIntentTopic?: IntentTopic | null;
   /** Abort signal — cắt LLM call khi tin mới đến (cancel-and-restart). */
   abortSignal?: AbortSignal;
+  /** Override model classifier (CHỈ dùng cho đo A/B; prod để trống → classifierModel mặc định). */
+  modelId?: string;
 }
 
 export async function classify(
@@ -211,6 +228,7 @@ export async function classify(
     needFlowClassification,
     previousIntentTopic,
     abortSignal,
+    modelId,
   } = input;
 
   const missingSlots = nullSlots(currentKnownInfo);
@@ -291,7 +309,7 @@ export async function classify(
   );
 
   try {
-    const result = await classifierAgent.generate(prompt, {
+    const result = await classifierAgentFor(modelId).generate(prompt, {
       // Classifier: temperature=0 để slot/intent extraction TẤT ĐỊNH.
       // (Khác fitness agent — agent cần variation, classifier cần ổn định.)
       // 0.1 làm objection terse ("đắt thế e") flaky → có lúc domain=null, mất directive reframe value.
@@ -326,7 +344,71 @@ export async function classify(
 
 // ─────────────────────────────────────────────
 // PROMPT BUILDER
+//
+// BỐ CỤC CHO PROMPT CACHING (OpenAI tự cache prefix ≥1024 tok, giảm ~90% giá input
+// phần trùng): phần TĨNH (taxonomy — KHÔNG phụ thuộc tin khách) đặt LÊN ĐẦU; phần
+// ĐỘNG (tin khách / đã-biết / ngày / slot cần extract) gom vào dataTail ĐẶT CUỐI.
+// Đầu prompt ổn định theo flow (slot theo flow) → byte-identical giữa các lượt cùng
+// 1 cuộc thoại → cache hit. Đo cached_tokens ở response.usage để xác nhận.
 // ─────────────────────────────────────────────
+
+type SlotScope = "fitness" | "giai-co" | "both";
+
+// Định nghĩa slot TÁCH theo flow → chỉ gửi block của flow đang chạy (slim ~nửa block
+// slot). Nội dung GIỮ NGUYÊN VĂN từ bản cũ, chỉ tách ra để gửi có chọn lọc.
+const SLOTS_FITNESS = `SLOTS cho fitness:
+  serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể.
+                  ⚠️ Multi-service ONLY khi KH muốn TẬP 2+ dịch vụ ("gym và bơi cả 2", "yoga + zumba luôn", "đăng ký gym + yoga", "cả gym lẫn bơi") → trả "full" (combo).
+                  ⚠️ GỌI TÊN GÓI FULL: khi KH nhắc thẳng "gói full" / "thẻ full" / "combo" / "cả gói" / "gói tổng hợp" (kể cả khi đang hỏi giá) → serviceType="full". KH đang đổi focus sang gói Full, ghi đè bộ môn lẻ đã nói trước đó.
+                  ⚠️ COMPARISON ("gym với yoga cái nào tốt hơn", "gym hay yoga", "X so với Y", "X vs Y") → KHÔNG extract serviceType (để null). Đây là hỏi tư vấn, không phải chọn cả 2.
+                  TUYỆT ĐỐI KHÔNG trả "gym và bơi" / "gym + bơi" / "gym, bơi" — phải là 1 trong 6 enum.
+  memberType    = ca-nhan/gia-dinh/hoc-sinh — extract khi có cue:
+                  "sinh viên" / "sv" / "học sinh" / "hs" / "đang học" → "hoc-sinh"
+                  "vợ chồng" / "gia đình" / "cả nhà" / "2 vợ chồng" / "với vợ/chồng/con" → "gia-dinh"
+                  không có cue → null (đừng đoán "ca-nhan")
+  durationMonths = số tháng muốn đăng ký
+  schedule      = khung giờ / số buổi mỗi tuần (VD: "sáng" → "sáng", "chiều tối" → "chiều-tối", "3 buổi/tuần" → "3-buoi-tuan")
+  fitnessGoal   = giam-mo/tang-co/tang-can/thu-gian/hoc-boi/suc-khoe/giu-dang/linh-hoat
+                  PHẢI extract ngay khi khách đề cập mục tiêu, dù ngầm hiểu:
+                  "giảm mỡ" / "giảm cân" / "đốt mỡ" → "giam-mo"
+                  "tăng cơ" / "tăng cơ bắp" / "to hơn" → "tang-co"
+                  "tăng cân" / "lên cân" / "mập lên" / "gầy quá muốn tăng" / "ăn mãi không béo" / "khó tăng cân" → "tang-can"
+                  "thư giãn" / "giải stress" / "cho khỏe" → "thu-gian"
+                  "học bơi" / "muốn biết bơi" → "hoc-boi"
+                  "giữ dáng" / "duy trì vóc dáng" / "giữ form" / "giữ cân" / "săn chắc duy trì" → "giu-dang"
+                  Phân biệt: "tăng cơ" (cơ bắp, gym thuần) = tang-co; "tăng cân" (người gầy muốn lên cân) = tang-can.
+                  VD: "muốn tập gym giảm mỡ" → serviceType="gym", fitnessGoal="giam-mo"
+  bodyStats     = chỉ số cơ thể khách TỰ KHAI (chiều cao / cân nặng / số cân muốn giảm-tăng).
+                  Ghi NGUYÊN VĂN gọn những gì khách nói, để null nếu không nhắc.
+                  "cao 1m65 nặng 72 muốn giảm 8 cân" → "cao 1m65, nặng 72kg, giảm 8kg"
+                  "1m75 mà có 58kg" → "cao 1m75, nặng 58kg"
+                  "85kg muốn xuống 70" → "nặng 85kg, mục tiêu 70kg"
+                  KHÔNG suy diễn nếu khách chưa cho số — hỏi giá/buổi tập KHÔNG phải bodyStats.`;
+
+const SLOTS_GIAICO = `SLOTS cho giai-co:
+  painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau
+  painSpread    = tính chất lan tỏa — extract khi khách mô tả cơn đau:
+                  "lan ra" / "lan xuống" / "kéo dài" → "lan-toa"
+                  "một chỗ" / "điểm cố định" / "không lan" → "diem-co-dinh"
+                  mô tả cụ thể khác → ghi nguyên văn ngắn gọn
+  painDuration  = đau bao lâu (VD: "mấy hôm", "1 tuần", "vài tháng")
+  pastMethod    = phương pháp đã thử — CHỈ extract khi khách EXPLICITLY nói về phương pháp đã/đang dùng:
+                  "chưa thử gì" / "chưa thử cách nào" / "chưa từng" / "chưa bao giờ" / "không thử" → "chua-thu"
+                  "có massage" / "đã đi massage" / "xoa bóp" → "massage"
+                  "uống thuốc" / "có thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
+                  "vật lý trị liệu" / "châm cứu" / "trị liệu" → "vat-ly-tri-lieu"
+                  khác → "khac"
+                  ⚠️ TUYỆT ĐỐI KHÔNG suy diễn "chua-thu" chỉ vì khách chưa nói. Nếu khách chưa nhắc gì về phương pháp → để null.
+                  ⚠️ Khi khách bổ sung sau ("chị có uống thuốc giảm đau") dù slot cũ đã có giá trị → phải UPDATE thành value mới.
+  sessionPackage = le/5-buoi/10-buoi/20-buoi`;
+
+// Slot theo flow: flow đã biết → chỉ block đó; chưa biết (needFlow) → cả hai.
+function slotsFor(scope: SlotScope): string {
+  const parts: string[] = [];
+  if (scope !== "giai-co") parts.push(SLOTS_FITNESS);
+  if (scope !== "fitness") parts.push(SLOTS_GIAICO);
+  return parts.join("\n\n");
+}
 
 function buildPrompt(
   message: string,
@@ -368,7 +450,16 @@ function buildPrompt(
     ? `IntentTopic turn TRƯỚC: "${previousIntentTopic}" — nếu KH đang follow-up cùng chủ đề, ưu tiên gán lại topic này (xem mục FOLLOW-UP CONTEXT).`
     : `IntentTopic turn TRƯỚC: null`;
 
-  return `Tin nhắn khách: "${message}"
+  const scope: SlotScope = needFlow
+    ? "both"
+    : previousFlow === "giai-co"
+    ? "giai-co"
+    : "fitness";
+
+  // PHẦN ĐỘNG — đặt CUỐI prompt để KHÔNG phá cache prefix (taxonomy tĩnh ở trên).
+  const dataTail = `─────────────────────────────────────────────
+DỮ LIỆU LƯỢT NÀY:
+Tin nhắn khách: "${message}"
 Đã biết: ${knownSummary}
 Flow trước: "${previousFlow}", Stage trước: "${previousStage}"
 ${prevTopicLine}
@@ -376,22 +467,22 @@ ${prevTopicLine}
 NGÀY HIỆN TẠI (múi giờ VN):
 ${dateContext}
 
-Trả JSON thuần:
+Trả JSON thuần (định nghĩa các trục: xem taxonomy Ở TRÊN):
 {
   ${flowInstruction}
   "emotion": "neutral"|"excited"|"anxious"|"frustrated"|"hesitant"|"trusting",
   "intent": "explore"|"compare"|"selecting"|"ready",
   "honorific": "anh"|"chị"|null,
   "intentSignal": {
-    "domain": "<1 trong 11 domain bên dưới>",
+    "domain": "<1 trong 11 domain ở mục INTENT_SIGNAL trên>",
     "service": "gym"|"yoga"|"zumba"|"boi"|"pilates"|"full"|null,
     "attribute": "<attribute key trong domain — xem mục ATTRIBUTE>"
   },
-  "secondaryIntents": [ /* OPTIONAL — xem MULTI-INTENT bên dưới. Null hoặc [] nếu KH chỉ hỏi 1 thứ. */ ],
+  "secondaryIntents": [ /* OPTIONAL — xem MULTI-INTENT ở trên. Null hoặc [] nếu KH chỉ hỏi 1 thứ. */ ],
   ${missingSlots.length > 0 ? `"slots": {${slotExtractionFields}}` : `// slots đã đủ`}
-}
+}`;
 
-EMOTION: suy luận từ cách viết, dấu câu, từ ngữ. Mặc định "neutral" khi không có tín hiệu rõ — ĐỪNG ép gán cảm xúc.
+  return `EMOTION: suy luận từ cách viết, dấu câu, từ ngữ. Mặc định "neutral" khi không có tín hiệu rõ — ĐỪNG ép gán cảm xúc.
   - excited: hào hứng, dùng "!", "quá", "luôn", muốn bắt đầu ngay ("đăng ký luôn", "tập ngay được không", "ok chốt luôn").
   - trusting: tin & xuôi theo tư vấn, "ok em", "nghe hợp lý", "vậy chốt", "em tư vấn giúp anh/chị" — đồng ý dễ, ít vặn.
   - hesitant: phân vân/chưa quyết, "để nghĩ thêm", "chưa chắc", "hơi lăn tăn", "không biết có hợp không", "tham khảo đã", "từ từ".
@@ -628,121 +719,21 @@ FOLLOW-UP CONTEXT — dùng intentTopic turn TRƯỚC (đã derive từ intentSi
   - Trước = ask_facility / ask_address / ask_branch → KH hỏi tiếp CSVC → giữ domain=service_inquiry.
   - Tin TRƯỚC bot vừa BÁO GIÁ/GÓI → KH phản ứng ngắn tiêu cực ("đắt thế", "mắc v", "sao cao thế", "thôi đắt") → domain=objection + attribute=price_too_high (đừng để domain=null).
 
-SLOTS cho fitness:
-  serviceType   = gym/yoga/zumba/boi/pilates/full — extract khi khách nhắc dịch vụ cụ thể.
-                  ⚠️ Multi-service ONLY khi KH muốn TẬP 2+ dịch vụ ("gym và bơi cả 2", "yoga + zumba luôn", "đăng ký gym + yoga", "cả gym lẫn bơi") → trả "full" (combo).
-                  ⚠️ GỌI TÊN GÓI FULL: khi KH nhắc thẳng "gói full" / "thẻ full" / "combo" / "cả gói" / "gói tổng hợp" (kể cả khi đang hỏi giá) → serviceType="full". KH đang đổi focus sang gói Full, ghi đè bộ môn lẻ đã nói trước đó.
-                  ⚠️ COMPARISON ("gym với yoga cái nào tốt hơn", "gym hay yoga", "X so với Y", "X vs Y") → KHÔNG extract serviceType (để null). Đây là hỏi tư vấn, không phải chọn cả 2.
-                  TUYỆT ĐỐI KHÔNG trả "gym và bơi" / "gym + bơi" / "gym, bơi" — phải là 1 trong 6 enum.
-  memberType    = ca-nhan/gia-dinh/hoc-sinh — extract khi có cue:
-                  "sinh viên" / "sv" / "học sinh" / "hs" / "đang học" → "hoc-sinh"
-                  "vợ chồng" / "gia đình" / "cả nhà" / "2 vợ chồng" / "với vợ/chồng/con" → "gia-dinh"
-                  không có cue → null (đừng đoán "ca-nhan")
-  durationMonths = số tháng muốn đăng ký
-  schedule      = khung giờ / số buổi mỗi tuần (VD: "sáng" → "sáng", "chiều tối" → "chiều-tối", "3 buổi/tuần" → "3-buoi-tuan")
-  fitnessGoal   = giam-mo/tang-co/tang-can/thu-gian/hoc-boi/suc-khoe/giu-dang/linh-hoat
-                  PHẢI extract ngay khi khách đề cập mục tiêu, dù ngầm hiểu:
-                  "giảm mỡ" / "giảm cân" / "đốt mỡ" → "giam-mo"
-                  "tăng cơ" / "tăng cơ bắp" / "to hơn" → "tang-co"
-                  "tăng cân" / "lên cân" / "mập lên" / "gầy quá muốn tăng" / "ăn mãi không béo" / "khó tăng cân" → "tang-can"
-                  "thư giãn" / "giải stress" / "cho khỏe" → "thu-gian"
-                  "học bơi" / "muốn biết bơi" → "hoc-boi"
-                  "giữ dáng" / "duy trì vóc dáng" / "giữ form" / "giữ cân" / "săn chắc duy trì" → "giu-dang"
-                  Phân biệt: "tăng cơ" (cơ bắp, gym thuần) = tang-co; "tăng cân" (người gầy muốn lên cân) = tang-can.
-                  VD: "muốn tập gym giảm mỡ" → serviceType="gym", fitnessGoal="giam-mo"
-  bodyStats     = chỉ số cơ thể khách TỰ KHAI (chiều cao / cân nặng / số cân muốn giảm-tăng).
-                  Ghi NGUYÊN VĂN gọn những gì khách nói, để null nếu không nhắc.
-                  "cao 1m65 nặng 72 muốn giảm 8 cân" → "cao 1m65, nặng 72kg, giảm 8kg"
-                  "1m75 mà có 58kg" → "cao 1m75, nặng 58kg"
-                  "85kg muốn xuống 70" → "nặng 85kg, mục tiêu 70kg"
-                  KHÔNG suy diễn nếu khách chưa cho số — hỏi giá/buổi tập KHÔNG phải bodyStats.
-
-SLOTS cho giai-co:
-  painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau
-  painSpread    = tính chất lan tỏa — extract khi khách mô tả cơn đau:
-                  "lan ra" / "lan xuống" / "kéo dài" → "lan-toa"
-                  "một chỗ" / "điểm cố định" / "không lan" → "diem-co-dinh"
-                  mô tả cụ thể khác → ghi nguyên văn ngắn gọn
-  painDuration  = đau bao lâu (VD: "mấy hôm", "1 tuần", "vài tháng")
-  pastMethod    = phương pháp đã thử — CHỈ extract khi khách EXPLICITLY nói về phương pháp đã/đang dùng:
-                  "chưa thử gì" / "chưa thử cách nào" / "chưa từng" / "chưa bao giờ" / "không thử" → "chua-thu"
-                  "có massage" / "đã đi massage" / "xoa bóp" → "massage"
-                  "uống thuốc" / "có thuốc" / "dùng thuốc" / "dán cao" → "thuoc"
-                  "vật lý trị liệu" / "châm cứu" / "trị liệu" → "vat-ly-tri-lieu"
-                  khác → "khac"
-                  ⚠️ TUYỆT ĐỐI KHÔNG suy diễn "chua-thu" chỉ vì khách chưa nói. Nếu khách chưa nhắc gì về phương pháp → để null.
-                  ⚠️ Khi khách bổ sung sau ("chị có uống thuốc giảm đau") dù slot cũ đã có giá trị → phải UPDATE thành value mới.
-  sessionPackage = le/5-buoi/10-buoi/20-buoi
+${slotsFor(scope)}
 
 SLOTS chung (áp dụng cả fitness và giai-co):
   name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào).
           ⚠️ CHỈ lấy phần TÊN, BỎ động từ/xưng hô dẫn vào: "tên anh là Trung"→"Trung", "mình tên Lan"→"Lan", "em là Hùng"→"Hùng". KHÔNG bao giờ gồm "là"/"tên"/"anh"/"chị".
   phone = số điện thoại
-  preferredTime = thời gian khách muốn đến — RESOLVE dựa vào NGÀY HIỆN TẠI ở trên.
-    ⚠️ Viết có dấu tiếng Việt, KHÔNG slugify (KHÔNG viết "cuoi tuan", "sang", "chieu" — phải là "cuối tuần", "sáng", "chiều").
-    ⚠️ Format: "[giờ] [buổi] [thứ] DD/MM" — gom đủ thành phần khách cho, bỏ qua phần khách không đề cập.
+  preferredTime = thời gian khách muốn đến — RESOLVE dựa bảng "NGÀY HIỆN TẠI" ở phần DỮ LIỆU bên dưới (đã có sẵn thứ→DD/MM 14 ngày tới). Viết CÓ DẤU, KHÔNG slugify ("cuối tuần" không phải "cuoi tuan").
+    - NGÀY/GIỜ RÕ (có thứ/ngày/giờ cụ thể, kể cả "mai"/"ngày kia"/"thứ 4 tuần sau") → "[giờ] [buổi] [thứ] DD/MM", gom đủ phần khách cho, bỏ phần không có. Buổi suy từ giờ: <12=sáng, 12–17=chiều, ≥18=tối. Chỉ có giờ → suy ngày gần nhất hợp lý.
+    - CỬA SỔ nhiều ngày ("đầu/giữa/cuối tuần|tháng", "tuần/tháng sau", "vài/mấy hôm nữa", "hôm nào") → GIỮ NGUYÊN cụm, KHÔNG tự ép 1 ngày (bot đề xuất 2 ngày sau). Kèm buổi nếu khách cho ("sáng đầu tuần sau").
+    - MƠ HỒ (cue "tầm/khoảng/chắc/cỡ" hoặc chỉ nói buổi trơ) → CHỈ ghi buổi, KHÔNG gán ngày. "chưa biết"/"lúc nào rảnh" → null.
+    - REFINE (đã có value cũ, tin mới BỔ SUNG cùng hướng) → GỘP cũ+mới thành cụ thể hơn. Tin mới KHÔNG nói gì về giờ → giữ NGUYÊN value cũ.
+    - ĐỔI Ý (cue "thôi/đổi/chuyển/dời/không/ko" + có từ thời gian) → THAY HẲN value cũ, KHÔNG gộp; PHẢI extract value mới (không null). Cue phải rõ — chỉ "à" thì giữ cũ.
+    - KHÔNG suy đoán vượt info khách cho — thà generic còn hơn sai.
 
-    A) CỤ THỂ (khách có ngày/thứ/giờ rõ):
-      "9h sáng mai"       → "9h sáng DD/MM"      (DD/MM = ngày mai)
-      "15h thứ 7"         → "15h chiều thứ 7 DD/MM"   (thứ 7 gần nhất chưa qua, buổi suy từ giờ: <12=sáng, 12-17=chiều, ≥18=tối)
-      "tối mai 7h"        → "19h tối DD/MM"
-      "3h chiều cn"       → "15h chiều chủ nhật DD/MM"
-      "tối nay"           → "tối DD/MM"          (= hôm nay)
-      "chiều mai"         → "chiều DD/MM"
-      "thứ 4 tuần sau"    → "thứ 4 DD/MM"        (1 thứ CỤ THỂ → gán DD/MM luôn)
-      "ngày kia"          → "DD/MM"              (hôm nay + 2)
-
-    A2) CỬA SỔ NHIỀU NGÀY (khách nói KHOẢNG, không 1 ngày rõ) → GIỮ NGUYÊN cụm, KHÔNG tự ép 1 ngày.
-        (Bot reply sẽ tự tính & đề xuất 2 ngày cụ thể cho khách chọn — ở đây chỉ cần giữ đúng cụm.)
-      "đầu tuần" / "đầu tuần sau"   → "đầu tuần" | "đầu tuần sau"
-      "giữa tuần (sau)"             → "giữa tuần" | "giữa tuần sau"
-      "cuối tuần"                   → "cuối tuần"   (⚠️ KHÔNG đổi thành "thứ 7 DD/MM")
-      "cuối tuần sau"               → "cuối tuần sau"
-      "tuần sau" / "tuần tới"       → "tuần sau"
-      "đầu/giữa/cuối tháng"         → "đầu tháng" | "giữa tháng" | "cuối tháng"
-      "tháng sau"                   → "tháng sau"
-      "vài hôm nữa" / "mấy hôm nữa" → "vài hôm nữa"
-      Kèm buổi nếu khách cho: "sáng đầu tuần sau" → "sáng đầu tuần sau".
-
-    B) CHỈ CÓ GIỜ (không kèm ngày):
-      "9h"              → "9h sáng DD/MM"        — nếu giờ hiện tại < 9h hôm nay thì lấy hôm nay, không thì ngày mai
-      "19h" / "7h tối"  → "19h tối DD/MM"        theo cùng logic
-      Tự suy buổi từ giờ (sáng <12, chiều 12-17, tối ≥18).
-
-    C) MƠ HỒ / KHÔNG CHẮC (cue: "tầm", "khoảng", "chắc", "cỡ", "đại khái" — HOẶC chỉ nói buổi trơ):
-      "tầm chiều"         → "chiều"               (KHÔNG gán ngày)
-      "khoảng sáng"       → "sáng"
-      "chắc là tối"       → "tối"
-      "sáng" (đứng 1 mình, không ngữ cảnh) → "sáng"
-      "lúc nào rảnh em báo" / "chưa biết"  → null
-
-    D) REFINE — khi đã có preferredTime cũ và tin mới BỔ SUNG (cùng hướng, không trái):
-      Nếu tin mới của khách BỔ SUNG thông tin (buổi mới, ngày mới, giờ mới) →
-      GỘP với value cũ thành value mới CỤ THỂ HƠN.
-      Ví dụ:
-        Cũ="cuối tuần",  tin mới="sáng nha"              → "sáng cuối tuần"   (vẫn là cửa sổ, chỉ thêm buổi)
-        Cũ="sáng",       tin mới="chủ nhật"              → "sáng chủ nhật DD/MM"
-        Cũ="thứ 7 25/04", tin mới="9h nha"               → "9h sáng thứ 7 25/04"
-        Cũ="chiều",      tin mới="mai"                   → "chiều DD/MM" (ngày mai)
-      Nếu tin mới KHÔNG nói gì về thời gian → giữ nguyên value cũ (trả value cũ y hệt).
-
-    E) ĐỔI Ý — khi khách CHỦ ĐỘNG đổi sang giờ khác (cue: "thôi", "đổi", "chuyển", "dời", "không", "ko"):
-      THAY THẾ HOÀN TOÀN value cũ bằng tin mới. KHÔNG gộp với cũ.
-      ⚠️ TUYỆT ĐỐI phải extract preferredTime mới — KHÔNG được để null khi message có cue đổi ý + có từ thời gian.
-      Ví dụ:
-        Cũ="9h sáng thứ 7 02/05",   tin mới="thôi sáng mai luôn nha"   → "sáng DD/MM" (ngày mai)
-        Cũ="sáng thứ 7 16/05",      tin mới="à mà thôi dời sang chiều mai được không" → "chiều DD/MM" (ngày mai)
-        Cũ="chiều thứ 6 26/04",     tin mới="đổi sang tối được không"  → "tối DD/MM" (giữ ngày cũ)
-        Cũ="thứ 7",                 tin mới="ko thứ 7, chuyển cn"      → "chủ nhật DD/MM"
-        Cũ="sáng thứ 7 16/05",      tin mới="ok 4h chiều mai nha em"   → "16h chiều DD/MM" (ngày mai)
-      Cue đổi ý PHẢI rõ — không nhầm với refine. Nếu chỉ thấy "à" hay câu khác chủ đề → giữ cũ.
-
-    QUY TẮC CHUNG:
-      - Ưu tiên gom đủ {giờ + buổi + thứ/ngày} khi khách cho đủ tín hiệu.
-      - Có cue mơ hồ (tầm/khoảng/chắc/cỡ) → CHỈ ghi buổi, KHÔNG tự thêm ngày.
-      - Cửa sổ nhiều ngày (đầu/giữa/cuối tuần|tháng, tuần/tháng sau, vài hôm nữa) → GIỮ NGUYÊN cụm (xem A2), KHÔNG tự chọn 1 ngày thay khách.
-      - KHÔNG suy đoán vượt info khách cho — thà generic còn hơn gán sai.
-      - KHÔNG slugify, viết đầy đủ có dấu tiếng Việt.
+${dataTail}
 
 Chỉ extract ${missingSlots.length > 0 ? missingSlots.join(", ") : "— không cần extract"} — để null nếu không đề cập.`;
 }
