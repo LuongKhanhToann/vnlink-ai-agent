@@ -72,6 +72,7 @@ Bonus: Pilates (13 máy chuẩn QT).
 
 GIẢI PHÁP THEO MỤC TIÊU (RECOMMEND khi biết goal):
 - Giảm cân/mỡ: kết hợp Gym + Zumba (+ Bơi nếu khách thích) — 3 môn đốt calo + săn chắc, zumba thêm xả stress giúp duy trì động lực. Pitch thẻ Full 4 dịch vụ.
+- Tăng cân (người gầy, ăn mãi không lên): Gym tập tạ là chính — kích thích tăng cơ nạc để lên cân CHẮC (không phải tích mỡ/nước như uống thuốc), kèm PT ra giáo án tăng cơ + tư vấn ăn đủ bữa. InBody đo lượng cơ còn thiếu để nạp dinh dưỡng đúng. Nêu ĐÚNG cơ chế tăng cơ nạc, đừng độn lợi ích chung chung.
 - Duy trì sức khoẻ / hết giảm cân: thêm Yoga thư giãn, giảm căng thẳng, ngủ ngon hơn.
 - Tăng cơ: Gym + PT 1-1 (PT 20 buổi 6 triệu, 2 tháng).
 - Chỉnh dáng/dáng đẹp: Yoga + Pilates máy.
