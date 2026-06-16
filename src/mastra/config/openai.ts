@@ -4,7 +4,9 @@ import "dotenv/config";
 // PROVIDER SWITCH (reversible):
 //   Mặc định = OPENAI (DeepSeek đang âm số dư, is_available:false → mọi call bị từ chối).
 //   Reply  = gpt-5.4-mini  (mạnh hơn nhiều 4o-mini, ~1.4s, không tốn reasoning tokens)
-//   Classifier = gpt-4o-mini (rẻ + đủ chính xác cho extract slot/intent).
+//   Classifier = gpt-5.4-mini (nâng từ 4o-mini: đo A/B thắng rõ ở objection "đắt thế e",
+//     refine ngày, corporate, tăng-cân-vs-tăng-cơ — xem scripts/classifierAB.ts. Sau khi
+//     đảo prompt classifier cho cache (head ~6.1k byte-identical), giá ~ngang 4o-mini).
 //   Lùi về DeepSeek: set LLM_PROVIDER=deepseek (khi tài khoản đã nạp tiền lại).
 //   Override model lẻ: REPLY_MODEL / CLASSIFIER_MODEL.
 // Lưu ý gpt-5.x: chỉ nhận max_completion_tokens (không max_tokens) — code không truyền
@@ -32,7 +34,7 @@ export const openai = USE_OPENAI ? openaiClient : deepseekClient;
 export const REPLY_MODEL =
   process.env.REPLY_MODEL ?? (USE_OPENAI ? "gpt-5.4-mini" : "deepseek-v4-pro");
 export const CLASSIFIER_MODEL =
-  process.env.CLASSIFIER_MODEL ?? (USE_OPENAI ? "gpt-4o-mini" : "deepseek-v4-flash");
+  process.env.CLASSIFIER_MODEL ?? (USE_OPENAI ? "gpt-5.4-mini" : "deepseek-v4-flash");
 
 // QUAN TRỌNG: @ai-sdk/openai v3 mặc định openai(id) → Responses API (/responses),
 // mà DeepSeek CHỈ có Chat Completions (/chat/completions) → openai(id) sẽ 404.
