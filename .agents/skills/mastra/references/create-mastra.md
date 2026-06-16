@@ -192,7 +192,7 @@ Launch the development server:
 npm run dev
 ```
 
-Access Studio at `http://localhost:4111` to test your agent.
+Access Studio at `http://localhost:4112` to test your agent.
 
 ## Next steps
 
@@ -209,7 +209,7 @@ After creating your project with `create mastra`:
 | Issue              | Solution                                                                             |
 | ------------------ | ------------------------------------------------------------------------------------ |
 | API key not found  | Make sure your `.env` file has the correct key                                       |
-| Studio won't start | Check that port 4111 is available                                                    |
+| Studio won't start | Check that port 4112 is available                                                    |
 | CommonJS errors    | Ensure `tsconfig.json` uses `"module": "ES2022"` and `"moduleResolution": "bundler"` |
 | Command not found  | Ensure you're using Node.js 20+                                                      |
 

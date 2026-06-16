@@ -209,6 +209,16 @@ export interface ConversationState {
    *  Sticky toàn cuộc thoại (KHÔNG chỉ turn trước). Template safety đọc field này để KHÔNG bắn lại
    *  NGUYÊN VĂN đoạn trấn an dài ở lượt sau (lỗi HARD-LOOP lộ máy) — nhường LLM trả lời ngắn, sát. */
   safetyTopicsCovered?: string[];
+  /** Sticky toàn cuộc thoại: KH đang trong cửa sổ chấn thương CẤP TÍNH (vừa bị, sưng nóng <72h).
+   *  Set khi classifier attribute=acute_injury. Giữ NGUYÊN các turn sau (KH hỏi "khi nào qua được",
+   *  cảm ơn, chitchat) để bot KHÔNG rơi lại funnel discovery/pitch — chỉ trấn an + hẹn quay lại sau
+   *  3-5 ngày khi hết sưng nóng. Xem [GATE chấn thương cấp] ở prefixBuilder. */
+  acuteInjuryHold?: boolean;
+  /** Sticky toàn cuộc thoại: KH là DOANH NGHIỆP/công ty mua gói cho nhân viên/đoàn.
+   *  Set khi classifier attribute=corporate / intentTopic=ask_corporate. Giữ NGUYÊN các turn sau
+   *  (KH hỏi "bao nhiêu 1 người" → classifier ra pricing, mất context corporate) → bot KHÔNG báo
+   *  giá lẻ retail mà giữ hướng "ưu đãi riêng cho công ty, để sale báo". Xem GATE doanh nghiệp. */
+  corporateHold?: boolean;
   /** ID template bot gửi ở lượt TRƯỚC (vd "ask_pain_after_goal_giam-mo"). Tín hiệu TẤT ĐỊNH
    *  (id mình kiểm soát, KHÔNG regex) cho anti-loop: vd biết "đã hỏi nỗi đau rồi" để không hỏi lại. */
   lastTemplateId?: string | null;
@@ -277,6 +287,11 @@ export function mergeSlots(
     e: string | null,
     x: string | null | undefined,
   ): string | null {
+    // KH gọi thẳng tên gói FULL/combo (classifier extract serviceType="full") → ĐỔI focus
+    // sang "full" dù trước đó đang bàn 1 môn lẻ (vd zumba). Full là superset cả 4 dịch vụ nên
+    // override an toàn; nếu không thì PRICING kẹt ở môn lẻ, báo sai gói khi KH hỏi "gói full"
+    // (bug L2 T12). Các switch lẻ khác (gym↔yoga…) vẫn giữ sticky như cũ.
+    if (typeof x === "string" && x.toLowerCase() === "full") return "full";
     if (e !== null) return e;
     if (x === null || x === undefined) return null;
     const valid = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
@@ -672,6 +687,23 @@ const BENEFICIARY_CUE =
 export function detectBeneficiaryCue(message: string): boolean {
   if (!message) return false;
   return BENEFICIARY_CUE.test(message);
+}
+
+/**
+ * Tín hiệu CHẤN THƯƠNG CẤP TÍNH (giai-co) — vừa bị (<72h) do sự cố cụ thể KÈM dấu hiệu cấp
+ * (sưng/nóng/không cử động nổi). Dùng để CORROBORATE classifier attribute=acute_injury trước khi
+ * bật cờ sticky acuteInjuryHold — classifier (mini) hay nhầm đau cơ MÃN ("đau mỏi mấy nay",
+ * "căng cứng vài tuần") thành cấp tính (bug L3/L4). Yêu cầu 2 tín hiệu đồng thuận = hardening parse,
+ * KHÔNG phải thay LLM bằng regex (classification vẫn do LLM, đây chỉ là chốt chặn an toàn).
+ */
+export function detectAcuteInjury(message: string): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    (/(hôm\s*qua|hôm\s*nay|sáng\s*nay|chiều\s*nay|tối\s*nay|vừa\s*bị|mới\s*bị)/.test(m) &&
+      /(đau|chấn|trẹo|sai\s*tư\s*thế|té|ngã|lật|bong\s*gân)/.test(m)) ||
+    /(không\s*(cử\s*động|nhúc\s*nhích)\s*(nổi|được)?|sưng\s*vù|sưng\s*to|nóng\s*đỏ|sưng\s*nóng)/.test(m)
+  );
 }
 
 export function detectFlowByKeyword(
@@ -1356,6 +1388,20 @@ export function buildNextState(
     return [...set];
   })();
 
+  // Sticky acute-injury hold: bật khi classifier báo acute_injury VÀ message có tín hiệu cấp thật
+  // (detectAcuteInjury) — corroborate 2 tín hiệu để chặn classifier nhầm đau cơ MÃN thành cấp (bug L3/L4).
+  // 1 lần bật thì giữ CẢ các turn sau (KH hỏi "khi nào qua được" / cảm ơn) → bot không rơi lại funnel.
+  const acuteInjuryHold =
+    previous.acuteInjuryHold === true ||
+    (llm.intentSignal?.attribute === "acute_injury" && detectAcuteInjury(message));
+
+  // Sticky corporate hold: KH là công ty/doanh nghiệp → giữ cờ để các turn sau (hỏi giá/1 người)
+  // không rơi về báo giá lẻ retail. Dùng output classifier (KHÔNG regex).
+  const corporateHold =
+    previous.corporateHold === true ||
+    llm.intentSignal?.attribute === "corporate" ||
+    llm.intentTopic === "ask_corporate";
+
   const stage = computeNextStage(
     baseStage,
     knownInfo,
@@ -1399,6 +1445,8 @@ export function buildNextState(
     askedHistory: previous.askedHistory ?? [],
     mentionedFacts: previous.mentionedFacts ?? [],
     safetyTopicsCovered,
+    acuteInjuryHold,
+    corporateHold,
     // lastTemplateId / recentBotReplies: được cập nhật ở updateStateAfterReply (sau khi có reply),
     // KHÔNG đổi trong buildNextState → carry-forward để không mất khi save nextState giữa chừng.
     lastTemplateId: previous.lastTemplateId ?? null,
@@ -1448,6 +1496,8 @@ export const DEFAULT_STATE: ConversationState = {
   askedHistory: [],
   mentionedFacts: [],
   safetyTopicsCovered: [],
+  acuteInjuryHold: false,
+  corporateHold: false,
   lastTemplateId: null,
   recentBotReplies: [],
 };

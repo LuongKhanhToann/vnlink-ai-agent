@@ -56,7 +56,7 @@ app.use("/public/*", serveStatic({ root: "./" }));
 ```
 
 Sau đó file `./public/media/fitness/gym/photo1.jpg` sẽ accessible tại:
-`http://localhost:4111/public/media/fitness/gym/photo1.jpg`
+`http://localhost:4112/public/media/fitness/gym/photo1.jpg`
 
 **Chỉ cần upload file vào đúng thư mục — bot tự đọc và gửi URL cho khách.**
 
@@ -88,7 +88,7 @@ Sau đó file `./public/media/fitness/gym/photo1.jpg` sẽ accessible tại:
 
 ```env
 OPENAI_API_KEY=sk-...
-BASE_URL=http://localhost:4111   # URL public của Mastra server
+BASE_URL=http://localhost:4112  # URL public của Mastra server
 
 # Thông tin ngân hàng hiển thị kèm QR
 FITNESS_BANK_INFO=Vietcombank - 1234567890 - NGUYEN VAN A

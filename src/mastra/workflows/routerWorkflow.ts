@@ -89,6 +89,67 @@ const agentReplySchema = z.object({
     ),
 });
 
+/**
+ * Salvage reply khi structured-output throw → fallback plain-text NHƯNG model vẫn in JSON thô
+ * (bị prime bởi jsonPromptInjection ở lần generate đầu) → tránh rò `{"text":...,"mediaUrls":[...}`
+ * ra cho khách (bug L5 T7/T8). result.object undefined + result.text là JSON → bóc field "text".
+ * Dùng JSON.parse + string-ops (pure technical parsing), KHÔNG regex business-logic.
+ */
+function salvageReplyObject(raw: string): {
+  text: string;
+  mediaUrls: string[] | null;
+  qrUrl: string | null;
+  nextStep: "ask_info" | "show_media" | "show_qr" | "confirm" | "close" | null;
+  secondaryAnswers: string[] | null;
+} {
+  const base = {
+    text: raw ?? "",
+    mediaUrls: null,
+    qrUrl: null,
+    nextStep: "close" as const,
+    secondaryAnswers: null,
+  };
+  const t = (raw ?? "").trim();
+  if (!t.startsWith("{")) return base;
+  try {
+    const o = JSON.parse(t);
+    if (o && typeof o.text === "string") {
+      return {
+        text: o.text,
+        mediaUrls: Array.isArray(o.mediaUrls) ? o.mediaUrls : null,
+        qrUrl: typeof o.qrUrl === "string" ? o.qrUrl : null,
+        nextStep: o.nextStep ?? "close",
+        secondaryAnswers: Array.isArray(o.secondaryAnswers) ? o.secondaryAnswers : null,
+      };
+    }
+  } catch {
+    // JSON vỡ (model in dở) → bóc thủ công giá trị field "text".
+  }
+  const ki = t.indexOf('"text"');
+  if (ki >= 0) {
+    const colon = t.indexOf(":", ki + 6);
+    const q1 = colon >= 0 ? t.indexOf('"', colon + 1) : -1;
+    if (q1 >= 0) {
+      let i = q1 + 1;
+      let out = "";
+      while (i < t.length) {
+        const c = t[i];
+        if (c === "\\" && i + 1 < t.length) {
+          const nx = t[i + 1];
+          out += nx === "n" ? "\n" : nx;
+          i += 2;
+          continue;
+        }
+        if (c === '"') break;
+        out += c;
+        i++;
+      }
+      if (out.trim()) return { ...base, text: out };
+    }
+  }
+  return base;
+}
+
 const processedStateSchema = z.object({
   message: z.string(),
   threadId: z.string(),
@@ -315,13 +376,7 @@ function buildAgentStep(
         }
       }
 
-      const obj = result.object ?? {
-        text: result.text,
-        mediaUrls: null,
-        qrUrl: null,
-        nextStep: "close" as const,
-        secondaryAnswers: null,
-      };
+      const obj = result.object ?? salvageReplyObject(result.text ?? "");
 
       // Dedupe mediaUrls (defensive — bot có thể gọi tool 2 lần trả URLs duplicate).
       // Quy trình: trim → Set → giữ MAX 3 image + 2 video (tổng tối đa 5 items).
@@ -527,12 +582,7 @@ const fallbackStep = createStep({
         instructions: STRUCTURED_OUTPUT_INSTRUCTIONS,
       },
     });
-    const obj = result.object ?? {
-      text: result.text,
-      mediaUrls: null,
-      qrUrl: null,
-      nextStep: "close" as const,
-    };
+    const obj = result.object ?? salvageReplyObject(result.text ?? "");
     return {
       reply: obj.text,
       mediaUrls: obj.mediaUrls ?? null,

@@ -10,7 +10,7 @@ In a lot of cases, debugging errors can be greatly simplified by first checking 
 npm run dev
 ```
 
-Open `http://localhost:4111` in your browser to access Mastra Studio.
+Open `http://localhost:4112` in your browser to access Mastra Studio.
 
 ## Build and configuration errors
 

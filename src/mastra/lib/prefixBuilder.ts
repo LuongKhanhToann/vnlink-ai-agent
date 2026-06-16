@@ -19,6 +19,7 @@ import {
   Stage,
   detectAddBookingIntent,
   detectRescheduleIntent,
+  detectAcuteInjury,
   isPreferredTimeSpecific,
 } from "./stateMachine";
 import type { IntentSignal } from "./intent";
@@ -605,16 +606,8 @@ export function detectShortAnswer(message: string): boolean {
  * Khách bị chấn thương cấp tính / vừa bị (< 72h) — bot KHÔNG mời ngay,
  * phải khuyên nghỉ 3-5 ngày trước.
  */
-export function detectAcuteInjury(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    /(hôm\s*qua|hôm\s*nay|sáng\s*nay|chiều\s*nay|tối\s*nay|vừa\s*bị|mới\s*bị)/.test(m) &&
-      /(đau|chấn|trẹo|sai\s*tư\s*thế|té|ngã)/.test(m)
-    ||
-    /(không\s*(cử\s*động|nhúc\s*nhích)\s*(nổi|được)?|sưng|nóng\s*đỏ|sưng\s*nóng)/.test(m)
-  );
-}
+// detectAcuteInjury moved → stateMachine.ts (để buildNextState corroborate cờ acuteInjuryHold
+// mà không tạo circular import). prefixBuilder import lại từ đó.
 
 // REMOVED: detectChuongTrinhConsult, detectTrialAsk, detectExplicitPriceList,
 // detectFullPackageConfirm, detectChuaBietTapGi, detectThamQuan
@@ -862,9 +855,30 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // template được dùng và buildLogicGate không chạy. Xem questionFlow.TEMPLATES.
 
   // ── ƯU TIÊN: chấn thương cấp tính (giải cơ) → cảnh báo nghỉ trước (compact) ──
-  if (flow === "giai-co" && message && detectAcuteInjury(message)) {
+  // Sticky: bắn cả các turn SAU khi đã nhận diện cấp tính (state.acuteInjuryHold) — KH hỏi
+  // "khi nào qua được" / cảm ơn không được làm bot rơi lại funnel discovery/pitch (bug E1 t2-t3).
+  if (
+    flow === "giai-co" &&
+    ((message && detectAcuteInjury(message)) || (state as any).acuteInjuryHold === true)
+  ) {
     return (
-      "[GATE chấn thương cấp: KHÔNG mời giải cơ. Khuyên nghỉ 3-5 ngày + chườm đá, nếu đau tăng/tê chân tay → đi khám. KHÔNG pitch gói, KHÔNG hỏi thêm slot.]"
+      "[GATE chấn thương cấp (an toàn, ưu tiên cao nhất): KH đang chấn thương CẤP TÍNH (vừa bị, sưng nóng). " +
+      "TUYỆT ĐỐI KHÔNG mời giải cơ ngay, KHÔNG pitch gói/giá, KHÔNG hỏi discovery (đau lan hay 1 điểm / đã thử cách gì) — đang giai đoạn cấp, hỏi sâu/chốt đơn lúc này là SAI & vô cảm. " +
+      "• Nếu KH kể tình trạng: trấn an + khuyên nghỉ 3-5 ngày, chườm đá 15-20 phút, đau tăng/tê chân tay/không nhấc được → đi khám. " +
+      "• Nếu KH hỏi 'khi nào qua giải cơ được': trả THẲNG là qua khi hết sưng nóng cấp, thường sau 3-5 ngày, lúc đó KTV mới đánh giá & xử lý — CHƯA chốt ngày, CHƯA xin tên/SĐT. " +
+      "• Nếu KH cảm ơn/chào: chào ấm 1 câu, chúc mau khỏe — KHÔNG hỏi thêm, KHÔNG pitch.]"
+    );
+  }
+
+  // ── ƯU TIÊN: khách DOANH NGHIỆP/công ty (sticky) → KHÔNG báo giá lẻ retail ──
+  // Bug E4 T2: sau khi nhận diện công ty (T1), KH hỏi "bao nhiêu 1 người" → classifier ra pricing,
+  // mất context corporate → bot báo giá lẻ. corporateHold giữ context để giữ hướng "sale báo riêng".
+  if (flow === "fitness" && (state as any).corporateHold === true) {
+    return (
+      "[GATE doanh nghiệp/công ty (sticky, ưu tiên cao): KH mua gói cho công ty/đoàn nhiều người — hệ thống KHÔNG có bảng giá doanh nghiệp cố định. " +
+      "TUYỆT ĐỐI KHÔNG báo giá lẻ retail (Full 7tr, 1.2tr/tháng…) cho ca này, KHÔNG bịa số/người. " +
+      "Nói 'bên em có ưu đãi riêng cho nhóm/công ty ạ', xin SĐT + đầu mối để sale báo phương án & mức chính xác theo số người. " +
+      "Nếu ĐÃ có SĐT/đầu mối: xác nhận đã ghi nhận, sale sẽ liên hệ báo phương án — DỪNG, KHÔNG pitch gói lẻ, KHÔNG ép đặt lịch.]"
     );
   }
 
@@ -1019,7 +1033,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     !knownInfo.preferredTime
   ) {
     hints.push(
-      "[GATE HS/SV: gói Full HS/SV — 700k/tháng, 2tr/3 tháng, 3tr/6 tháng, 4tr/12 tháng. Pitch giá cụ thể, không 'có ưu đãi' chung chung.]",
+      "[GATE HS/SV: bên em CÓ thẻ Full HS/SV (1 thẻ dùng cả 4 dịch vụ, KHÔNG phải gym riêng) — 1 tháng 700k, 3 tháng 2 triệu, 6 tháng 3 triệu, 12 tháng 4 triệu. Báo 1 gói hợp nhất + giá ĐÚNG cặp tháng-giá (vd '3 tháng 2 triệu'), rồi hé gói ngắn '1 tháng 700k'. KHÔNG ghép sai giá, KHÔNG nói 'có ưu đãi' chung chung, KHÔNG né 'xin SĐT'.]",
     );
   }
 
@@ -1057,6 +1071,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     !detectPriceQuestion(message) &&
     !detectClassScheduleQuestion(message) &&
     !detectHoursQuestion(message) &&
+    // HS/SV & gia-đình có BẢNG GIÁ RIÊNG cần báo thẳng. "sinh viên có gói rẻ hơn không"
+    // tuy là dạng câu CÓ/KHÔNG nhưng thực chất là hỏi GIÁ ưu đãi → để GATE HS/SV/gia-đình
+    // governing (báo giá), KHÔNG để availability-GATE suppress giá (bug L1 T12).
+    knownInfo.memberType !== "hoc-sinh" &&
+    knownInfo.memberType !== "gia-dinh" &&
     !knownInfo.name &&
     !knownInfo.phone &&
     stage !== "commitment"
@@ -1182,7 +1201,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         knownInfo.fitnessGoal === "thu-gian" ||
         knownInfo.fitnessGoal === "hoc-boi";
       ib = banInBody
-        ? "khách yoga/bơi/zumba/pilates/thư-giãn → KHÔNG nhắc InBody. Pitch service-specific."
+        ? `khách ${knownInfo.serviceType ?? "yoga/bơi/zumba/pilates"}/thư-giãn → KHÔNG nhắc InBody. Phản hồi ĐÚNG cái khách vừa nói (mục tiêu/băn khoăn) + 1 nét value bộ môn hợp mục tiêu đó (người mới → trấn an có lớp cộng đồng/cơ bản dễ theo). ⛔ ĐỪNG hỏi "sáng/chiều mấy buổi" lúc này (chưa tới bước chốt lịch), chưa pitch giá.`
         : "skip InBody pitch, answer nhu cầu trước. Có thể nhắc InBody 1 dòng cuối.";
     } else if (knownInfo.schedule === null) {
       const svc = knownInfo.serviceType ?? "dịch vụ";
@@ -1194,9 +1213,13 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   }
 
   // ── Negotiation + khách đã chấp nhận (compact) ──
+  // CHỐT NGÀY 2 bước: chưa có preferredTime → HỎI NGÀY trước (KHÔNG xin tên/SĐT vội, tránh dồn dập
+  // — bug E3 T5). Có ngày rồi → mới xin tên+SĐT.
   if (stage === "negotiation" && (intent === "selecting" || intent === "ready")) {
     hints.push(
-      "[GATE negotiation-accept: KHÔNG pitch thêm, hỏi GỘP 'Cho em xin tên, SĐT với anh/chị muốn đến buổi sáng/chiều/tối ạ' (bỏ phần giờ nếu đã có preferredTime).]",
+      !knownInfo.preferredTime
+        ? "[GATE negotiation-accept (chưa có ngày): khách đã gật muốn thử → KHÔNG pitch thêm, KHÔNG xin tên/SĐT vội. HỎI NGÀY trước 1 câu 'Dạ anh/chị tiện qua hôm nào ạ' (khách mơ hồ thì gợi 2 ngày cụ thể). Chốt được NGÀY rồi turn sau mới xin tên+SĐT.]"
+        : "[GATE negotiation-accept (đã có ngày): KHÔNG pitch thêm, xin tên+SĐT 1 câu ngắn để giữ slot. KHÔNG hỏi lại ngày/giờ đã có.]",
     );
   }
 
@@ -1411,7 +1434,9 @@ function buildFitnessPricing(info: KnownInfo): string {
 
   // Bậc thang ưu tiên: HS/SV / gia đình → áp riêng (override mọi goal-filter).
   if (mt === "hoc-sinh") {
-    lines.push("  FULL HS/SV(14-22t, 4 dịch vụ): 1m=700k|3m=2tr|6m=3tr|12m=4tr ← anchor chính");
+    // Viết tháng→giá ĐẦY ĐỦ (KHÔNG "1m=700k|3m=2tr" — model nhỏ hay ghép nhầm "3 tháng↔700k").
+    // Đây là THẺ FULL dùng chung cả 4 dịch vụ, KHÔNG phải gym riêng.
+    lines.push("  FULL HS/SV (14-22 tuổi, 1 thẻ dùng cả Gym+Bơi+Yoga+Zumba): 1 tháng 700k · 3 tháng 2 triệu · 6 tháng 3 triệu · 12 tháng 4 triệu ← anchor chính (báo 1 gói hợp nhất trước, vd '3 tháng 2 triệu', rồi hé gói ngắn '1 tháng 700k')");
     if (!svc || svc === "gym") {
       lines.push("  PT: 10b=3tr|20b=5tr|20b(2m)=6tr (HLV 1-1)");
     }
@@ -2459,8 +2484,12 @@ function buildFitnessAnswerFirst(state: ConversationState): string {
   ) {
     return `[KHÁCH HỎI GIÁ HỌC SINH/SINH VIÊN: bên em CÓ gói Full HS/SV riêng — báo THẲNG theo bảng PRICING (anchor 1 gói hợp nhất + giá, rồi hé gói rẻ hơn). KHÔNG né "xin SĐT để sale báo", KHÔNG bịa số ngoài bảng.]`;
   }
-  if (state.intentTopic === "ask_corporate" || sig?.attribute === "corporate") {
-    return `[KHÁCH HỎI GÓI DOANH NGHIỆP/CÔNG TY: hệ thống KHÔNG có bảng giá công ty cố định → nói "bên em có ưu đãi riêng cho nhóm/công ty ạ" rồi xin SĐT để sale báo mức chính xác. KHÔNG bịa số.]`;
+  if (
+    state.intentTopic === "ask_corporate" ||
+    sig?.attribute === "corporate" ||
+    (state as any).corporateHold === true
+  ) {
+    return `[KHÁCH HỎI GÓI DOANH NGHIỆP/CÔNG TY: hệ thống KHÔNG có bảng giá công ty cố định → nói "bên em có ưu đãi riêng cho nhóm/công ty ạ" rồi xin SĐT để sale báo mức chính xác. KHÔNG báo giá lẻ retail, KHÔNG bịa số. Nếu đã có SĐT → xác nhận sale liên hệ, DỪNG.]`;
   }
   switch (domain) {
     case "pricing":

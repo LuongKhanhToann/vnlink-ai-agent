@@ -13,7 +13,7 @@ This is a **Mastra** project written in TypeScript. Mastra is a framework for bu
 ## Commands
 
 ```bash
-npm run dev # Start Mastra Studio at localhost:4111 (long-running, use a separate terminal)
+npm run dev # Start Mastra Studio at localhost:4112 (long-running, use a separate terminal)
 npm run build # Build a production-ready server
 ```
 
@@ -63,7 +63,7 @@ Top-level files define how your Mastra project is configured, built, and connect
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **vnlink-ai-agent** (1577 symbols, 2256 relationships, 54 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **vnlink-ai-agent** (1527 symbols, 2186 relationships, 51 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

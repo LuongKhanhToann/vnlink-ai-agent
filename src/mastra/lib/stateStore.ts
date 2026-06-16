@@ -109,6 +109,8 @@ export async function loadState(
       askedHistory: (m as any).askedHistory ?? [],
       mentionedFacts: (m as any).mentionedFacts ?? [],
       safetyTopicsCovered: (m as any).safetyTopicsCovered ?? [],
+      acuteInjuryHold: (m as any).acuteInjuryHold ?? false,
+      corporateHold: (m as any).corporateHold ?? false,
       lastTemplateId: (m as any).lastTemplateId ?? null,
       recentBotReplies: (m as any).recentBotReplies ?? [],
     };
