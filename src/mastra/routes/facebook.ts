@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { routerWorkflow } from "../workflows/routerWorkflow";
 import { scheduleFollowup, cancelFollowup } from "../lib/followup";
 import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
+import { recordUserActivity, isBotEnabled } from "../lib/botControl";
 import { memory } from "../config/memory";
 import "dotenv/config";
 
@@ -124,6 +125,15 @@ facebookWebhook.post("/webhook", async (c) => {
 
       console.log(`[fb] from=${senderId} text="${text}"`);
 
+      // Ghi nhận user (để webadmin thấy danh sách) — chạy nền, không chặn.
+      void recordUserActivity(senderId);
+
+      // CỔNG BẬT/TẮT AI: admin tắt user này → bot KHÔNG trả lời. Đọc cờ mỗi tin (không cache).
+      if (!(await isBotEnabled(senderId))) {
+        console.log(`[fb] AI disabled for ${senderId} — bỏ qua (admin đã tắt)`);
+        continue;
+      }
+
       enqueueMessage(senderId, text);
     }
   }
@@ -213,6 +223,9 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
  */
 async function generateFollowupReply(senderId: string, attempt: number): Promise<string | null> {
   try {
+    // Admin tắt user này giữa chừng → không tự nhắc nữa.
+    if (!(await isBotEnabled(senderId))) return null;
+
     const { mastra } = await import("../index");
     const { loadState } = await import("../lib/stateStore");
     const { buildPrefixWithMeta } = await import("../lib/prefixBuilder");

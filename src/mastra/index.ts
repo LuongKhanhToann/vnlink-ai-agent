@@ -6,6 +6,7 @@ import { fitnessAgent } from "./agents/fitness";
 import { giaiCoAgent } from "./agents/giaiCo";
 import { facebookWebhook } from "./routes/facebook";
 import { telegramWebhook } from "./routes/telegram";
+import { adminWebhook } from "./routes/admin";
 
 export const mastra = new Mastra({
   agents: { fitnessAgent, giaiCoAgent },
@@ -59,6 +60,10 @@ export const mastra = new Mastra({
             headers: { "Content-Type": mime, "Cache-Control": "public, max-age=86400" },
           });
         }
+
+        // Webadmin (bật/tắt AI theo user) — /admin + /admin/api/*
+        const adminRes = await adminWebhook.fetch(c.req.raw);
+        if (adminRes.status !== 404) return adminRes;
 
         // Telegram webhook
         const tgRes = await telegramWebhook.fetch(c.req.raw);
