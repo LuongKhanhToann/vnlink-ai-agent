@@ -15,6 +15,7 @@ import { routerWorkflow } from "../workflows/routerWorkflow";
 import { scheduleFollowup, cancelFollowup } from "../lib/followup";
 import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
 import { recordUserActivity, isBotEnabled } from "../lib/botControl";
+import { classifyAndUpdateState } from "../lib/silentClassify";
 import { memory } from "../config/memory";
 import { randomUUID } from "node:crypto";
 import "dotenv/config";
@@ -195,9 +196,12 @@ facebookWebhook.post("/webhook", async (c) => {
 
       // CỔNG BẬT/TẮT AI: admin tắt user này → bot KHÔNG trả lời. Đọc cờ mỗi tin (không cache).
       if (!(await isBotEnabled(senderId))) {
-        // KHÔNG trả lời, nhưng VẪN lưu tin khách vào memory → bật lại bot có đủ ngữ cảnh.
-        console.log(`[fb] AI disabled for ${senderId} — lưu memory, không trả lời`);
+        // KHÔNG trả lời, nhưng VẪN: (1) lưu tin vào memory (transcript) +
+        // (2) chạy classifier âm thầm để cập nhật slot/stage → bật lại bot có đủ ngữ cảnh
+        //     lẫn thông tin đã trích (tên/SĐT/giờ…), không hỏi lại.
+        console.log(`[fb] AI disabled for ${senderId} — lưu memory + silent classify, không trả lời`);
         void logMessageToMemory(senderId, "user", text);
+        void classifyAndUpdateState(senderId, senderId, text);
         continue;
       }
 
