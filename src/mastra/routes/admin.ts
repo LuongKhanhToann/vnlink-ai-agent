@@ -113,7 +113,7 @@ adminWebhook.post("/admin/api/users", async (c) => {
 
 // ─────────────────────────────────────────────
 // Trang HTML — login + dashboard trong 1 file, gọi các API ở trên.
-// Không backtick bên trong (đang nằm trong template literal).
+// Hỗ trợ sáng/tối (CSS variables, lưu localStorage). Không backtick bên trong.
 // ─────────────────────────────────────────────
 const PAGE_HTML = `<!doctype html>
 <html lang="vi">
@@ -121,59 +121,95 @@ const PAGE_HTML = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>VNLink Admin</title>
+<script>(function(){var t=localStorage.getItem("theme");if(!t){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches)?"light":"dark";}document.documentElement.setAttribute("data-theme",t);})();</script>
 <style>
+:root{
+  --radius:10px;
+  --shadow:0 1px 3px rgba(0,0,0,.18);
+}
+[data-theme="dark"]{
+  --bg:#0f1115; --surface:#161922; --field:#1a1d24; --border:#262b36;
+  --text:#e6e8ec; --muted:#8b93a1; --mono:#9aa3b2;
+  --accent:#3b82f6; --accent-h:#2563eb; --accent-text:#fff;
+  --btn:#1f232c; --btn-border:#2f3540; --btn-h:#272c37;
+  --on-bg:#14331f; --on-text:#4ade80; --off-bg:#3a1414; --off-text:#f87171;
+  --sw-off:#4b5563; --sw-on:#22c55e;
+}
+[data-theme="light"]{
+  --bg:#f4f6f9; --surface:#ffffff; --field:#ffffff; --border:#e3e7ed;
+  --text:#1b2430; --muted:#67707d; --mono:#67707d;
+  --accent:#2563eb; --accent-h:#1d4ed8; --accent-text:#fff;
+  --btn:#ffffff; --btn-border:#d8dde4; --btn-h:#eef1f5;
+  --on-bg:#dcfce7; --on-text:#15803d; --off-bg:#fee2e2; --off-text:#b91c1c;
+  --sw-off:#cbd5e1; --sw-on:#16a34a;
+}
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0f1115;color:#e6e8ec}
-.wrap{max-width:920px;margin:0 auto;padding:24px 16px}
-.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-.topbar h1{font-size:20px;margin:0}
-.btn{background:#2b2f3a;color:#e6e8ec;border:1px solid #3a3f4b;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:14px}
-.btn:hover{background:#353a47}
-.btn-primary{background:#2563eb;border-color:#2563eb;color:#fff;width:100%;padding:10px}
-.input{width:100%;padding:10px 12px;margin-top:6px;background:#1a1d24;border:1px solid #2b2f3a;border-radius:8px;color:#e6e8ec;font-size:14px}
-.search{max-width:320px;margin-bottom:14px}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);transition:background .2s,color .2s}
+.wrap{max-width:920px;margin:0 auto;padding:28px 16px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.topbar h1{font-size:20px;font-weight:650;margin:0}
+.subtitle{color:var(--muted);font-size:14px;margin:0 0 20px}
+.actions{display:flex;gap:8px}
+.btn{background:var(--btn);color:var(--text);border:1px solid var(--btn-border);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-size:14px;transition:background .15s}
+.btn:hover{background:var(--btn-h)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text);width:100%;padding:11px}
+.btn-primary:hover{background:var(--accent-h)}
+.input{width:100%;padding:11px 13px;margin-top:6px;background:var(--field);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px;outline:none}
+.input:focus{border-color:var(--accent)}
+.search{max-width:340px;margin-bottom:16px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:11px 10px;border-bottom:1px solid #20242d}
-th{color:#8b93a1;font-weight:600;font-size:12px;text-transform:uppercase}
-td.mono{font-family:ui-monospace,monospace;color:#9aa3b2;font-size:12px}
-.badge{font-size:12px;padding:2px 8px;border-radius:999px}
-.badge.on{background:#14331f;color:#4ade80}
-.badge.off{background:#3a1414;color:#f87171}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--border)}
+tbody tr:last-child td{border-bottom:none}
+th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.03em;text-transform:uppercase}
+.name{font-weight:550}
+.mono{font-family:ui-monospace,SFMono-Regular,monospace;color:var(--mono);font-size:12px;margin-top:2px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px}
+.badge.on{background:var(--on-bg);color:var(--on-text)}
+.badge.off{background:var(--off-bg);color:var(--off-text)}
 .switch{position:relative;display:inline-block;width:46px;height:26px}
 .switch input{opacity:0;width:0;height:0}
-.slider{position:absolute;inset:0;cursor:pointer;background:#4b5563;border-radius:999px;transition:.2s}
-.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
-input:checked + .slider{background:#22c55e}
+.slider{position:absolute;inset:0;cursor:pointer;background:var(--sw-off);border-radius:999px;transition:.2s}
+.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+input:checked + .slider{background:var(--sw-on)}
 input:checked + .slider:before{transform:translateX(20px)}
-.card{max-width:360px;margin:80px auto;background:#161922;padding:28px;border-radius:14px;border:1px solid #232733}
-.card h1{font-size:20px;margin:0 0 18px}
-.label{font-size:13px;color:#8b93a1}
-.error{color:#f87171;font-size:13px;margin-top:12px}
-.muted{color:#8b93a1;font-size:13px}
+.card{max-width:370px;margin:9vh auto;background:var(--surface);padding:30px;border-radius:16px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.card h1{font-size:21px;margin:0 0 4px}
+.card .subtitle{margin:0 0 20px}
+.label{font-size:13px;color:var(--muted)}
+.error{color:var(--off-text);font-size:13px;margin-top:12px;min-height:16px}
+.muted{color:var(--muted);font-size:13px}
+.note{color:var(--muted);font-size:13px;margin-top:16px;line-height:1.5}
 .hidden{display:none}
+.right{text-align:right}
 </style>
 </head>
 <body>
 <div id="login" class="card hidden">
   <h1>VNLink Admin</h1>
+  <p class="subtitle">Đăng nhập để quản lý trợ lý AI</p>
   <label class="label">Tài khoản</label>
   <input id="u" class="input" autofocus />
   <div style="height:14px"></div>
   <label class="label">Mật khẩu</label>
-  <input id="p" class="input" type="password" />
-  <div style="height:20px"></div>
+  <input id="p" class="input" type="password" onkeydown="if(event.key==='Enter')doLogin()" />
+  <div style="height:22px"></div>
   <button class="btn btn-primary" onclick="doLogin()">Đăng nhập</button>
   <div id="loginErr" class="error"></div>
 </div>
 
 <div id="app" class="wrap hidden">
   <div class="topbar">
-    <h1>🤖 AI Chatbot — Người dùng</h1>
-    <button class="btn" onclick="doLogout()">Đăng xuất</button>
+    <h1>Người dùng trợ lý AI</h1>
+    <div class="actions">
+      <button id="themeBtn" class="btn" onclick="toggleTheme()"></button>
+      <button class="btn" onclick="doLogout()">Đăng xuất</button>
+    </div>
   </div>
+  <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
   <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()" />
   <div id="list"></div>
-  <p class="muted" style="margin-top:18px">Tắt = AI ngừng trả lời người này (áp dụng ngay tin nhắn kế tiếp).</p>
+  <p class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
 </div>
 
 <script>
@@ -181,6 +217,19 @@ var USERS = [];
 
 function show(id){ document.getElementById(id).classList.remove("hidden"); }
 function hide(id){ document.getElementById(id).classList.add("hidden"); }
+
+function toggleTheme(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  var next = cur === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  updateThemeBtn();
+}
+function updateThemeBtn(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  var b = document.getElementById("themeBtn");
+  if(b) b.textContent = cur === "light" ? "Chế độ tối" : "Chế độ sáng";
+}
 
 function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour12:false}); } catch(e){ return iso; } }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];}); }
@@ -196,10 +245,11 @@ async function doLogin(){
 async function doLogout(){ await fetch("/admin/api/logout",{method:"POST"}); location.reload(); }
 
 async function boot(){
+  updateThemeBtn();
   var r = await fetch("/admin/api/users",{cache:"no-store"});
   if(r.status===401){ hide("app"); show("login"); return; }
   var d = await r.json(); USERS = d.users || [];
-  hide("login"); show("app"); render();
+  hide("login"); show("app"); updateThemeBtn(); render();
 }
 
 function render(){
@@ -209,17 +259,17 @@ function render(){
     return (u.name||"").toLowerCase().indexOf(q)>=0 || String(u.sender_id).indexOf(q)>=0;
   });
   if(rows.length===0){ document.getElementById("list").innerHTML = '<p class="muted">Chưa có người dùng nào.</p>'; return; }
-  var html = '<table><thead><tr><th>Người dùng</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th style="text-align:right">AI trả lời</th></tr></thead><tbody>';
+  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th></tr></thead><tbody>';
   rows.forEach(function(u){
     html += '<tr>'
-      + '<td><div>' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
+      + '<td><div class="name">' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
       + '<td class="muted">' + fmt(u.last_active) + '</td>'
       + '<td><span class="badge ' + (u.enabled?"on":"off") + '">' + (u.enabled?"Đang bật":"Đã tắt") + '</span></td>'
-      + '<td style="text-align:right"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
+      + '<td class="right"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
       + ' onchange="toggle(\\'' + esc(u.sender_id) + '\\', this)"><span class="slider"></span></label></td>'
       + '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   document.getElementById("list").innerHTML = html;
 }
 
