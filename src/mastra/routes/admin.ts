@@ -560,7 +560,7 @@ async function uploadFile(base, kind, f){
     toast("File quá lớn (" + fmtBytes(f.size) + "). Tối đa " + fmtBytes(max) + " theo giới hạn Facebook.", "err");
     return;
   }
-  var yes = await askConfirm("Tải " + (kind === "video" ? "video" : "ảnh") + " \"" + f.name + "\" (" + fmtBytes(f.size) + ") lên mục này?", "Tải lên");
+  var yes = await askConfirm("Tải " + (kind === "video" ? "video" : "ảnh") + " '" + f.name + "' (" + fmtBytes(f.size) + ") lên mục này?", "Tải lên");
   if(!yes) return;
   var box = document.getElementById("mediaList");
   box.classList.add("uploading");
