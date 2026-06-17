@@ -18,11 +18,9 @@ import {
   buildPrefixWithMeta,
   computeSuggestedMediaKey,
   detectMentionedServiceKey,
-  detectMediaRequest,
   isTerseMessage,
   isBareGreetingOrFiller,
-  computeDoubtMediaKey,
-  computeSuggestedMediaKey,
+  computeProactiveMediaKey,
 } from "../lib/prefixBuilder";
 import { fetchMedia } from "../tools/media";
 import { logTurn, type PrefixMode } from "../lib/observability";
@@ -425,69 +423,40 @@ function buildAgentStep(
       const stateBeforeReply = await loadState(mastra, threadId, resourceId);
       const prevReply = stateBeforeReply.lastBotReply ?? "";
 
-      // ═══════ NHỊP CỤT — chặn media chủ động (deterministic) ═══════
-      // KH nhắn cụt (1-4 từ) mà KHÔNG xin xem ảnh → drop media dù agent lỡ gọi get-media.
-      // Prefix đã bỏ [MEDIA] hint nhưng v4-pro đôi khi vẫn tự gọi tool → cần chặn cứng ở đây.
-      // Set null TRƯỚC khi tính hasMedia → cleanReply tự strip luôn câu "em gửi hình" dangling.
-      const customerWantsMedia =
-        stateBeforeReply.intentTopic === "media_request" ||
-        detectMediaRequest(message);
-      if (
-        dedupedMediaUrls &&
-        isTerseMessage(message) &&
-        !customerWantsMedia
-      ) {
-        console.log(
-          `[nhịp] KH nhắn cụt ("${message.trim().slice(0, 20)}") → drop ${dedupedMediaUrls.length} media chủ động`,
-        );
-        dedupedMediaUrls = null;
-      }
-
-      // ═══════ MEDIA ĐÃ GỬI — chặn cứng spam (model tự gọi get-media lại) ═══════
-      // Bug L5: model bơm media 3-4 lần dù mediaShown=true (block mềm trong prefix bị phớt).
-      // Drop media model tự thêm khi: ĐÃ từng gửi + khách KHÔNG xin xem + KHÔNG nhắc DỊCH VỤ MỚI.
-      // (Doubt-media inject chạy NGAY SAU vẫn tự bù đúng 1 lần cho moment nghi ngờ nếu cần.)
-      if (dedupedMediaUrls && stateBeforeReply.mediaShown && !customerWantsMedia) {
-        const mKey = detectMentionedServiceKey(message);
-        const shownKeys = stateBeforeReply.mediaShownKeys ?? [];
-        const isNewSvc = mKey !== null && !shownKeys.includes(mKey);
-        // Ảnh before-after CHỈ gửi 1 lần/cuộc (ngân sách riêng). Nếu đã gửi rồi mà model TỰ gọi
-        // lại → vẫn DROP, KHÔNG cho ngoại lệ "dịch vụ mới" cứu ảnh trùng. Bug L5 T8: tin "vào tự bơi"
-        // (thành ngữ, không phải bộ môn Bơi) làm detectMentionedServiceKey match nhầm → isNewSvc=true
-        // → before-after thứ 2 lọt. Check theo PATH URL (parse kỹ thuật), không đoán nghĩa từ khoá.
-        const repeatBeforeAfter =
-          shownKeys.includes("fitness-before-after") &&
-          dedupedMediaUrls.some((u) => u.includes("/before-after/"));
-        if (!isNewSvc || repeatBeforeAfter) {
-          console.log(`[media-spam] đã gửi media trước → drop ${dedupedMediaUrls.length} media model tự thêm${repeatBeforeAfter ? " (before-after trùng)" : ""}`);
-          dedupedMediaUrls = null;
-        }
-      }
-
-      // ═══════ DOUBT-MEDIA DETERMINISTIC (chống flaky tool-call) — CẢ 2 FLOW ═══════
-      // Khách nghi ngờ kết quả (đọc emotion từ classifier) → media chứng minh là vũ khí chốt trust:
-      // fitness=ảnh before-after, giai-co=ca mr-* trước/sau. gpt-5.4-mini phớt lệnh gọi get-media
-      // (gửi khi không ai bảo, bỏ khi bảo gắt) → KHÔNG dựa vào LLM: fetch thẳng Cloudinary. Fetch
-      // KỸ THUẬT (không cache); QUYẾT ĐỊNH gửi nằm ở classifier (emotion nghi ngờ), không heuristic.
+      // ═══════ MEDIA THÔNG MINH — cổng DUY NHẤT, classifier quyết + server gửi deterministic ═══════
+      // Như một sale khôn khéo: gửi đúng lúc, đúng bộ môn, không linh tinh.
+      //   • QUYẾT ĐỊNH gửi/không + bộ môn nào = classifier (state.mediaMove, đọc cả hội thoại) — KHÔNG regex/stage.
+      //   • THAO TÁC gửi = deterministic fetchMedia thẳng Cloudinary, KHÔNG dựa LLM gọi get-media
+      //     (gpt-5.4-mini phớt lệnh ~50%: gửi khi không ai bảo, bỏ khi bảo gắt).
+      // Vì đây là source-of-truth duy nhất, media LLM TỰ thêm (obj.mediaUrls) bị bỏ qua hoàn toàn:
+      //   - mediaMove ra lệnh gửi + chưa gửi key này → fetch & override (đúng bộ môn).
+      //   - mediaMove=none HOẶC đã gửi key này rồi → null (chống gửi sai/lố/thừa/trùng).
+      // Chống trùng: 1 lần/key qua mediaShownKeys (guardKey). fetch rỗng/lỗi → không gửi.
       let effectiveNextStep = obj.nextStep;
       let injectedGuardKey: string | null = null;
-      const doubtMedia = computeDoubtMediaKey(stateBeforeReply);
-      if (
-        doubtMedia &&
-        !(stateBeforeReply.mediaShownKeys ?? []).includes(doubtMedia.guardKey)
-      ) {
+      const proactive = computeProactiveMediaKey(stateBeforeReply);
+      const proactiveAlreadyShown =
+        proactive != null &&
+        (stateBeforeReply.mediaShownKeys ?? []).includes(proactive.guardKey);
+      if (proactive && !proactiveAlreadyShown) {
         try {
-          const items = await fetchMedia(doubtMedia.key);
+          const items = await fetchMedia(proactive.key);
           const urls = items.map((it) => it.url).filter(Boolean);
           if (urls.length > 0) {
             dedupedMediaUrls = urls;
             effectiveNextStep = "show_media";
-            injectedGuardKey = doubtMedia.guardKey;
-            console.log(`[doubt-media] inject deterministic ${urls.length} media key=${doubtMedia.key} guard=${doubtMedia.guardKey}`);
+            injectedGuardKey = proactive.key;
+            console.log(`[proactive-media] inject ${urls.length} media key=${proactive.key} move=${stateBeforeReply.mediaMove ?? "none"}`);
+          } else {
+            dedupedMediaUrls = null; // fetch rỗng (không có media cho key) → không gửi
           }
         } catch (e) {
-          console.error("[doubt-media] deterministic fetch failed:", e);
+          console.error("[proactive-media] deterministic fetch failed:", e);
+          dedupedMediaUrls = null;
         }
+      } else {
+        // classifier KHÔNG ra lệnh gửi turn này, hoặc bộ môn này đã gửi rồi → bỏ media LLM tự ý thêm.
+        dedupedMediaUrls = null;
       }
 
       // Deterministic post-process: strip khen giả, fake media offer, filler, markdown,

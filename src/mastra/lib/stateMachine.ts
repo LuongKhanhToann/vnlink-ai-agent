@@ -154,6 +154,13 @@ export interface KnownInfo {
   preferredTime: string | null;   // giờ muốn đặt lịch
 }
 
+/** Nước đi media CHỦ ĐỘNG do classifier (LLM) quyết định mỗi turn — như sale khôn khéo, gửi đúng lúc.
+ *  - none         = không gửi gì turn này.
+ *  - show_service = bung ảnh/video bộ môn/không gian khách đang quan tâm (gym/yoga/zumba/pool/giải-cơ).
+ *  - show_results = bung ảnh kết quả (hội viên trước-sau / ca trị liệu trước-sau) để chốt niềm tin.
+ *  QUYẾT ĐỊNH ở classifier; THỰC THI deterministic ở routerWorkflow (fetchMedia thẳng, chống flaky tool-call). */
+export type MediaMove = "none" | "show_service" | "show_results";
+
 export interface ConversationState {
   flow: Flow;
   stage: Stage;
@@ -170,6 +177,8 @@ export interface ConversationState {
   /** Multi-intent: nếu KH hỏi 2-3 thứ trong 1 tin, primary nằm ở intentSignal, còn lại ở đây (max 2).
    *  prefixBuilder render hint MULTI-INTENT để agent trả lời CẢ secondary trong cùng reply. */
   secondaryIntents?: import("./intent").IntentSignal[];
+  /** Nước đi media chủ động classifier quyết turn này (xem [[MediaMove]]). Transient — chỉ cho turn hiện tại. */
+  mediaMove?: MediaMove;
   honorific: "anh" | "chị" | "anh/chị";
   knownInfo: KnownInfo;
   /** Tổng số turn của cuộc thoại — KHÔNG reset khi flow đổi. Dùng cho greeting decision. */
@@ -1047,6 +1056,8 @@ export interface LLMClassification {
   intentSignal?: import("./intent").IntentSignal | null;
   /** Multi-intent: secondary intents (max 2). Empty hoặc undefined = single-intent. */
   secondaryIntents?: import("./intent").IntentSignal[];
+  /** Nước đi media chủ động classifier quyết turn này (xem [[MediaMove]]). */
+  mediaMove?: MediaMove;
   extractedSlots: Partial<KnownInfo>;
   qrShown: boolean | null;
   mediaShown: boolean | null;
@@ -1427,6 +1438,7 @@ export function buildNextState(
     intentTopic: llm.intentTopic,
     intentSignal: llm.intentSignal ?? null,
     secondaryIntents: llm.secondaryIntents ?? [],
+    mediaMove: llm.mediaMove ?? "none",
     honorific,
     knownInfo,
     turnCount,
@@ -1467,6 +1479,7 @@ export const DEFAULT_STATE: ConversationState = {
   intentTopic: null,
   intentSignal: null,
   secondaryIntents: [],
+  mediaMove: "none",
   honorific: "anh/chị",
   knownInfo: {
     name: null,

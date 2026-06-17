@@ -18,6 +18,7 @@ import {
   IntentTopic,
   KnownInfo,
   LLMClassification,
+  MediaMove,
   nullSlots,
   sanitizeName,
 } from "./stateMachine";
@@ -178,6 +179,13 @@ const classifierSchema = z.object({
     .nullable()
     .optional()
     .catch(null),
+  // Nước đi media chủ động (như sale khôn khéo): gửi đúng lúc đúng bộ môn, không linh tinh.
+  // .catch("none") = mặc định an toàn: parse lệch → KHÔNG gửi (thà thiếu còn hơn gửi sai/lố).
+  mediaMove: z
+    .enum(["none", "show_service", "show_results"])
+    .nullable()
+    .optional()
+    .catch("none"),
   slots: z
     .object({
       name:           z.string().nullable().optional(),
@@ -479,6 +487,7 @@ Trả JSON thuần (định nghĩa các trục: xem taxonomy Ở TRÊN):
     "attribute": "<attribute key trong domain — xem mục ATTRIBUTE>"
   },
   "secondaryIntents": [ /* OPTIONAL — xem MULTI-INTENT ở trên. Null hoặc [] nếu KH chỉ hỏi 1 thứ. */ ],
+  "mediaMove": "none"|"show_service"|"show_results",
   ${missingSlots.length > 0 ? `"slots": {${slotExtractionFields}}` : `// slots đã đủ`}
 }`;
 
@@ -719,6 +728,18 @@ FOLLOW-UP CONTEXT — dùng intentTopic turn TRƯỚC (đã derive từ intentSi
   - Trước = ask_facility / ask_address / ask_branch → KH hỏi tiếp CSVC → giữ domain=service_inquiry.
   - Tin TRƯỚC bot vừa BÁO GIÁ/GÓI → KH phản ứng ngắn tiêu cực ("đắt thế", "mắc v", "sao cao thế", "thôi đắt") → domain=objection + attribute=price_too_high (đừng để domain=null).
 
+MEDIA_MOVE — quyết định CHỦ ĐỘNG gửi ảnh/video như một nhân viên sale khôn khéo (chọn 1):
+  none         = MẶC ĐỊNH. Không gửi gì. Dùng khi: chào hỏi/filler, hỏi giá-gói-thanh toán đơn thuần,
+                 đang chốt lịch/đăng ký/cho tên-SĐT, hỏi chính sách (bảo lưu/hoàn/đổi gói), hoặc tin lạc ngữ cảnh.
+  show_service = khách đang TÌM HIỂU/CÂN NHẮC một bộ môn cụ thể, hoặc hỏi về không gian–cơ sở–lớp–thiết bị của nó
+                 → nên cho khách xem ảnh/video bộ môn đó để hình dung thực tế. Bộ môn lấy theo "service" đã chọn ở trên;
+                 khách hỏi cơ sở chung chung (chưa rõ bộ môn) vẫn show_service. domain=media_request (xin xem trực tiếp) ⇒ luôn show_service.
+  show_results = khách quan tâm HIỆU QUẢ/kết quả đổi vóc dáng, hoặc nghi ngờ độ hiệu quả/độ thật của dịch vụ
+                 → nên cho xem ảnh kết quả (hội viên/khách trước-sau) để củng cố niềm tin.
+  NGUYÊN TẮC: chỉ chọn show_* khi ĐÚNG LÚC giúp khách quyết — như sale đọc vị, KHÔNG gửi cho có, KHÔNG gửi khi đang
+  thăm dò sơ khởi hay đang nói chuyện khác. Không chắc thì để none. Đây chỉ là Ý ĐỊNH gửi — hệ thống tự lo việc gửi
+  thật, đúng bộ môn và chống trùng, nên cứ chọn theo nhịp hội thoại, KHÔNG cần bận tâm đã gửi hay chưa.
+
 ${slotsFor(scope)}
 
 SLOTS chung (áp dụng cả fitness và giai-co):
@@ -784,6 +805,12 @@ function mapToClassification(
   };
 
   const intentSignal: IntentSignal | null = parseSignal(parsed.intentSignal);
+
+  // Nước đi media (đã .catch("none") ở schema, validate lại cho chắc — mặc định an toàn = none).
+  const mediaMove: MediaMove =
+    parsed.mediaMove === "show_service" || parsed.mediaMove === "show_results"
+      ? parsed.mediaMove
+      : "none";
 
   // Parse secondaryIntents (multi-intent). Dedupe duplicate với primary.
   // Cap 2 entry để tránh prompt overflow downstream.
@@ -853,6 +880,7 @@ function mapToClassification(
     intentTopic,
     intentSignal,
     secondaryIntents,
+    mediaMove,
     extractedSlots,
     qrShown: null,
     mediaShown: null,
@@ -872,6 +900,7 @@ function getDefaultClassification(
     intentTopic: null,
     intentSignal: null,
     secondaryIntents: [],
+    mediaMove: "none",
     extractedSlots: {},
     qrShown: null,
     mediaShown: null,

@@ -12,6 +12,7 @@
 
 import {
   ConversationState,
+  MediaMove,
   resolveHonorific,
   KnownInfo,
   Intent,
@@ -813,6 +814,55 @@ export function computeDoubtMediaKey(
   const key = computeSuggestedMediaKey(state);
   if (!key) return null;
   return { key, guardKey: key };
+}
+
+/**
+ * Key media CHỦ ĐỘNG cần bung turn này — như một sale khôn khéo, gửi đúng lúc đúng bộ môn.
+ * QUYẾT ĐỊNH gửi nằm ở classifier (state.mediaMove); THAO TÁC gửi là deterministic (routerWorkflow
+ * fetchMedia thẳng — chống flaky tool-call gpt-5.4-mini phớt lệnh ~50%). Trả { key, guardKey } hoặc null.
+ *   - show_results → ảnh kết quả: fitness=before-after, giai-co=mr-* theo painArea.
+ *   - show_service → ảnh/video ĐÚNG bộ môn classifier vừa nhận (intentSignal.service) → fallback
+ *     serviceType/goal (computeSuggestedMediaKey) → mặc định fitness-gym (CSVC chung) / mr-general.
+ * Safety net: domain=media_request (khách XIN xem trực tiếp) luôn coi như show_service — dùng output
+ * classifier, KHÔNG regex — để lệnh xin ảnh không bao giờ rớt kể cả khi mediaMove parse trượt.
+ * guardKey = key thật → chống gửi lại cùng bộ môn (lưu ở mediaShownKeys, 1 lần/key).
+ */
+export function computeProactiveMediaKey(
+  state: ConversationState,
+): { key: string; guardKey: string } | null {
+  let move: MediaMove = state.mediaMove ?? "none";
+  if (move === "none" && state.intentSignal?.domain === "media_request") {
+    move = "show_service";
+  }
+  if (move === "none") return null;
+
+  if (move === "show_results") {
+    if (state.flow === "fitness") {
+      return { key: "fitness-before-after", guardKey: "fitness-before-after" };
+    }
+    const k = computeSuggestedMediaKey(state);
+    return k ? { key: k, guardKey: k } : null;
+  }
+
+  // show_service — gửi ĐÚNG bộ môn
+  if (state.flow === "fitness") {
+    const svc = state.intentSignal?.service ?? null;
+    const mapSvc: Record<string, string> = {
+      gym: "fitness-gym",
+      full: "fitness-gym",
+      pilates: "fitness-gym",
+      yoga: "fitness-yoga",
+      zumba: "fitness-zumba",
+      boi: "fitness-pool",
+    };
+    const key =
+      (svc && mapSvc[svc]) || computeSuggestedMediaKey(state) || "fitness-gym";
+    return { key, guardKey: key };
+  }
+
+  // giai-co show_service
+  const k = computeSuggestedMediaKey(state) ?? "mr-general";
+  return { key: k, guardKey: k };
 }
 
 // ─────────────────────────────────────────────
