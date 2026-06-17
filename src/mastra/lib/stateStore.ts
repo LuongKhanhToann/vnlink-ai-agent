@@ -5,7 +5,7 @@
  * Store-first pattern.
  */
 
-import { ConversationState, DEFAULT_STATE, bookingSignature, detectAddBookingIntent } from "./stateMachine";
+import { ConversationState, DEFAULT_STATE, bookingSignature, detectAddBookingIntent, detectBeneficiaryCue, appointmentDateKey } from "./stateMachine";
 import { isLeadComplete, writeLeadToSheets, updateLeadRow } from "./sheetsWriter";
 
 const STORE_NAME = "memory";
@@ -90,6 +90,7 @@ export async function loadState(
         painDuration: m.knownInfo?.painDuration ?? null,
         sessionPackage: m.knownInfo?.sessionPackage ?? null,
         preferredTime: m.knownInfo?.preferredTime ?? null,
+        appointmentDate: m.knownInfo?.appointmentDate ?? null,
         painSpread: m.knownInfo?.painSpread ?? null,
         pastMethod: m.knownInfo?.pastMethod ?? null,
         fitnessGoal: m.knownInfo?.fitnessGoal ?? null,
@@ -191,12 +192,12 @@ export async function saveState(
  * Gọi SAU KHI reply đã sendText thành công (route handler). Tách khỏi saveState
  * để cancel-and-restart không ghi sheets cho turn KH chưa thấy reply.
  *
- * MULTI-ORDER: dedup theo bookingSignature (`flow|tên|SĐT|giờ`) thay vì khóa boolean.
- *   - Đơn 1 chốt → ghi dòng 1, lưu chữ ký.
- *   - KH chat tiếp / chỉ HỎI môn khác (giữ giờ cũ) → chữ ký trùng → no-op (không ghi lại).
- *   - KH đặt thêm buổi GIỜ KHÁC (hoặc người khác) + có tín hiệu cam kết → chữ ký mới → ghi dòng tiếp.
- *   - KH ĐỔI lịch (reschedule, rescheduleFromTime set) → UPDATE dòng cũ (updateLeadRow) thay vì append.
- *   - KH đặt hộ NGƯỜI THÂN → beneficiary override ở buildNextState đã đổi name/phone → dòng mới đúng liên hệ.
+ * MULTI-ORDER: dedup theo bookingSignature (`flow|tên|SĐT|NGÀY`) thay vì khóa boolean.
+ *   - Đơn 1 chốt → ghi dòng 1, lưu chữ ký (khóa theo NGÀY hẹn, không theo giờ-raw).
+ *   - KH làm rõ / ĐỔI GIỜ trong CÙNG ngày ("mai"→"10h sáng mai"→"2h chiều") → chữ ký trùng → UPDATE 1 dòng (1 người+1 ngày=1 dòng).
+ *   - KH chat tiếp / HỎI môn khác (giữ ngày cũ) → chữ ký trùng + giá trị không đổi → no-op.
+ *   - KH đổi sang NGÀY khác (không phải "đặt thêm") → UPDATE dòng gần nhất sang ngày mới (chống trùng).
+ *   - KH ĐẶT THÊM buổi (cue "thêm/nữa") / đặt hộ người thân + cam kết → chữ ký mới → ghi dòng tiếp.
  * Lỗi sheets-write KHÔNG bubble — log + tiếp tục (bot vẫn reply OK, chỉ thiếu sheets).
  */
 export async function tryWriteLeadIfReady(
@@ -209,35 +210,46 @@ export async function tryWriteLeadIfReady(
     const state = await loadState(mastra, threadId, resourceId);
     if (!isLeadComplete(state)) return;
 
-    const sig = bookingSignature(state.knownInfo, state.flow);
+    const info = state.knownInfo;
+    const sig = bookingSignature(info, state.flow);
     if (sig === null) return;
     const written = state.bookingsWritten ?? [];
+    const msg = state.lastUserMessage ?? "";
 
-    // ── RESCHEDULE: KH đổi giờ 1 đơn ĐÃ ghi → UPDATE dòng cũ thay vì append dòng trùng.
-    const rf = state.rescheduleFromTime;
-    if (rf) {
-      const oldSig = bookingSignature({ ...state.knownInfo, preferredTime: rf }, state.flow);
-      if (oldSig && oldSig !== sig && written.includes(oldSig)) {
-        const updated = await updateLeadRow(state, rf);
-        if (updated) {
-          state.bookingsWritten = written.map((s) => (s === oldSig ? sig : s));
-          state.rescheduleFromTime = null;
-          await saveState(mastra, threadId, resourceId, state);
-          return;
-        }
-        // Không tìm thấy dòng cũ trên sheet → fall through append (best-effort).
-        console.warn(`[stateStore] reschedule: không thấy dòng cũ (oldTime=${rf}) → append mới`);
+    // matchCore = thứ dùng TÌM dòng trên sheet (cột "Thời gian đến" CHỨA nó):
+    //   - đơn có ngày tuyệt đối → LÕI NGÀY "DD/MM" (bền khi khách đổi giờ trong ngày)
+    //   - đơn cửa-sổ chưa có ngày → cụm giờ (hành vi cũ)
+    const matchCore = appointmentDateKey(info.appointmentDate) ?? (info.preferredTime ?? "");
+
+    // ── (1) ĐÃ ghi đúng đơn (cùng người + cùng NGÀY) → đồng bộ thay đổi GIỜ trong ngày: UPDATE 1 dòng,
+    // KHÔNG append. "1 người + 1 ngày = 1 dòng": "mai"→"10h sáng mai"→"2h chiều" gộp về 1 dòng.
+    if (written.includes(sig)) {
+      const r = await updateLeadRow(state, matchCore);
+      if (r === "updated") {
+        console.log(`[stateStore] ✎ đồng bộ đơn (cùng ngày) → "${info.preferredTime}" sig=${sig}`);
       }
+      return;
     }
 
-    if (written.includes(sig)) return; // đơn này đã ghi rồi → bỏ qua
-
-    // Đơn THỨ 2+: chỉ ghi khi có tín hiệu CAM KẾT thật trong turn này — tránh ghi "đơn ma".
-    // Sau chốt, name/phone/giờ vẫn còn nên isLeadComplete luôn true; nếu khách chỉ HỎI vu vơ
-    // hoặc đổi flow (đau lưng → giai-co) thì chữ ký có thể "mới" nhưng KHÔNG phải đặt thêm.
-    // Đơn ĐẦU TIÊN (written rỗng) đã được funnel đảm bảo commitment → ghi như cũ.
+    // ── (2) Người này ĐÃ có đơn nhưng chữ ký MỚI (đổi NGÀY, hoặc cửa-sổ→ngày cụ thể).
+    // KHÔNG phải "đặt thêm / đặt hộ" → đây là LÀM RÕ / ĐỔI LỊCH đơn cũ → UPDATE dòng GẦN NHẤT (chống trùng).
     if (written.length > 0) {
-      const msg = state.lastUserMessage ?? "";
+      const isAdd = detectAddBookingIntent(msg) || detectBeneficiaryCue(msg);
+      if (!isAdd) {
+        const prevSig = written[written.length - 1];
+        const prevCore = prevSig.split("|")[3] ?? "";
+        const r = await updateLeadRow(state, prevCore);
+        if (r !== "notfound") {
+          state.bookingsWritten = written.map((s) => (s === prevSig ? sig : s));
+          state.rescheduleFromTime = null;
+          await saveState(mastra, threadId, resourceId, state);
+          console.log(`[stateStore] ✎ đổi lịch/làm rõ đơn cũ → sig ${prevSig} ↦ ${sig}`);
+          return;
+        }
+        console.warn(`[stateStore] đổi lịch: không thấy dòng cũ (core="${prevCore}") → append mới`);
+      }
+
+      // Đơn THỨ 2+ thực sự (đặt thêm/đặt hộ): chỉ append khi có tín hiệu CAM KẾT thật — tránh "đơn ma".
       const committed =
         state.intent === "ready" ||
         state.intent === "selecting" ||
@@ -251,8 +263,9 @@ export async function tryWriteLeadIfReady(
       }
     }
 
+    // ── (3) Đơn MỚI hợp lệ → append.
     console.log(
-      `[stateStore] writing lead → name=${state.knownInfo.name} phone=${state.knownInfo.phone} time=${state.knownInfo.preferredTime} sig=${sig} (order #${written.length + 1})`,
+      `[stateStore] writing lead → name=${info.name} phone=${info.phone} time=${info.preferredTime} ngày=${info.appointmentDate ?? "—"} sig=${sig} (order #${written.length + 1})`,
     );
     await writeLeadToSheets(state);
     state.bookingsWritten = [...written, sig];

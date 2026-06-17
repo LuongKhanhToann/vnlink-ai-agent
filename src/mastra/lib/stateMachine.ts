@@ -151,7 +151,12 @@ export interface KnownInfo {
   painDuration: string | null;    // đau bao lâu + khi nào nhắc nhở (VD: "vài hôm sáng dậy", "1 tuần ngồi lâu")
   pastMethod: string | null;      // đã thử phương pháp nào: chua-thu / massage / thuoc / vat-ly-tri-lieu / khac
   sessionPackage: string | null;  // le / 5-buoi / 10-buoi / 20-buoi
-  preferredTime: string | null;   // giờ muốn đặt lịch
+  preferredTime: string | null;   // giờ muốn đặt lịch (cụm giờ/buổi NGUYÊN VĂN — vd "2h chiều", "10h sáng mai 18/06")
+  // Ngày hẹn TUYỆT ĐỐI đã RESOLVE "DD/MM/YYYY" (classifier LLM resolve từ bảng NGÀY HIỆN TẠI).
+  // Là DANH TÍNH buổi hẹn (khóa chống trùng đơn = người + NGÀY), KHÁC preferredTime (chỉ là cụm hiển thị).
+  // null khi KH chưa nêu ngày cụ thể (chỉ giờ/buổi trơ, hoặc cửa sổ nhiều ngày "cuối tuần").
+  // CARRY-FORWARD: tin mới chỉ đổi giờ ("2h chiều") → giữ NGUYÊN ngày cũ (xem pickWithReextract ở mergeSlots).
+  appointmentDate: string | null;
 }
 
 /** Nước đi media CHỦ ĐỘNG do classifier (LLM) quyết định mỗi turn — như sale khôn khéo, gửi đúng lúc.
@@ -193,8 +198,9 @@ export interface ConversationState {
   /** ≥1 đơn đã ghi Sheets thành công. KHÔNG còn khóa chat — chỉ dùng để chuyển sang
    *  chế độ retention (concierge sau chốt). Xem [[bookingsWritten]] cho dedup ghi đơn. */
   sheetsWritten: boolean;
-  /** Chữ ký các đơn ĐÃ ghi Sheets — dedup cho multi-order. Mỗi entry = `tên|SĐT|dịch vụ|giờ`
-   *  (xem bookingSignature() = flow|tên|SĐT|giờ). Đặt buổi GIỜ khác / người khác → chữ ký mới → ghi dòng tiếp.
+  /** Chữ ký các đơn ĐÃ ghi Sheets — dedup cho multi-order. Mỗi entry = `flow|tên|SĐT|NGÀY`
+   *  (xem bookingSignature(); NGÀY = lõi "DD/MM" của appointmentDate, fallback giờ khi chưa có ngày).
+   *  Đặt buổi NGÀY khác / người khác → chữ ký mới → ghi dòng tiếp; đổi GIỜ cùng ngày → UPDATE dòng cũ.
    *  Thay cho cơ chế khóa boolean cũ (chỉ ghi 1 lần rồi im lặng). */
   bookingsWritten?: string[];
   /** Multi-service far-context: TẤT CẢ bộ môn KH đã quan tâm xuyên các turn (gym/yoga/zumba/boi/pilates).
@@ -337,6 +343,9 @@ export function mergeSlots(
     pastMethod:     pickWithReextract(existing.pastMethod, extracted.pastMethod),
     sessionPackage: pick(existing.sessionPackage, extracted.sessionPackage),
     preferredTime:  pickPreferredTime(existing.preferredTime, extracted.preferredTime),
+    // appointmentDate carry-forward: ngày mới non-null → override (KH đổi sang ngày khác);
+    // null → GIỮ ngày cũ (tin chỉ đổi giờ "2h chiều" KHÔNG được làm rớt ngày 18/06 đã chốt).
+    appointmentDate: pickWithReextract(existing.appointmentDate, extracted.appointmentDate),
   };
 }
 
@@ -652,17 +661,29 @@ export function collectServices(message: string): string[] {
   return [...found];
 }
 
-// Chữ ký 1 đơn đã chốt = KHÓA ĐẶT CHỖ: flow|tên|SĐT|giờ.
-// CỐ Ý KHÔNG gồm service — vì slot đặt chỗ là (người + giờ), service chỉ là cột dữ liệu.
-// Nếu gồm service thì khi khách chỉ HỎI về môn khác (đổi service, GIỮ giờ cũ) sẽ tạo chữ ký
-// "đủ" mới → ghi 1 dòng MA dù khách chưa đặt. Dùng (người+giờ) → hỏi-đổi-môn không sinh đơn mới;
-// chỉ khi đổi GIỜ (đặt buổi khác) hoặc đổi NGƯỜI mới ra chữ ký mới.
-// flow để phân biệt đơn fitness vs giai-co (2 business khác nhau).
-// Chỉ trả non-null khi đủ tên + SĐT + giờ (lead complete).
+// Lõi NGÀY "DD/MM" của appointmentDate ("DD/MM/YYYY") — dùng làm khóa danh tính + để match dòng Sheet.
+// Pure slice (KHÔNG regex): classifier được ép trả đúng format "DD/MM/YYYY" nên 5 ký tự đầu = "DD/MM".
+// Năm bỏ khỏi KHÓA (1 người đặt đúng 18/06 ở 2 năm khác nhau = phi thực tế) cho khóa gọn & ổn định.
+export function appointmentDateKey(d: string | null): string | null {
+  if (!d) return null;
+  const core = d.trim().slice(0, 5);
+  return core.length >= 4 ? core : d.trim();
+}
+
+// Chữ ký 1 đơn đã chốt = KHÓA ĐẶT CHỖ: flow|tên|SĐT|NGÀY.
+// DANH TÍNH buổi hẹn = (người + NGÀY), KHÔNG phải (người + giờ-raw). Lý do:
+//   - preferredTime là text BIẾN ĐỔI khi hội thoại làm rõ dần ("mai" → "10h sáng mai 18/06" → "2h chiều").
+//     Nếu khóa theo raw text thì mỗi lần làm rõ/đổi giờ = chữ ký mới = ghi DÒNG TRÙNG. Khóa theo NGÀY →
+//     mọi thay đổi GIỜ trong CÙNG ngày giữ nguyên chữ ký → tryWriteLeadIfReady UPDATE 1 dòng (1 người+1 ngày=1 dòng).
+//   - Đổi NGÀY (đặt buổi khác hôm) hoặc đổi NGƯỜI mới ra chữ ký mới.
+// CỐ Ý KHÔNG gồm service — hỏi-đổi-môn (giữ ngày cũ) không sinh đơn ma.
+// Fallback preferredTime khi CHƯA có ngày tuyệt đối (đơn cửa-sổ "cuối tuần") — giữ hành vi cũ cho case đó.
+// flow để phân biệt đơn fitness vs giai-co. Chỉ trả non-null khi đủ tên + SĐT + giờ (lead complete).
 export function bookingSignature(info: KnownInfo, flow: Flow): string | null {
   if (!info.name || !info.phone || !info.preferredTime) return null;
   const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-  return [flow, norm(info.name), norm(info.phone), norm(info.preferredTime)].join("|");
+  const dateKey = appointmentDateKey(info.appointmentDate) ?? norm(info.preferredTime);
+  return [flow, norm(info.name), norm(info.phone), norm(dateKey)].join("|");
 }
 
 // KH (sau khi đã chốt) muốn ĐẶT THÊM: môn khác / buổi khác / cho người thân.
@@ -1184,6 +1205,10 @@ export function buildNextState(
     ? null
     : detectServiceByKeyword(message);
 
+  // Tái dùng guard chống-bịa-thời-gian cho CẢ giờ lẫn ngày (không thêm regex mới):
+  // tin KHÔNG có bất kỳ cue thời gian nào → sanitize trả null → ngày cũng KHÔNG đáng tin (null)
+  // → carry-forward giữ NGUYÊN ngày đã chốt. Chặn classifier bịa ngày từ câu vô thời gian ("ok luôn").
+  const sanitizedTime = sanitizePreferredTime(llm.extractedSlots.preferredTime, message);
   const extractedSlotsAugmented = {
     ...llm.extractedSlots,
     // Chỉ override khi LLM không cho giá trị (null/undefined/empty).
@@ -1199,7 +1224,9 @@ export function buildNextState(
         ? llm.extractedSlots.phone
         : inlineExtract.phone,
     // Chống classifier bịa thứ/ngày từ range-giờ ("tối 7-9h" → "thứ 7 13/06"). Xem sanitizePreferredTime.
-    preferredTime: sanitizePreferredTime(llm.extractedSlots.preferredTime, message),
+    preferredTime: sanitizedTime,
+    // Ngày hẹn tuyệt đối (DD/MM/YYYY) do classifier resolve. Gate qua sanitizedTime để chống bịa ngày.
+    appointmentDate: sanitizedTime === null ? null : (llm.extractedSlots.appointmentDate ?? null),
     // Vá gap classifier miss goal "lấy lại dáng" (mẹ bỉm) → giam-mo. Chỉ fallback khi LLM không cho goal.
     fitnessGoal: llm.extractedSlots.fitnessGoal ?? detectGoalByKeyword(message),
   };
@@ -1251,6 +1278,10 @@ export function buildNextState(
       preferredTime: isPreferredTimeSpecific(extractedSlotsAugmented.preferredTime ?? null)
         ? knownInfo.preferredTime
         : null,
+      // Ngày hẹn đi theo giờ hẹn: giữ nếu turn đổi-flow có giờ rõ, ngược lại reset (đơn dịch vụ mới).
+      appointmentDate: isPreferredTimeSpecific(extractedSlotsAugmented.preferredTime ?? null)
+        ? knownInfo.appointmentDate
+        : null,
     };
   }
 
@@ -1275,9 +1306,20 @@ export function buildNextState(
     const exFresh = (v: unknown): string | null =>
       typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
 
-    // sig = flow|name|phone|time → idx 1=name, 2=phone, 3=time
-    if (slotUsedInWritten(knownInfo.preferredTime, 3)) {
-      knownInfo = { ...knownInfo, preferredTime: exFresh(extractedSlotsAugmented.preferredTime) };
+    // sig = flow|name|phone|NGÀY → idx 1=name, 2=phone, 3=ngày-key (xem bookingSignature).
+    // Slot đặt-chỗ = (giờ + ngày). Đơn cũ còn dính nếu NGÀY hiện tại khớp 1 chữ ký đã ghi
+    // (hoặc đơn cửa-sổ cũ khóa theo preferredTime). Dính → reset CẢ giờ lẫn ngày về giá trị fresh turn này.
+    const dateKeyNow = appointmentDateKey(knownInfo.appointmentDate);
+    const bookingInherited =
+      (dateKeyNow !== null &&
+        writtenSigs.some((sig) => sig.split("|")[3] === normV(dateKeyNow))) ||
+      slotUsedInWritten(knownInfo.preferredTime, 3);
+    if (bookingInherited) {
+      knownInfo = {
+        ...knownInfo,
+        preferredTime: exFresh(extractedSlotsAugmented.preferredTime),
+        appointmentDate: exFresh(extractedSlotsAugmented.appointmentDate),
+      };
     }
     if (isBeneficiary) {
       const name = slotUsedInWritten(knownInfo.name, 1)
@@ -1496,6 +1538,7 @@ export const DEFAULT_STATE: ConversationState = {
     pastMethod: null,
     sessionPackage: null,
     preferredTime: null,
+    appointmentDate: null,
   },
   turnCount: 0,
   flowTurnCount: 0,

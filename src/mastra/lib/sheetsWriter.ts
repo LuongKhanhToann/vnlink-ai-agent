@@ -84,6 +84,18 @@ function getSheetsClient(): { sheets: any; spreadsheetId: string } {
   return { sheets, spreadsheetId: requireSheetId() };
 }
 
+// Ô "Thời gian đến": cụm giờ khách nói + LUÔN kèm NGÀY đã resolve (yêu cầu: lưu RÕ ngày).
+// appointmentDate = "DD/MM/YYYY"; nếu cụm giờ ĐÃ chứa "DD/MM" thì khỏi nối thừa, ngược lại nối full ngày.
+// Vd: "2h chiều" + 18/06/2026 → "2h chiều 18/06/2026"; "10h sáng mai 18/06" → giữ nguyên (đã có 18/06).
+export function composeWhenCell(preferredTime: string | null, appointmentDate: string | null): string {
+  const time = (preferredTime ?? "").trim();
+  const date = (appointmentDate ?? "").trim();
+  if (!date) return time;
+  const ddmm = date.slice(0, 5); // "DD/MM"
+  if (time.includes(ddmm)) return time; // cụm giờ đã mang ngày → không nối lặp
+  return time ? `${time} ${date}` : date;
+}
+
 // Build 1 row A:G từ state (đồng nhất giữa append & update).
 function buildLeadRow(state: ConversationState): any[] {
   const { knownInfo, flow } = state;
@@ -97,7 +109,7 @@ function buildLeadRow(state: ConversationState): any[] {
     flow === "fitness" ? "Fitness" : "Giải cơ",
     knownInfo.name,
     knownInfo.phone,
-    knownInfo.preferredTime ?? "",
+    composeWhenCell(knownInfo.preferredTime, knownInfo.appointmentDate),
     serviceOrArea,
     goalOrMethod,
   ];
@@ -118,17 +130,21 @@ export async function writeLeadToSheets(state: ConversationState): Promise<void>
 }
 
 /**
- * ĐỔI LỊCH (reschedule): tìm dòng đơn cũ theo (Tên + SĐT + Thời gian đến CŨ) và CẬP NHẬT
- * tại chỗ — thay vì thêm dòng mới (tránh trùng đơn khi khách chỉ dời giờ).
- * Match dòng GẦN NHẤT (cuối cùng) khớp. Trả về true nếu update được, false nếu không tìm thấy
- * (caller sẽ fallback sang append).
+ * ĐỒNG BỘ / ĐỔI LỊCH 1 đơn ĐÃ ghi: tìm dòng cũ theo (Tên + SĐT + matchCore nằm trong cột "Thời gian đến")
+ * rồi GHI ĐÈ bằng dữ liệu state hiện tại — thay vì append dòng mới (chống trùng khi khách làm rõ/đổi giờ).
+ *
+ * matchCore = LÕI NGÀY "DD/MM" (đơn có ngày tuyệt đối) hoặc cụm giờ chuẩn hoá (đơn cửa-sổ chưa có ngày).
+ * Dùng `includes` (không so khớp tuyệt đối) vì cột E mang cả giờ lẫn ngày, giờ có thể đổi nhưng NGÀY giữ.
+ * Match dòng GẦN NHẤT (cuối cùng) khớp.
+ *
+ * Trả: "updated" (đã ghi đè vì giá trị đổi) | "unchanged" (dòng đã đúng, bỏ qua) | "notfound" (caller append).
  */
 export async function updateLeadRow(
   state: ConversationState,
-  oldTime: string,
-): Promise<boolean> {
+  matchCore: string,
+): Promise<"updated" | "unchanged" | "notfound"> {
   const { knownInfo } = state;
-  if (!knownInfo.name || !knownInfo.phone || !oldTime) return false;
+  if (!knownInfo.name || !knownInfo.phone || !matchCore) return "notfound";
 
   const { sheets, spreadsheetId } = getSheetsClient();
   const resp = await sheets.spreadsheets.values.get({
@@ -137,31 +153,36 @@ export async function updateLeadRow(
   });
   const rows: any[][] = resp.data.values ?? [];
 
-  // Cột: C(2)=Tên, D(3)=SĐT, E(4)=Thời gian đến. Tìm dòng cuối cùng khớp.
+  // Cột: C(2)=Tên, D(3)=SĐT, E(4)=Thời gian đến. Tìm dòng cuối cùng khớp (Tên+SĐT + cột E CHỨA matchCore).
+  const core = normCell(matchCore);
   let target = -1;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] ?? [];
     if (
       normCell(r[2]) === normCell(knownInfo.name) &&
       normPhone(r[3]) === normPhone(knownInfo.phone) &&
-      normCell(r[4]) === normCell(oldTime)
+      normCell(r[4]).includes(core)
     ) {
       target = i;
     }
   }
-  if (target < 0) return false;
+  if (target < 0) return "notfound";
+
+  const newRow = buildLeadRow(state);
+  // Không đổi giá trị cột "Thời gian đến" → khỏi gọi API (tránh churn timestamp mỗi turn).
+  if (normCell((rows[target] ?? [])[4]) === normCell(newRow[4])) return "unchanged";
 
   const rowNum = target + 1; // values bắt đầu từ A1 → index 0 = dòng 1
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${SHEET_NAME}!A${rowNum}:G${rowNum}`,
     valueInputOption: "USER_ENTERED",
-    requestBody: { values: [buildLeadRow(state)] },
+    requestBody: { values: [newRow] },
   });
   console.log(
-    `[sheetsWriter] ✎ UPDATE dòng ${rowNum}: ${knownInfo.name} đổi "${oldTime}" → "${knownInfo.preferredTime}"`,
+    `[sheetsWriter] ✎ UPDATE dòng ${rowNum}: ${knownInfo.name} → "${newRow[4]}" (match "${matchCore}")`,
   );
-  return true;
+  return "updated";
 }
 
 /**

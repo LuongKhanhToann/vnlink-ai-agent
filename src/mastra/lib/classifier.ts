@@ -201,6 +201,7 @@ const classifierSchema = z.object({
       pastMethod:     z.string().nullable().optional(),
       sessionPackage: z.string().nullable().optional(),
       preferredTime:  z.string().nullable().optional(),
+      appointmentDate: z.string().nullable().optional(),
       bodyStats:      z.string().nullable().optional(),
     })
     .nullable()
@@ -251,6 +252,12 @@ export async function classify(
   // preferredTime: luôn cho re-extract (refine + đổi ý).
   if (!slotsToExtract.includes("preferredTime")) {
     slotsToExtract.push("preferredTime");
+  }
+
+  // appointmentDate: luôn cho re-extract — đi đôi preferredTime để resolve NGÀY tuyệt đối mỗi turn
+  // (carry-forward + override do mergeSlots xử lý). Là khóa danh tính đơn → phải bám sát mọi turn.
+  if (!slotsToExtract.includes("appointmentDate")) {
+    slotsToExtract.push("appointmentDate");
   }
 
   // serviceType: luôn cho re-extract để detect KH đổi bộ môn ("đang nói bơi → quan tâm gym").
@@ -442,6 +449,7 @@ function buildPrompt(
   if (knownInfo.pastMethod)     knownParts.push(`đã_thử=${knownInfo.pastMethod}`);
   if (knownInfo.sessionPackage) knownParts.push(`gói=${knownInfo.sessionPackage}`);
   if (knownInfo.preferredTime)  knownParts.push(`giờ_muốn=${knownInfo.preferredTime}`);
+  if (knownInfo.appointmentDate) knownParts.push(`ngày_hẹn=${knownInfo.appointmentDate}`);
   if (knownInfo.bodyStats)      knownParts.push(`chỉ_số=${knownInfo.bodyStats}`);
 
   const knownSummary = knownParts.join(", ") || "chưa có gì";
@@ -753,6 +761,11 @@ SLOTS chung (áp dụng cả fitness và giai-co):
     - REFINE (đã có value cũ, tin mới BỔ SUNG cùng hướng) → GỘP cũ+mới thành cụ thể hơn. Tin mới KHÔNG nói gì về giờ → giữ NGUYÊN value cũ.
     - ĐỔI Ý (cue "thôi/đổi/chuyển/dời/không/ko" + có từ thời gian) → THAY HẲN value cũ, KHÔNG gộp; PHẢI extract value mới (không null). Cue phải rõ — chỉ "à" thì giữ cũ.
     - KHÔNG suy đoán vượt info khách cho — thà generic còn hơn sai.
+  appointmentDate = NGÀY hẹn TUYỆT ĐỐI đã resolve, format CỐ ĐỊNH "DD/MM/YYYY" (vd "18/06/2026"). Tách RIÊNG khỏi preferredTime.
+    - Tin có nhắc NGÀY/THỨ (kể cả tương đối "mai", "ngày kia", "thứ 4", "thứ 5 tuần sau") → RESOLVE ra "DD/MM/YYYY" dựa bảng "NGÀY HIỆN TẠI". Năm theo VN hiện tại.
+    - Tin CHỈ đổi GIỜ/BUỔI mà KHÔNG nhắc ngày ("2h chiều", "10h", "sáng nhé") → null. (state đã giữ ngày_hẹn cũ — đừng lặp lại, đừng bịa ngày mới.)
+    - CỬA SỔ mơ hồ nhiều ngày ("cuối tuần", "tuần sau", "hôm nào") hoặc chưa có ngày → null. KHÔNG tự ép 1 ngày.
+    - Khác preferredTime: preferredTime giữ cụm chữ khách nói; appointmentDate CHỈ là ngày máy đọc được để chốt lịch.
 
 ${dataTail}
 
