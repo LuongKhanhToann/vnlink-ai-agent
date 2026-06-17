@@ -372,12 +372,32 @@ async function doLogin(){
 
 async function doLogout(){ await fetch("/admin/api/logout",{method:"POST"}); location.reload(); }
 
+// Đưa về màn đăng nhập một cách an toàn (dọn modal đang mở, không để trang trắng).
+function forceLogin(msg){
+  hide("app");
+  var bgs = document.querySelectorAll(".modal-bg");
+  bgs.forEach(function(b){ b.remove(); });
+  show("login");
+  var le = document.getElementById("loginErr");
+  if(le) le.textContent = msg || "";
+}
+// Bất kỳ response 401 nào → rớt về login (phiên hết hạn). Trả true nếu đã xử lý.
+function handle401(r){
+  if(r && r.status===401){ forceLogin("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại."); return true; }
+  return false;
+}
+
 async function boot(){
   updateThemeBtn();
-  var r = await fetch("/admin/api/users",{cache:"no-store"});
-  if(r.status===401){ hide("app"); show("login"); return; }
-  var d = await r.json(); USERS = d.users || [];
-  hide("login"); show("app"); updateThemeBtn(); render();
+  try {
+    var r = await fetch("/admin/api/users",{cache:"no-store"});
+    if(r.status===401){ forceLogin(); return; }
+    if(!r.ok){ forceLogin("Không kết nối được máy chủ, vui lòng đăng nhập lại."); return; }
+    var d = await r.json(); USERS = d.users || [];
+    hide("login"); show("app"); updateThemeBtn(); render();
+  } catch(e){
+    forceLogin("Có lỗi xảy ra, vui lòng đăng nhập lại.");
+  }
 }
 
 function render(){
@@ -407,6 +427,7 @@ async function toggle(senderId, el){
   var r = await fetch("/admin/api/users",{method:"POST",headers:{"Content-Type":"application/json"},
     body: JSON.stringify({senderId:senderId, enabled:next})});
   el.disabled = false;
+  if(handle401(r)){ el.checked = !next; return; }
   if(r.ok){ var u = USERS.find(function(x){return x.sender_id===senderId;}); if(u) u.enabled = next; render(); }
   else { el.checked = !next; toast("Cập nhật thất bại, thử lại.", "err"); }
 }
@@ -469,8 +490,10 @@ function videoPoster(url){
 async function loadMedia(){
   var box = document.getElementById("mediaList");
   box.innerHTML = '<p class="muted">Đang tải…</p>';
-  var r = await fetch("/admin/api/media",{cache:"no-store"});
-  if(r.status===401){ hide("app"); show("login"); return; }
+  var r;
+  try { r = await fetch("/admin/api/media",{cache:"no-store"}); }
+  catch(e){ box.innerHTML = '<p class="muted">Không tải được thư viện. Thử lại sau.</p>'; return; }
+  if(handle401(r)) return;
   if(!r.ok){ box.innerHTML = '<p class="muted">Không tải được thư viện. Thử lại sau.</p>'; return; }
   var d = await r.json();
   MEDIA = d.categories || [];
@@ -545,6 +568,7 @@ async function uploadFile(base, kind, f){
   fd.append("base", base); fd.append("kind", kind); fd.append("file", f);
   var r = await fetch("/admin/api/media/upload",{ method:"POST", body: fd });
   box.classList.remove("uploading");
+  if(handle401(r)) return;
   if(r.ok){ toast("Đã tải lên.", "ok"); await loadMedia(); }
   else {
     var d = await r.json().catch(function(){ return {}; });
@@ -558,6 +582,7 @@ async function deleteItem(t, btn){
   if(btn) btn.disabled = true;
   var r = await fetch("/admin/api/media/delete",{ method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ public_id: t.public_id, resource_type: t.resource_type }) });
+  if(handle401(r)){ if(btn) btn.disabled = false; return; }
   if(r.ok){ var d = await r.json().catch(function(){return {};}); if(d.ok){ toast("Đã xoá.", "ok"); await loadMedia(); return; } }
   if(btn) btn.disabled = false;
   toast("Xoá thất bại, thử lại.", "err");
