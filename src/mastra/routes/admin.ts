@@ -18,6 +18,15 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { listUsers, setBotEnabled } from "../lib/botControl";
+import {
+  MEDIA_CATEGORIES,
+  IMAGE_MAX_BYTES,
+  VIDEO_MAX_BYTES,
+  isValidBase,
+  listCategoryMedia,
+  uploadMedia,
+  deleteMedia,
+} from "../lib/cloudinaryAdmin";
 
 const COOKIE_NAME = "vnlink_admin";
 const TTL_SEC = 60 * 60 * 24 * 7; // 7 ngày
@@ -111,6 +120,77 @@ adminWebhook.post("/admin/api/users", async (c) => {
   }
 });
 
+// ── Thư viện media: liệt kê ảnh/video theo danh mục Cloudinary ──
+adminWebhook.get("/admin/api/media", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const categories = await Promise.all(
+      MEDIA_CATEGORIES.map(async (cat) => {
+        const { images, videos } = await listCategoryMedia(cat.base);
+        return { base: cat.base, label: cat.label, images, videos };
+      }),
+    );
+    return c.json({
+      categories,
+      limits: { image: IMAGE_MAX_BYTES, video: VIDEO_MAX_BYTES },
+    });
+  } catch (e) {
+    console.error("[admin] list media failed:", e);
+    return c.json({ error: "cloud_error" }, 500);
+  }
+});
+
+// ── Upload media mới (multipart: base, kind, file) ──
+adminWebhook.post("/admin/api/media/upload", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const body = await c.req.parseBody();
+    const base = String(body.base ?? "");
+    const kind = String(body.kind ?? "");
+    const file = body.file;
+    if (!isValidBase(base) || (kind !== "img" && kind !== "video")) {
+      return c.json({ error: "bad_request" }, 400);
+    }
+    if (!(file instanceof File)) {
+      return c.json({ error: "no_file" }, 400);
+    }
+    const max = kind === "video" ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES;
+    if (file.size > max) {
+      return c.json({ error: "too_large", max }, 413);
+    }
+    // Tách bỏ phần đuôi mở rộng để Cloudinary tự gắn theo định dạng thật.
+    const rawName = file.name || "upload";
+    const dot = rawName.lastIndexOf(".");
+    const filename = dot > 0 ? rawName.slice(0, dot) : rawName;
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const item = await uploadMedia({ base, kind: kind as "img" | "video", buffer, filename });
+    return c.json({ ok: true, item });
+  } catch (e) {
+    console.error("[admin] media upload failed:", e);
+    return c.json({ error: "upload_error" }, 500);
+  }
+});
+
+// ── Xoá media ──
+adminWebhook.post("/admin/api/media/delete", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { public_id, resource_type } = await c.req.json();
+    if (
+      typeof public_id !== "string" ||
+      (resource_type !== "image" && resource_type !== "video")
+    ) {
+      return c.json({ error: "bad_request" }, 400);
+    }
+    const ok = await deleteMedia(public_id, resource_type);
+    return c.json({ ok });
+  } catch (e) {
+    console.error("[admin] media delete failed:", e);
+    return c.json({ error: "delete_error" }, 500);
+  }
+});
+
 // ─────────────────────────────────────────────
 // Trang HTML — login + dashboard trong 1 file, gọi các API ở trên.
 // Hỗ trợ sáng/tối (CSS variables, lưu localStorage). Không backtick bên trong.
@@ -182,6 +262,38 @@ input:checked + .slider:before{transform:translateX(20px)}
 .note{color:var(--muted);font-size:13px;margin-top:16px;line-height:1.5}
 .hidden{display:none}
 .right{text-align:right}
+.tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border)}
+.tab{background:none;border:none;color:var(--muted);padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.btn-sm{padding:6px 10px;font-size:13px}
+.cat{margin-bottom:26px}
+.cat-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.cat-head h2{font-size:16px;margin:0;font-weight:600}
+.cat-count{color:var(--muted);font-size:13px;font-weight:400;margin-left:8px}
+.up-actions{display:flex;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
+.mcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.mthumb{display:block;position:relative;aspect-ratio:1;background:var(--field)}
+.mthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mthumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;background:rgba(0,0,0,.32)}
+.mmeta{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;gap:6px}
+.mfmt{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.del{background:var(--off-bg);color:var(--off-text);border:none;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:13px;flex:none;line-height:1}
+.del:hover{opacity:.85}
+.del:disabled{opacity:.5;cursor:default}
+.empty{color:var(--muted);font-size:13px;padding:6px 0}
+.uploading{opacity:.6;pointer-events:none}
+.toast-wrap{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{background:var(--surface);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:11px 16px;font-size:14px;box-shadow:var(--shadow);max-width:90vw}
+.toast.ok{border-left-color:var(--sw-on)}
+.toast.err{border-left-color:var(--off-text)}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:16px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;max-width:340px;width:100%;box-shadow:var(--shadow)}
+.modal p{margin:0 0 18px;font-size:15px;line-height:1.5}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+.modal-actions .btn{width:auto}
+.btn-danger{background:var(--off-bg);border-color:var(--off-bg);color:var(--off-text)}
 </style>
 </head>
 <body>
@@ -200,17 +312,33 @@ input:checked + .slider:before{transform:translateX(20px)}
 
 <div id="app" class="wrap hidden">
   <div class="topbar">
-    <h1>Người dùng trợ lý AI</h1>
+    <h1>VNLink Admin</h1>
     <div class="actions">
       <button id="themeBtn" class="btn" onclick="toggleTheme()"></button>
       <button class="btn" onclick="doLogout()">Đăng xuất</button>
     </div>
   </div>
-  <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
-  <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()" />
-  <div id="list"></div>
-  <p class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
+
+  <div class="tabs">
+    <button id="tab-users" class="tab active" onclick="switchTab('users')">Người dùng</button>
+    <button id="tab-media" class="tab" onclick="switchTab('media')">Thư viện ảnh/video</button>
+  </div>
+
+  <div id="view-users">
+    <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
+    <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()" />
+    <div id="list"></div>
+    <p class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
+  </div>
+
+  <div id="view-media" class="hidden">
+    <p class="subtitle">Ảnh/video gửi cho khách qua Facebook. Giới hạn: ảnh ≤ 8MB, video ≤ 25MB.</p>
+    <div id="mediaList"><p class="muted">Đang tải…</p></div>
+  </div>
 </div>
+
+<input id="fileInput" type="file" class="hidden" />
+<div id="toasts" class="toast-wrap"></div>
 
 <script>
 var USERS = [];
@@ -280,7 +408,159 @@ async function toggle(senderId, el){
     body: JSON.stringify({senderId:senderId, enabled:next})});
   el.disabled = false;
   if(r.ok){ var u = USERS.find(function(x){return x.sender_id===senderId;}); if(u) u.enabled = next; render(); }
-  else { el.checked = !next; alert("Cập nhật thất bại, thử lại."); }
+  else { el.checked = !next; toast("Cập nhật thất bại, thử lại.", "err"); }
+}
+
+// ── Toast + hộp xác nhận tuỳ biến (thay alert/confirm mặc định) ──
+function toast(msg, kind){
+  var wrap = document.getElementById("toasts");
+  var el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 3000);
+}
+function askConfirm(msg, okLabel, danger){
+  return new Promise(function(resolve){
+    var bg = document.createElement("div"); bg.className = "modal-bg";
+    var box = document.createElement("div"); box.className = "modal";
+    var p = document.createElement("p"); p.textContent = msg; box.appendChild(p);
+    var acts = document.createElement("div"); acts.className = "modal-actions";
+    var cancel = document.createElement("button"); cancel.className = "btn"; cancel.textContent = "Huỷ";
+    var ok = document.createElement("button"); ok.className = "btn " + (danger ? "btn-danger" : "btn-primary"); ok.textContent = okLabel || "Đồng ý";
+    acts.appendChild(cancel); acts.appendChild(ok); box.appendChild(acts); bg.appendChild(box);
+    document.body.appendChild(bg);
+    function done(v){ bg.remove(); resolve(v); }
+    cancel.onclick = function(){ done(false); };
+    ok.onclick = function(){ done(true); };
+    bg.onclick = function(e){ if(e.target === bg) done(false); };
+  });
+}
+
+// ── Thư viện ảnh/video ──
+var MEDIA = null;            // null = chưa nạp
+var LIMITS = { image: 8388608, video: 26214400 };
+var DELITEMS = [];          // map index → {public_id, resource_type} cho nút xoá
+
+function switchTab(name){
+  var isUsers = name === "users";
+  document.getElementById("tab-users").classList.toggle("active", isUsers);
+  document.getElementById("tab-media").classList.toggle("active", !isUsers);
+  document.getElementById("view-users").classList.toggle("hidden", !isUsers);
+  document.getElementById("view-media").classList.toggle("hidden", isUsers);
+  if(!isUsers && MEDIA === null) loadMedia();
+}
+
+function fmtBytes(n){
+  if(!n) return "0 B";
+  var u = ["B","KB","MB","GB"];
+  var i = Math.floor(Math.log(n)/Math.log(1024));
+  return (n/Math.pow(1024,i)).toFixed(i?1:0) + " " + u[i];
+}
+function imgThumb(url){
+  return url.indexOf("/upload/")>=0 ? url.replace("/upload/","/upload/c_fill,w_260,h_260,q_auto,f_auto/") : url;
+}
+function videoPoster(url){
+  var u = url.indexOf("/upload/")>=0 ? url.replace("/upload/","/upload/so_0,c_fill,w_260,h_260/") : url;
+  var dot = u.lastIndexOf(".");
+  return dot>=0 ? u.slice(0,dot) + ".jpg" : u;
+}
+
+async function loadMedia(){
+  var box = document.getElementById("mediaList");
+  box.innerHTML = '<p class="muted">Đang tải…</p>';
+  var r = await fetch("/admin/api/media",{cache:"no-store"});
+  if(r.status===401){ hide("app"); show("login"); return; }
+  if(!r.ok){ box.innerHTML = '<p class="muted">Không tải được thư viện. Thử lại sau.</p>'; return; }
+  var d = await r.json();
+  MEDIA = d.categories || [];
+  if(d.limits) LIMITS = d.limits;
+  renderMedia();
+}
+
+function renderMedia(){
+  DELITEMS = [];
+  var box = document.getElementById("mediaList");
+  var html = "";
+  MEDIA.forEach(function(cat){
+    var items = (cat.images||[]).concat(cat.videos||[]);
+    html += '<div class="cat">';
+    html += '<div class="cat-head"><h2>' + esc(cat.label)
+      + '<span class="cat-count">' + (cat.images||[]).length + ' ảnh · ' + (cat.videos||[]).length + ' video</span></h2>';
+    html += '<div class="up-actions">'
+      + '<button class="btn btn-sm up" data-base="' + esc(cat.base) + '" data-kind="img">+ Ảnh</button>'
+      + '<button class="btn btn-sm up" data-base="' + esc(cat.base) + '" data-kind="video">+ Video</button>'
+      + '</div></div>';
+    if(items.length===0){
+      html += '<p class="empty">Chưa có ảnh/video nào.</p>';
+    } else {
+      html += '<div class="grid">';
+      items.forEach(function(it){
+        var idx = DELITEMS.length;
+        DELITEMS.push({ public_id: it.public_id, resource_type: it.resource_type });
+        var isVideo = it.resource_type === "video";
+        var thumb = isVideo
+          ? '<img src="' + esc(videoPoster(it.url)) + '" onerror="this.remove()"/><span class="play">▶</span>'
+          : '<img src="' + esc(imgThumb(it.url)) + '" loading="lazy"/>';
+        html += '<div class="mcard">'
+          + '<a class="mthumb" href="' + esc(it.url) + '" target="_blank" rel="noopener">' + thumb + '</a>'
+          + '<div class="mmeta"><span class="mfmt">' + esc((it.format||"").toUpperCase()) + ' · ' + fmtBytes(it.bytes) + '</span>'
+          + '<button class="del" data-i="' + idx + '" title="Xoá">✕</button></div>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll(".up").forEach(function(b){
+    b.addEventListener("click", function(){ pickFile(b.getAttribute("data-base"), b.getAttribute("data-kind")); });
+  });
+  box.querySelectorAll(".del").forEach(function(b){
+    b.addEventListener("click", function(){ var t = DELITEMS[+b.getAttribute("data-i")]; if(t) deleteItem(t, b); });
+  });
+}
+
+function pickFile(base, kind){
+  var inp = document.getElementById("fileInput");
+  inp.accept = kind === "video" ? "video/*" : "image/*";
+  inp.onchange = function(){
+    if(inp.files && inp.files[0]) uploadFile(base, kind, inp.files[0]);
+    inp.value = "";
+  };
+  inp.click();
+}
+
+async function uploadFile(base, kind, f){
+  var max = kind === "video" ? LIMITS.video : LIMITS.image;
+  if(f.size > max){
+    toast("File quá lớn (" + fmtBytes(f.size) + "). Tối đa " + fmtBytes(max) + " theo giới hạn Facebook.", "err");
+    return;
+  }
+  var yes = await askConfirm("Tải " + (kind === "video" ? "video" : "ảnh") + " \"" + f.name + "\" (" + fmtBytes(f.size) + ") lên mục này?", "Tải lên");
+  if(!yes) return;
+  var box = document.getElementById("mediaList");
+  box.classList.add("uploading");
+  var fd = new FormData();
+  fd.append("base", base); fd.append("kind", kind); fd.append("file", f);
+  var r = await fetch("/admin/api/media/upload",{ method:"POST", body: fd });
+  box.classList.remove("uploading");
+  if(r.ok){ toast("Đã tải lên.", "ok"); await loadMedia(); }
+  else {
+    var d = await r.json().catch(function(){ return {}; });
+    toast(d.error === "too_large" ? "File vượt giới hạn của Facebook." : "Tải lên thất bại, thử lại.", "err");
+  }
+}
+
+async function deleteItem(t, btn){
+  var yes = await askConfirm("Xoá vĩnh viễn file này khỏi Cloudinary? Không thể hoàn tác.", "Xoá", true);
+  if(!yes) return;
+  if(btn) btn.disabled = true;
+  var r = await fetch("/admin/api/media/delete",{ method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ public_id: t.public_id, resource_type: t.resource_type }) });
+  if(r.ok){ var d = await r.json().catch(function(){return {};}); if(d.ok){ toast("Đã xoá.", "ok"); await loadMedia(); return; } }
+  if(btn) btn.disabled = false;
+  toast("Xoá thất bại, thử lại.", "err");
 }
 
 boot();
