@@ -66,11 +66,16 @@ async function fetchFbName(senderId: string): Promise<string | null> {
   if (!FB_PAGE_ACCESS_TOKEN) return null;
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${senderId}?fields=name&access_token=${FB_PAGE_ACCESS_TOKEN}`,
+      `https://graph.facebook.com/v19.0/${senderId}?fields=first_name,last_name,name&access_token=${FB_PAGE_ACCESS_TOKEN}`,
     );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { name?: string };
-    return data.name ?? null;
+    if (!res.ok) {
+      // Dev-mode: Graph API chỉ trả tên cho user có vai trò trong App (admin/tester).
+      // Người lạ → 400/#100 → name null → "(chưa rõ tên)". Cần App Review để hết.
+      console.warn(`[botControl] fetchFbName ${senderId} → ${res.status} ${await res.text()}`);
+      return null;
+    }
+    const data = (await res.json()) as { name?: string; first_name?: string; last_name?: string };
+    return data.name ?? ([data.first_name, data.last_name].filter(Boolean).join(" ") || null);
   } catch {
     return null;
   }
@@ -102,6 +107,28 @@ export async function recordUserActivity(senderId: string): Promise<void> {
     }
   } catch (e) {
     console.error(`[botControl] recordUserActivity failed for ${senderId}:`, e);
+  }
+}
+
+/**
+ * Ghi tên khách LẤY TỪ HỘI THOẠI (khách tự khai khi đặt lịch) → bot_controls.name.
+ * Nguồn này tin cậy hơn Graph API (không cần App Review) và là cách shop thật gọi khách.
+ * Ghi đè tên cũ vì tên khách khai trong chat luôn là mới/đúng nhất. Best-effort.
+ */
+export async function recordUserName(senderId: string, name: string): Promise<void> {
+  const clean = name.trim();
+  if (!clean) return;
+  try {
+    await ensureSchema();
+    await getPool().query(
+      `INSERT INTO bot_controls (sender_id, name, last_active)
+         VALUES ($1, $2, NOW())
+       ON CONFLICT (sender_id)
+         DO UPDATE SET name = EXCLUDED.name`,
+      [senderId, clean],
+    );
+  } catch (e) {
+    console.error(`[botControl] recordUserName failed for ${senderId}:`, e);
   }
 }
 

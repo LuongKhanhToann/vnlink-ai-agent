@@ -7,6 +7,7 @@
 
 import { ConversationState, DEFAULT_STATE, bookingSignature, detectAddBookingIntent, detectBeneficiaryCue, appointmentDateKey } from "./stateMachine";
 import { isLeadComplete, writeLeadToSheets, updateLeadRow } from "./sheetsWriter";
+import { recordUserName } from "./botControl";
 
 const STORE_NAME = "memory";
 const STATE_SUFFIX = "-fsm-state";
@@ -172,6 +173,11 @@ export async function saveState(
         updatedAt: new Date(),
       },
     });
+
+    // Tên khách tự khai trong chat → backfill bot_controls.name cho admin panel
+    // (không cần Graph API / App Review). resourceId = PSID. Fire-and-forget.
+    const chatName = state.knownInfo?.name;
+    if (chatName) void recordUserName(resourceId, chatName);
 
     console.log(`[stateStore] saved:`, {
       tid,

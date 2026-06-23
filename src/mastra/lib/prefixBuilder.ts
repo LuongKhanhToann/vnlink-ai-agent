@@ -794,6 +794,24 @@ function isDoubtfulEmotion(state: ConversationState): boolean {
  *     đã lỡ gửi sớm, để doubt-moment vẫn bung được ĐÚNG ca before-after thuyết phục.
  * Quyết định gửi vẫn do classifier (emotion); chỉ thao tác gửi là deterministic.
  */
+/**
+ * Chọn ảnh before-after ĐÚNG ca theo mục tiêu khách (slot classifier `fitnessGoal`, KHÔNG regex):
+ *   - giảm mỡ / giữ dáng → ảnh GIẢM cân (fitness-before-after-loss)
+ *   - tăng cân / tăng cơ → ảnh TĂNG cân (fitness-before-after-gain)
+ *   - mục tiêu chưa rõ    → ảnh gộp (fitness-before-after)
+ * guardKey LUÔN = "fitness-before-after" → vẫn 1 lần/cuộc (không gửi cả 2 loại cho 1 người).
+ */
+function beforeAfterTarget(state: ConversationState): { key: string; guardKey: string } {
+  const g = state.knownInfo.fitnessGoal;
+  const key =
+    g === "tang-can" || g === "tang-co"
+      ? "fitness-before-after-gain"
+      : g === "giam-mo" || g === "giu-dang"
+        ? "fitness-before-after-loss"
+        : "fitness-before-after";
+  return { key, guardKey: "fitness-before-after" };
+}
+
 export function computeDoubtMediaKey(
   state: ConversationState,
 ): { key: string; guardKey: string } | null {
@@ -801,7 +819,7 @@ export function computeDoubtMediaKey(
 
   if (state.flow === "fitness") {
     if (!isBeforeAfterMoment(state)) return null;
-    return { key: "fitness-before-after", guardKey: "fitness-before-after" };
+    return beforeAfterTarget(state);
   }
 
   // giai-co: cần đã pitch value (stage evaluation HOẶC đủ 3 slot pain) + biết painArea.
@@ -838,7 +856,7 @@ export function computeProactiveMediaKey(
 
   if (move === "show_results") {
     if (state.flow === "fitness") {
-      return { key: "fitness-before-after", guardKey: "fitness-before-after" };
+      return beforeAfterTarget(state);
     }
     const k = computeSuggestedMediaKey(state);
     return k ? { key: k, guardKey: k } : null;

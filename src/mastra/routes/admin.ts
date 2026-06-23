@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { listUsers, setBotEnabled } from "../lib/botControl";
+import { memory } from "../config/memory";
 import {
   MEDIA_CATEGORIES,
   IMAGE_MAX_BYTES,
@@ -92,12 +93,53 @@ adminWebhook.post("/admin/api/logout", (c) => {
   return c.json({ ok: true });
 });
 
+// Trích text thuần từ 1 message Mastra (content có thể là string | mảng part | object).
+function msgText(m: any): string {
+  const c = m?.content;
+  if (typeof c === "string") return c.trim();
+  if (Array.isArray(c))
+    return c.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join(" ").trim();
+  if (c && typeof c === "object") {
+    if (typeof c.text === "string") return c.text.trim();
+    if (Array.isArray(c.parts))
+      return c.parts.map((p: any) => p?.text ?? "").join(" ").trim();
+    if (Array.isArray(c.content))
+      return c.content.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join(" ").trim();
+  }
+  return (m?.text ?? "").trim();
+}
+
+// Cặp tin nhắn gần nhất của 1 user: câu khách mới nhất + câu bot mới nhất. Best-effort.
+async function lastPair(senderId: string): Promise<{ user: string | null; bot: string | null }> {
+  try {
+    const res = await memory.recall({
+      threadId: senderId,
+      resourceId: senderId,
+      perPage: 12,
+      orderBy: { field: "createdAt", direction: "DESC" },
+    } as any);
+    const msgs: any[] = (res as any)?.messages ?? [];
+    const u = msgs.find((m) => m.role === "user");
+    const b = msgs.find((m) => m.role === "assistant");
+    return { user: u ? msgText(u) || null : null, bot: b ? msgText(b) || null : null };
+  } catch (e) {
+    console.error(`[admin] lastPair failed for ${senderId}:`, e);
+    return { user: null, bot: null };
+  }
+}
+
 // ── Danh sách user ──
 adminWebhook.get("/admin/api/users", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   try {
     const users = await listUsers();
-    return c.json({ users });
+    // Đính cặp tin nhắn gần nhất (giới hạn 80 user mới nhất để khỏi quá tải DB).
+    const withMsgs = await Promise.all(
+      users.map(async (u, i) =>
+        i < 80 ? { ...u, lastPair: await lastPair(u.sender_id) } : { ...u, lastPair: null },
+      ),
+    );
+    return c.json({ users: withMsgs });
   } catch (e) {
     console.error("[admin] list users failed:", e);
     return c.json({ error: "db_error" }, 500);
@@ -259,6 +301,12 @@ input:checked + .slider:before{transform:translateX(20px)}
 .label{font-size:13px;color:var(--muted)}
 .error{color:var(--off-text);font-size:13px;margin-top:12px;min-height:16px}
 .muted{color:var(--muted);font-size:13px}
+.msgcol{max-width:380px}
+.msg-pair{display:flex;flex-direction:column;gap:4px}
+.msg-line{font-size:13px;line-height:1.4;color:var(--text);overflow-wrap:anywhere}
+.msg-who{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;margin-right:6px;vertical-align:1px}
+.msg-who.user{background:var(--off-bg);color:var(--off-text)}
+.msg-who.bot{background:var(--on-bg);color:var(--on-text)}
 .note{color:var(--muted);font-size:13px;margin-top:16px;line-height:1.5}
 .hidden{display:none}
 .right{text-align:right}
@@ -361,6 +409,7 @@ function updateThemeBtn(){
 
 function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour12:false}); } catch(e){ return iso; } }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];}); }
+function cut(s,n){ s=(s==null?"":String(s)); return s.length>n ? s.slice(0,n)+"…" : s; }
 
 async function doLogin(){
   document.getElementById("loginErr").textContent = "";
@@ -407,10 +456,18 @@ function render(){
     return (u.name||"").toLowerCase().indexOf(q)>=0 || String(u.sender_id).indexOf(q)>=0;
   });
   if(rows.length===0){ document.getElementById("list").innerHTML = '<p class="muted">Chưa có người dùng nào.</p>'; return; }
-  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th></tr></thead><tbody>';
+  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th></tr></thead><tbody>';
   rows.forEach(function(u){
+    var p = u.lastPair || {};
+    var pairHtml = (!p.user && !p.bot)
+      ? '<span class="muted">—</span>'
+      : '<div class="msg-pair">'
+          + (p.user ? '<div class="msg-line"><span class="msg-who user">Khách</span> ' + esc(cut(p.user,140)) + '</div>' : '')
+          + (p.bot  ? '<div class="msg-line"><span class="msg-who bot">Bot</span> '   + esc(cut(p.bot,140))  + '</div>' : '')
+        + '</div>';
     html += '<tr>'
       + '<td><div class="name">' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
+      + '<td class="msgcol">' + pairHtml + '</td>'
       + '<td class="muted">' + fmt(u.last_active) + '</td>'
       + '<td><span class="badge ' + (u.enabled?"on":"off") + '">' + (u.enabled?"Đang bật":"Đã tắt") + '</span></td>'
       + '<td class="right"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
