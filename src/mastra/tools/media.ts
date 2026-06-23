@@ -19,18 +19,11 @@ const KEY_TO_FOLDER: Record<string, string> = {
   "fitness-zumba":    "fitness/zumba",
   "fitness-pool":     "fitness/pool",
   // Before-after TÁCH theo mục tiêu — gửi ĐÚNG ca (khách giảm cân không nhận ảnh tăng cân).
-  // Khách phải tạo 2 thư mục con trên Cloudinary: fitness/before-after/{giam-can,tang-can}/{img,video}.
+  // Thư mục con trên Cloudinary: fitness/before-after/{giam-can,tang-can}/{img,video}.
   "fitness-before-after-loss": "fitness/before-after/giam-can",
   "fitness-before-after-gain": "fitness/before-after/tang-can",
-  // Key gộp (mục tiêu chưa rõ) + fallback khi thư mục tách chưa có ảnh.
+  // Mục tiêu chưa rõ → rổ gộp (folder fitness/before-after/{img,video}).
   "fitness-before-after":      "fitness/before-after",
-};
-
-// Nếu thư mục tách (giảm/tăng cân) chưa có ảnh → lùi về thư mục gộp cha, để before-after
-// vẫn gửi được trong lúc đang sắp xếp lại Cloudinary (degrade an toàn, không câm).
-const FOLDER_FALLBACK: Record<string, string> = {
-  "fitness/before-after/giam-can": "fitness/before-after",
-  "fitness/before-after/tang-can": "fitness/before-after",
 };
 
 type MediaItem = { type: "image" | "video"; url: string };
@@ -82,19 +75,10 @@ export async function fetchMedia(key: string): Promise<MediaItem[]> {
     console.error(`[getMedia] key không hợp lệ: ${key}`);
     return [];
   }
-  let [images, videos] = await Promise.all([
+  const [images, videos] = await Promise.all([
     listResources(`${folder}/img`, "image"),
     listResources(`${folder}/video`, "video"),
   ]);
-  // Thư mục tách rỗng → lùi về thư mục gộp (chưa sắp xếp xong Cloudinary thì vẫn có ảnh gửi).
-  const fb = FOLDER_FALLBACK[folder];
-  if (fb && images.length === 0 && videos.length === 0) {
-    console.warn(`[getMedia] key=${key} folder=${folder} rỗng → fallback ${fb}`);
-    [images, videos] = await Promise.all([
-      listResources(`${fb}/img`, "image"),
-      listResources(`${fb}/video`, "video"),
-    ]);
-  }
   const data: MediaItem[] = [
     ...pickRandom(images, 1),
     ...pickRandom(videos, 1),
