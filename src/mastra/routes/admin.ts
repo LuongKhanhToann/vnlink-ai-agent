@@ -18,7 +18,6 @@ import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { listUsers, setBotEnabled } from "../lib/botControl";
-import { memory } from "../config/memory";
 import {
   MEDIA_CATEGORIES,
   IMAGE_MAX_BYTES,
@@ -93,35 +92,16 @@ adminWebhook.post("/admin/api/logout", (c) => {
   return c.json({ ok: true });
 });
 
-// Trích text thuần từ 1 message Mastra (content có thể là string | mảng part | object).
-function msgText(m: any): string {
-  const c = m?.content;
-  if (typeof c === "string") return c.trim();
-  if (Array.isArray(c))
-    return c.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join(" ").trim();
-  if (c && typeof c === "object") {
-    if (typeof c.text === "string") return c.text.trim();
-    if (Array.isArray(c.parts))
-      return c.parts.map((p: any) => p?.text ?? "").join(" ").trim();
-    if (Array.isArray(c.content))
-      return c.content.map((p: any) => (typeof p === "string" ? p : p?.text ?? "")).join(" ").trim();
-  }
-  return (m?.text ?? "").trim();
-}
-
-// Cặp tin nhắn gần nhất của 1 user: câu khách mới nhất + câu bot mới nhất. Best-effort.
+// Cặp tin nhắn gần nhất của 1 user — đọc bản SẠCH từ FSM state (lastUserMessage/lastBotReply),
+// KHÔNG đọc memory thô (memory lưu cả prefix [HON...] + JSON {"text":...}). Best-effort.
 async function lastPair(senderId: string): Promise<{ user: string | null; bot: string | null }> {
   try {
-    const res = await memory.recall({
-      threadId: senderId,
-      resourceId: senderId,
-      perPage: 12,
-      orderBy: { field: "createdAt", direction: "DESC" },
-    } as any);
-    const msgs: any[] = (res as any)?.messages ?? [];
-    const u = msgs.find((m) => m.role === "user");
-    const b = msgs.find((m) => m.role === "assistant");
-    return { user: u ? msgText(u) || null : null, bot: b ? msgText(b) || null : null };
+    const { mastra } = await import("../index");
+    const { loadState } = await import("../lib/stateStore");
+    const st: any = await loadState(mastra, senderId, senderId);
+    const user = (st?.lastUserMessage ?? "").trim() || null;
+    const bot = (st?.lastBotReply ?? "").trim() || null;
+    return { user, bot };
   } catch (e) {
     console.error(`[admin] lastPair failed for ${senderId}:`, e);
     return { user: null, bot: null };

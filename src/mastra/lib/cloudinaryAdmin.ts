@@ -50,7 +50,11 @@ export const MEDIA_CATEGORIES: MediaCategory[] = [
   { base: "fitness/yoga",         label: "Fitness — Yoga" },
   { base: "fitness/zumba",        label: "Fitness — Zumba" },
   { base: "fitness/pool",         label: "Fitness — Bể bơi" },
-  { base: "fitness/before-after", label: "Fitness — Before/After" },
+  // Before-after TÁCH theo mục tiêu — tải ảnh đúng rổ để bot gửi đúng ca.
+  { base: "fitness/before-after/giam-can", label: "Before/After — Giảm cân" },
+  { base: "fitness/before-after/tang-can", label: "Before/After — Tăng cân" },
+  // Rổ gộp cũ: dự phòng + để quản lý/dọn ảnh chưa phân loại (bot fallback về đây khi rổ tách trống).
+  { base: "fitness/before-after", label: "Before/After — Gộp (dự phòng)" },
 ];
 
 export function isValidBase(base: string): boolean {
