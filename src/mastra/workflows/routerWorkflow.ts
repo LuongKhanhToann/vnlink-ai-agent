@@ -12,7 +12,7 @@ import { giaiCoAgent } from "../agents/giaiCo";
 
 import { loadState, saveState } from "../lib/stateStore";
 import { classify } from "../lib/classifier";
-import { buildNextState, detectFlowByKeyword } from "../lib/stateMachine";
+import { buildNextState, detectFlowByKeyword, needsFlowClassification } from "../lib/stateMachine";
 import {
   buildPrefix,
   buildPrefixWithMeta,
@@ -189,7 +189,7 @@ const processStep = createStep({
     );
 
     const keywordFlow = detectFlowByKeyword(message, previousState.flow);
-    const needFlowLLM = keywordFlow === null;
+    const needFlowLLM = needsFlowClassification(keywordFlow, previousState);
 
     const llmResult = await classify({
       message,

@@ -465,7 +465,10 @@ function buildPrompt(
     .join(", ");
 
   const flowInstruction = needFlow
-    ? `"flow": "fitness"|"giai-co",  // fitness=tập thể dục/gym/bơi/yoga/zumba | giai-co=massage/đau mỏi/giải cơ/spa`
+    ? `"flow": "fitness"|"giai-co",  // fitness=tập thể dục/gym/bơi/yoga/zumba | giai-co=massage/đau mỏi/giải cơ/spa.
+  //   PHÂN XỬ khi đang fitness ĐÃ chốt bộ môn mà khách than đau/mỏi cơ-xương: nếu cơn đau là VẤN ĐỀ RIÊNG khách
+  //   muốn xử lý (đau/mỏi/cứng mãn, kéo dài, do ngồi nhiều/sai tư thế) → "giai-co" (chuyển sang trị liệu). Nếu đau
+  //   chỉ là LÝ DO/mục tiêu của việc chọn môn tập (tập để cải thiện cơn đau đó) → "fitness".`
     : `// flow đã xác định: "${previousFlow}" — không cần classify`;
 
   const prevTopicLine = previousIntentTopic

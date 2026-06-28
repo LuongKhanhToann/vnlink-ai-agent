@@ -15,7 +15,7 @@
 
 import { loadState, saveState } from "./stateStore";
 import { classify } from "./classifier";
-import { buildNextState, detectFlowByKeyword } from "./stateMachine";
+import { buildNextState, detectFlowByKeyword, needsFlowClassification } from "./stateMachine";
 
 // Hàng đợi nối tiếp theo sender: khách gửi liên tiếp lúc tắt → các lần classify chạy
 // TUẦN TỰ (không song song) để tránh 2 lần cùng load 1 prevState → mất cập nhật slot.
@@ -33,7 +33,7 @@ async function runClassifyAndSave(
   const previousState = await loadState(mastra, threadId, resourceId);
 
   const keywordFlow = detectFlowByKeyword(message, previousState.flow);
-  const needFlowLLM = keywordFlow === null;
+  const needFlowLLM = needsFlowClassification(keywordFlow, previousState);
 
   const llmResult = await classify({
     message,

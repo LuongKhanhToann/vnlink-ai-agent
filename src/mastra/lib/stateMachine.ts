@@ -754,6 +754,24 @@ export function detectFlowByKeyword(
   return null;
 }
 
+/**
+ * Quyết định có CẦN LLM phân loại flow hay không (dùng chung cho router + silentClassify).
+ *   - keywordFlow === null → cần LLM (chưa rõ flow từ keyword).
+ *   - CONFLICT "đau-trong-fitness": đang fitness ĐÃ chốt bộ môn mà tin lật keyword sang giai-co
+ *     (có cue đau) → KHÔNG để regex tự quyết. Để LLM phân xử (no-regex rule): đau là 1 vấn đề
+ *     cơ-xương MÃN khách muốn xử lý riêng → giai-co (trị liệu); đau chỉ là lý do/mục tiêu chọn
+ *     môn tập → fitness. FITNESS-SERVICE LOCK ở buildNextState dùng llm.flow làm trọng tài cuối.
+ */
+export function needsFlowClassification(
+  keywordFlow: Flow | null,
+  previous: ConversationState,
+): boolean {
+  if (keywordFlow === null) return true;
+  const committedFitness =
+    previous.flow === "fitness" && previous.knownInfo.serviceType !== null;
+  return keywordFlow === "giai-co" && committedFitness;
+}
+
 // ─────────────────────────────────────────────
 // HONORIFIC DETECTION
 // ─────────────────────────────────────────────
@@ -1168,10 +1186,22 @@ export function buildNextState(
   const giaiCoServiceRequest =
     /(giải\s*cơ|massage|xoa\s*bóp|vật\s*lý\s*trị\s*liệu|ngâm\s*bồn|trigger|fascia|regenix)/i;
   if (flow === "giai-co" && committedFitnessService && !giaiCoServiceRequest.test(message)) {
-    console.log(
-      `[stateMachine] fitness-service lock: serviceType=${previous.knownInfo.serviceType} + chỉ than đau → giữ flow=fitness`,
-    );
-    flow = "fitness";
+    // Đã chốt bộ môn fitness + tin chỉ than đau (không nêu rõ dịch vụ giải cơ): KHÔNG để regex
+    // tự quyết. Trọng tài là LLM (router bật needFlowClassification đúng case này → llm.flow là
+    // phán đoán THẬT, không phải echo keyword):
+    //   • llm.flow="giai-co" → khách nêu 1 cơn đau cơ-xương như vấn đề RIÊNG → TÔN TRỌNG pivot
+    //     sang giải cơ (cross-sell trị liệu, giá trị KTV xử điểm kẹt — KHÔNG phải InBody/tập).
+    //   • else (fitness/null) → đau là lý do/ngữ cảnh chọn môn (vd tập để đỡ đau) → giữ fitness.
+    if (llm.flow !== "giai-co") {
+      console.log(
+        `[stateMachine] fitness-service lock: serviceType=${previous.knownInfo.serviceType} + than đau, llm.flow=${llm.flow ?? "—"}≠giai-co → giữ flow=fitness`,
+      );
+      flow = "fitness";
+    } else {
+      console.log(
+        `[stateMachine] fitness-service: than đau + llm.flow=giai-co → pivot sang giải cơ (cross-sell trị liệu)`,
+      );
+    }
   }
 
   // Detect SERVICE SWITCH: KH đổi bộ môn giữa cuộc thoại.
