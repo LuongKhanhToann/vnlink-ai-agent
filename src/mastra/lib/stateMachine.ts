@@ -870,8 +870,10 @@ function giaiCoReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
   // Khách đã đồng ý thử (có giờ cụ thể) → đủ để chuyển sang evaluation rồi commitment
   if (info.preferredTime !== null) return true;
 
-  // painArea + painSpread là đủ: 1 câu hỏi tính chất đau rồi pitch value + mời thử.
-  return info.painSpread !== null;
+  // Đủ sau MỘT lượt khai thác có hồi đáp: khách cho biết tính chất đau (lan/cố định) HOẶC
+  // thời gian đau (lâu chưa). Discovery T1 đồng cảm + hỏi 1 câu hiểu tình trạng → khách đáp →
+  // sang evaluation (giải thích cơ chế + value + mời TRẢI NGHIỆM mềm). KHÔNG ép 1 slot cứng.
+  return info.painSpread !== null || info.painDuration !== null;
 }
 
 // ─────────────────────────────────────────────

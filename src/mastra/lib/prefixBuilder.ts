@@ -212,13 +212,13 @@ function buildSaleSenseHint(state: ConversationState, _message?: string): string
       ? knownInfo.fitnessGoal !== null || knownInfo.serviceType !== null
       : knownInfo.painArea !== null;
 
-  // Giai-co discovery CHƯA đủ pain slots (painArea+painSpread) → CHƯA mời trial / gợi
-  // 'sáng hay chiều' (bug L3 T4: emotion anxious → SALE-SENSE mời thử buổi giữa lúc còn đào nỗi đau).
-  // Đủ painArea+painSpread là sang evaluation (KHÔNG còn chờ pastMethod). Defer cho GATE.
+  // Giai-co discovery CHƯA khai thác xong (mới có painArea, chưa có tính chất/thời gian đau) →
+  // CHƯA mời trial / gợi 'sáng hay chiều' (bug L3 T4: emotion anxious → SALE-SENSE mời thử buổi
+  // giữa lúc còn đào nỗi đau). Đủ painArea + (painSpread HOẶC painDuration) mới sang evaluation.
   if (
     flow === "giai-co" &&
     stage === "discovery" &&
-    !(knownInfo.painArea && knownInfo.painSpread)
+    !(knownInfo.painArea && (knownInfo.painSpread || knownInfo.painDuration))
   )
     return "";
 
@@ -1438,11 +1438,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       );
     } else {
       hints.push(
-        `[GATE: biết vùng_đau=${knownInfo.painArea} nhưng chưa biết tính chất lan tỏa. ` +
-          `Cấu trúc reply 2 câu: (1) ack triệu chứng + nhắc KTV bên em xử lý — vd "Dạ ${knownInfo.painArea} đau kiểu này thường là cơ co rút ở 1 điểm, KTV bên em xử lý nhiều rồi ạ". ` +
-          "(2) Hỏi 1 LẦN duy nhất: 'Cơn đau lan ra xung quanh hay chỉ đau một điểm cố định thôi ạ'. " +
-          "Sau đó dù khách answer hay không, KHÔNG lặp lại câu hỏi này ở turn sau. " +
-          "⛔ ĐANG THĂM DÒ — CHƯA mời chốt giờ / hỏi 'sáng hay chiều' / 'qua hôm nào' (vượt bước, khách chưa đủ tin).]",
+        `[GATE discovery giải cơ (biết vùng_đau=${knownInfo.painArea}, chưa rõ tính chất): ĐỪNG đọc bài, ĐỪNG chốt. ` +
+          `Mở bằng ĐỒNG CẢM ngắn, thật, như người thật (1 câu) cho cơn khó chịu của khách. ` +
+          `Rồi hỏi 1 câu để HIỂU tình trạng — chọn 1 góc tự nhiên nhất theo ngữ cảnh: đau lan ra hay chỉ 1 điểm / đau lâu chưa / có phải do ngồi nhiều, sai tư thế. ` +
+          `⛔ TIN NÀY CHƯA phán "nút thắt/điểm kẹt", CHƯA pitch "KTV bên em", CHƯA contrast massage-vs-sâu, CHƯA mời thử/chốt giờ. ` +
+          `Giải thích cơ chế + giá trị + lời mời để DÀNH cho lượt sau, KHI đã hiểu khách. Tối đa 1 câu hỏi, giọng ấm, không liệt kê.]`,
       );
     }
   }
@@ -2141,17 +2141,25 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
 
     const preferredTime = knownInfo.preferredTime;
     const hasContact = knownInfo.name !== null && knownInfo.phone !== null;
+    // Tín hiệu khách MUỐN đến (đã chọn/sẵn sàng, hoặc tự nêu giờ) → mới được HARD-CLOSE hỏi giờ.
+    // Mới than đau, chưa có tín hiệu → MỀM: mời trải nghiệm, KHÔNG hỏi 'sáng hay chiều' (giục = pushy).
+    const buyingSignal =
+      state.intent === "selecting" || state.intent === "ready" || preferredTime !== null;
     // Tách thành 2 bước để không gộp giờ + tên + SĐT trong cùng 1 câu (dồn dập, dễ scare khách).
     // Bước 1: chỉ hỏi giờ. Bước 2: khi khách chốt giờ rồi, mới xin tên + SĐT.
     const closingLine = hasContact
       ? `Dạ em giữ chỗ ${preferredTime ?? "..."} cho mình rồi nha ${h} ${knownInfo.name}, hẹn gặp ${h} ạ`
       : preferredTime
         ? `Để em giữ chỗ ${preferredTime} cho ${h}, ${h} cho em xin tên với SĐT để em note nha`
-        : `${h} tiện khung sáng hay chiều ạ`;
+        : buyingSignal
+          ? `${h} tiện khung sáng hay chiều ạ`
+          : `Mình cứ thử trải nghiệm 1 buổi cho KTV kiểm tra trực tiếp rồi tư vấn lộ trình, chưa cần quyết gì đâu ${h}`;
 
     const timeNote = preferredTime
       ? `ĐÃ BIẾT giờ=${preferredTime} → KHÔNG hỏi giờ lại, kết bằng xin tên/SĐT.`
-      : "Chưa có giờ → CHỈ hỏi giờ (sáng/chiều), KHÔNG xin tên/SĐT cùng lúc — đợi khách chốt giờ rồi turn sau mới xin liên hệ.";
+      : buyingSignal
+        ? "Khách đã có ý muốn đến → hỏi giờ (sáng/chiều), KHÔNG xin tên/SĐT cùng lúc — đợi khách chốt giờ rồi turn sau mới xin liên hệ."
+        : "Khách MỚI than đau, CHƯA có ý định đến → MỜI TRẢI NGHIỆM mềm (không cam kết), TUYỆT ĐỐI KHÔNG hỏi giờ / chốt lịch lúc này (giục chốt sớm = pushy). Để khách quan tâm rồi mới chốt giờ ở lượt sau.";
     const visualHint =
       pain.includes("vai") || pain.includes("co")
         ? "vùng cổ vai sẽ nhẹ hơn, đỡ cứng khựng"
