@@ -144,6 +144,7 @@ export interface KnownInfo {
   schedule: string | null;        // khung giờ / buổi mong muốn
   fitnessGoal: string | null;     // mục tiêu: giam-mo / tang-co / tang-can / thu-gian / hoc-boi / suc-khoe / giu-dang
   bodyStats: string | null;       // chỉ số cơ thể KH tự khai (cao/nặng/số kg muốn đổi) — classifier (LLM) trích, KHÔNG regex
+  gender: string | null;          // "nam" / "nu" — classifier (LLM) suy từ cách khách tự xưng/ngữ cảnh; để chọn cột bảng cân chuẩn
 
   // Giải cơ
   painArea: string | null;        // vùng đau: vai-gay / lung / chan / toan-than / ...
@@ -337,6 +338,8 @@ export function mergeSlots(
     fitnessGoal:    pickWithReextract(existing.fitnessGoal, extracted.fitnessGoal),
     // bodyStats: store-first nhưng cho REFINE — khách bổ sung dần (turn 1 "85kg", turn 2 "muốn giảm 8kg").
     bodyStats:      pickWithReextract(existing.bodyStats,  extracted.bodyStats),
+    // gender: store-first thuần — giới tính không đổi giữa cuộc thoại, chỉ điền khi đang trống.
+    gender:         existing.gender ?? extracted.gender ?? null,
     painArea:       pickWithReextract(existing.painArea,   extracted.painArea),
     painSpread:     pickWithReextract(existing.painSpread, extracted.painSpread),
     painDuration:   pick(existing.painDuration,   extracted.painDuration),
@@ -802,6 +805,19 @@ function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
   // Bot có thể recommend service sau khi xin tên/SĐT — không cần stuck hỏi service.
   if (info.preferredTime !== null) return true;
 
+  // BODY-GOAL + đã có chỉ số cơ thể (cao/nặng) → ĐỦ để tư vấn theo chuẩn rồi TỰ recommend môn.
+  // KHÔNG bắt khách chọn môn trước (giảm cân → Gym+Zumba là bot tự đề xuất, không hỏi "muốn tập
+  // môn nào"). Đây là lỗ hổng khiến khách cho cao/nặng mà bot vẫn kẹt discovery hỏi dồn: serviceType
+  // null nhưng đã nắm goal + chỉ số là quá đủ để chuyển sang tư vấn.
+  const BODY_GOALS = ["giam-mo", "tang-can", "giu-dang"];
+  if (
+    info.fitnessGoal !== null &&
+    BODY_GOALS.includes(info.fitnessGoal) &&
+    info.bodyStats !== null
+  ) {
+    return true;
+  }
+
   if (info.serviceType === null) return false;
 
   // Chỉ khách chủ động chọn gói / sẵn sàng đăng ký → bypass context collection
@@ -914,7 +930,22 @@ export function computeNextStage(
           info.serviceType !== null &&
           (info.memberType !== null || info.schedule !== null || info.preferredTime !== null));
 
-      if (turnCount <= 1 && intent !== "selecting" && intent !== "ready" && !coreSlotsFilled) {
+      // Body-goal đã kèm chỉ số cơ thể NGAY tin đầu (front-load "giảm cân cao 1m7 nặng 80")
+      // → ĐỦ để tư vấn theo chuẩn, KHÔNG giữ lại discovery hỏi lại cao/nặng (đã có) = lặp khó chịu.
+      const bodyGoalWithStats =
+        flow === "fitness" &&
+        info.bodyStats !== null &&
+        (info.fitnessGoal === "giam-mo" ||
+          info.fitnessGoal === "tang-can" ||
+          info.fitnessGoal === "giu-dang");
+
+      if (
+        turnCount <= 1 &&
+        intent !== "selecting" &&
+        intent !== "ready" &&
+        !coreSlotsFilled &&
+        !bodyGoalWithStats
+      ) {
         return "discovery";
       }
       // ANTI-PREMATURE-COMMITMENT GUARD:
@@ -947,22 +978,23 @@ export function computeNextStage(
         console.log(`[stateMachine] fitness discovery → commitment (preferredTime=${info.preferredTime})`);
         return "commitment";
       }
-      // FUNNEL TL Fami — KHAI THÁC NỖI ĐAU trước khi pitch InBody:
-      // Goal body-comp (giảm/tăng cân, giữ dáng) mà MỚI biết mỗi mục tiêu, CHƯA chạm nỗi đau
-      // (cao/nặng/số kg, thói quen, lịch sử) → giữ ở discovery để hỏi 1 lượt đúng kịch bản sale,
-      // KHÔNG nhảy thẳng "đo InBody + sáng hay chiều". Một khi đã probe (painProbed) → cho qua inbody.
+      // FUNNEL — LẤY ĐỦ THÔNG TIN RỒI TƯ VẤN, KHÔNG TRA HỎI DỒN:
+      // Goal body-comp (giảm/tăng cân, giữ dáng) mà MỚI biết mỗi mục tiêu → giữ ở discovery
+      // để hỏi GỌN chiều cao/cân nặng 1 lượt, KHÔNG nhảy thẳng "đo InBody + sáng hay chiều".
       // Khách chủ động commit (selecting/ready), đã có giờ, hoặc đã có tên+SĐT → bỏ qua, không nài.
       const BODY_GOALS = ["giam-mo", "tang-can", "giu-dang"];
       const isBodyGoal = info.fitnessGoal !== null && BODY_GOALS.includes(info.fitnessGoal);
-      // KHAI THÁC NỖI ĐAU phải ĐỦ SÂU — không nhảy InBody sau 1 câu trả lời.
-      // Sale TL Fami đào ÍT NHẤT 2 lớp: (1) chỉ số cơ thể (cao/nặng/số kg) VÀ
-      // (2) thói quen/lịch sử đã thử. Chỉ có mỗi bodyStats = mới hỏi 1 câu → CHƯA đủ,
-      // ở lại discovery hỏi tiếp. painProbed cũ (chỉ cần 1 tín hiệu) chính là chỗ gây
-      // "đo InBody + sáng hay chiều" ngay turn 2. Anti-stuck: nâng ngưỡng lên 5 lượt (cũ 4 — đẩy
-      // sang InBody hơi sớm, cắt ngắn khai thác nỗi đau ở turn 4) để có thêm 1 lớp đào trước khi thả.
+      // ĐỦ ĐỂ TƯ VẤN (phản hồi sale thực tế của KH thật): goal + chỉ số cơ thể (cao/nặng) là ĐỦ
+      // để tư vấn theo CHUẨN cân nặng rồi mời trải nghiệm. KHÔNG bắt moi thêm "đã thử cách nào /
+      // vùng nào tự ti nhất" — khách thường KHÔNG trả lời được, hỏi dồn 3-4 câu làm rớt khách.
+      // Thả sang InBody khi: đã có bodyStats (cao/nặng) HOẶC đã biết thói quen/lịch sử (pastMethod)
+      // HOẶC đã qua ~2 lượt khai thác mà khách không cho số (turn≥3) → ở InBody bot TƯ VẤN theo
+      // chuẩn + mời trải nghiệm, không hỏi nữa. (Trước đây ép bodyStats VÀ pastMethod/turn≥5 → kẹt
+      // discovery, hỏi dồn "muốn giảm bao nhiêu / vùng tự ti / đã thử gì" đúng lỗi KH phản ánh.)
       const painExploredDeep =
-        info.bodyStats !== null &&
-        (info.pastMethod !== null || turnCount >= 5);
+        info.bodyStats !== null ||
+        info.pastMethod !== null ||
+        turnCount >= 3;
       if (
         flow === "fitness" &&
         isBodyGoal &&
@@ -1532,6 +1564,7 @@ export const DEFAULT_STATE: ConversationState = {
     schedule: null,
     fitnessGoal: null,
     bodyStats: null,
+    gender: null,
     painArea: null,
     painSpread: null,
     painDuration: null,

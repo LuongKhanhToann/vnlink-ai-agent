@@ -2241,6 +2241,7 @@ function buildKnownSummary(info: KnownInfo, flow: Flow): string {
   if (flow === "fitness") {
     if (info.serviceType !== null) parts.push(`dịch-vụ=${info.serviceType}`);
     if (info.fitnessGoal !== null) parts.push(`mục-tiêu=${info.fitnessGoal}`);
+    if (info.gender !== null) parts.push(`giới=${info.gender}`);
     if (info.memberType !== null)
       parts.push(`loại-thành-viên=${info.memberType}`);
     if (info.durationMonths !== null)

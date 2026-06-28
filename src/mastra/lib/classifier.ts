@@ -203,6 +203,7 @@ const classifierSchema = z.object({
       preferredTime:  z.string().nullable().optional(),
       appointmentDate: z.string().nullable().optional(),
       bodyStats:      z.string().nullable().optional(),
+      gender:         z.string().nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -398,7 +399,11 @@ const SLOTS_FITNESS = `SLOTS cho fitness:
                   "cao 1m65 nặng 72 muốn giảm 8 cân" → "cao 1m65, nặng 72kg, giảm 8kg"
                   "1m75 mà có 58kg" → "cao 1m75, nặng 58kg"
                   "85kg muốn xuống 70" → "nặng 85kg, mục tiêu 70kg"
-                  KHÔNG suy diễn nếu khách chưa cho số — hỏi giá/buổi tập KHÔNG phải bodyStats.`;
+                  KHÔNG suy diễn nếu khách chưa cho số — hỏi giá/buổi tập KHÔNG phải bodyStats.
+  gender        = "nam" / "nu" — SUY từ cách khách tự xưng / ngữ cảnh, KHÔNG cần khách nói thẳng:
+                  tự xưng "anh"/"thằng"/"ông" hoặc nhắc "vợ em"/"bạn gái em" → "nam";
+                  tự xưng "chị"/"em gái"/"con" (nữ) hoặc nhắc "chồng em"/"bạn trai em", mang thai/sau sinh/cho con bú → "nu".
+                  KHÔNG chắc → để null (đừng đoán bừa). Khách xưng "mình/em" trung tính mà không có cue khác → null.`;
 
 const SLOTS_GIAICO = `SLOTS cho giai-co:
   painArea      = vai-gay/lung/chan/toan-than/... — extract vùng đau
@@ -451,6 +456,7 @@ function buildPrompt(
   if (knownInfo.preferredTime)  knownParts.push(`giờ_muốn=${knownInfo.preferredTime}`);
   if (knownInfo.appointmentDate) knownParts.push(`ngày_hẹn=${knownInfo.appointmentDate}`);
   if (knownInfo.bodyStats)      knownParts.push(`chỉ_số=${knownInfo.bodyStats}`);
+  if (knownInfo.gender)         knownParts.push(`giới=${knownInfo.gender}`);
 
   const knownSummary = knownParts.join(", ") || "chưa có gì";
 
@@ -882,6 +888,17 @@ function mapToClassification(
       );
       extractedSlots.preferredTime = after ?? before;
     }
+  }
+
+  // Canonical hóa gender về "nam"/"nu" (string ops thuần, KHÔNG regex) — phòng model trả
+  // "nữ"/"Nam"/"female". Không khớp vocab → bỏ (null) thay vì giữ rác.
+  if (typeof extractedSlots.gender === "string") {
+    const g = extractedSlots.gender.toLowerCase().trim();
+    const isFemale =
+      g.includes("nu") || g.includes("nữ") || g.includes("female") || g.includes("gái");
+    const isMale =
+      g.includes("nam") || g.includes("male") || g.includes("trai");
+    extractedSlots.gender = (isFemale ? "nu" : isMale ? "nam" : null) as any;
   }
 
   return {

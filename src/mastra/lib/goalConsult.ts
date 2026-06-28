@@ -19,6 +19,10 @@
  */
 
 import { ConversationState } from "./stateMachine";
+import { WEIGHT_STANDARD_HINT } from "./weightStandard";
+
+// Goal đối chiếu bảng cân chuẩn (giảm/tăng cân). Giữ dáng không cần soi lệch chuẩn.
+const WEIGHT_TABLE_GOALS = new Set(["giam-mo", "tang-can"]);
 
 // ─────────────────────────────────────────────
 // BƯỚC 1 — KHAI THÁC "NỖI ĐAU" (discovery)
@@ -28,13 +32,13 @@ import { ConversationState } from "./stateMachine";
 
 const DISCOVERY_PAIN: Record<string, string> = {
   "giam-mo":
-    "khai thác nỗi đau giảm cân: cao/nặng & số kg muốn giảm, vùng tự ti (bụng/bắp tay/đùi), " +
-    "thói quen tạo mỡ, đã thử gì thất bại chưa.",
+    "khách muốn giảm cân — hỏi GỌN chiều cao + cân nặng hiện tại (gộp 1 câu được). " +
+    "KHÔNG hỏi 'vùng nào tự ti/ngại nhất' hay 'đã thử cách giảm nào chưa' — khách thường không trả lời được, hỏi dồn làm rớt khách. Có cao/nặng là tư vấn được rồi.",
   "tang-can":
-    "khai thác nỗi đau tăng cân: cao/nặng & số kg muốn tăng, vùng tự ti (mỏng/vai lép), " +
-    "thói quen (ăn không hấp thụ/bỏ bữa/thức khuya), đã thử gì chưa.",
+    "khách muốn tăng cân — hỏi GỌN chiều cao + cân nặng hiện tại (gộp 1 câu được). " +
+    "KHÔNG tra hỏi 'ăn uống/thói quen thế nào' dồn dập — có chỉ số là tư vấn được.",
   "giu-dang":
-    "khai thác nhu cầu giữ dáng: muốn săn chắc/gọn vùng nào/duy trì sau giảm, tần suất tập mong muốn.",
+    "khách muốn giữ dáng — hỏi nhẹ chiều cao/cân nặng hiện tại để biết khách đang ở đâu so với chuẩn (1 câu).",
 };
 
 // ─────────────────────────────────────────────
@@ -45,11 +49,17 @@ const DISCOVERY_PAIN: Record<string, string> = {
 
 const RESULT_COMMIT: Record<string, string> = {
   "giam-mo":
-    "cam kết bằng số liệu: InBody bóc tách mỡ thừa & khối cơ — KHÔNG giảm mù quáng. " +
-    "Chưa biết tập → nhấn PT chỉnh form + thực đơn không bỏ bữa (KHÔNG gợi tự-tập-tiết-kiệm, người mới cần kèm). Đã biết tập → nhấn thẻ hội viên tối ưu chi phí + máy hiện đại.",
+    "Có cao/nặng → ĐỐI CHIẾU BẢNG CÂN CHUẨN ở prefix (theo chiều cao + giới) đưa mốc cân đối + lệch mấy kg ngay, ĐỪNG hỏi 'muốn giảm bao nhiêu' (khách không tự biết, mình tư vấn). " +
+    "Khách CHƯA cho số → đừng nài, tư vấn chung rồi mời qua đo InBody cho chính xác. " +
+    "Tự ĐỀ XUẤT môn (giảm cân → Gym+Zumba đốt mỡ), KHÔNG hỏi 'muốn tập môn nào'. " +
+    "Nhấn InBody bóc tách mỡ thừa/khối cơ (giảm có số liệu, không mù quáng) + mời trải nghiệm thực tế. " +
+    "MỖI lượt 1 ý chính rồi nhường khách — ĐỪNG dồn mốc cân + InBody + môn + trial vào 1 tin. Gói/giá chỉ nói khi khách hỏi: chưa biết tập → PT chỉnh form + thực đơn; đã biết tập → thẻ hội viên tối ưu chi phí.",
   "tang-can":
-    "cam kết bằng số liệu: InBody đo lượng cơ thiếu + chuyển hóa để nạp dinh dưỡng chuẩn — KHÔNG tăng mù quáng (tránh tích mỡ/nước). " +
-    "Chưa biết tập → nhấn PT giáo án tăng cơ + thực đơn 5-6 bữa (KHÔNG gợi tự-tập-tiết-kiệm, người mới cần kèm). Đã biết tập → nhấn thẻ hội viên, InBody chọn nhóm cơ.",
+    "Có cao/nặng → ĐỐI CHIẾU BẢNG CÂN CHUẨN ở prefix (theo chiều cao + giới) chỉ ra đang thiếu tầm mấy kg để cân đối, ĐỪNG hỏi 'muốn tăng bao nhiêu'. " +
+    "Khách CHƯA cho số → đừng nài, tư vấn chung rồi mời qua đo InBody. " +
+    "Tự ĐỀ XUẤT hướng (người gầy → Gym tập tạ tăng cơ), KHÔNG hỏi 'muốn tập môn nào'. " +
+    "Nhấn InBody đo lượng cơ thiếu + chuyển hóa để nạp dinh dưỡng chuẩn — tăng cơ KHÔNG tích mỡ/nước. " +
+    "MỖI lượt 1 ý chính rồi nhường khách. Gói/giá chỉ nói khi khách hỏi: chưa biết tập → PT giáo án tăng cơ + thực đơn 5-6 bữa; đã biết tập → thẻ hội viên, InBody chọn nhóm cơ.",
   "giu-dang":
     "cam kết bằng số liệu: InBody theo dõi định kỳ duy trì tỷ lệ cơ-mỡ. Nhấn thẻ Full đổi môn cho đỡ chán.",
 };
@@ -79,18 +89,26 @@ export function buildGoalConsultHint(state: ConversationState): string {
   // Đã đủ tên + SĐT → đang chốt slot (GATE commitment lo) → không chèn pitch nữa.
   if (knownInfo.name && knownInfo.phone) return "";
 
+  // Bơm bảng cân chuẩn khi đã có chiều cao/cân nặng (giảm/tăng cân) → bot tra mốc + lệch mấy kg,
+  // không hỏi "muốn giảm/tăng bao nhiêu". Chưa có bodyStats thì khỏi bơm (chưa có gì để tra).
+  const tableHint =
+    WEIGHT_TABLE_GOALS.has(goal) && knownInfo.bodyStats !== null
+      ? "\n" + WEIGHT_STANDARD_HINT
+      : "";
+
   let body = "";
   if (stage === "discovery" || stage === "opening") {
     body = DISCOVERY_PAIN[goal] ?? "";
     if (body) {
       return (
         `[TƯ VẤN MỤC TIÊU: ${body} ` +
-        `→ CHƯA báo giá, hỏi TỰ NHIÊN 1 ý/lần (không tra hỏi dồn) để hiểu khách rồi tư vấn sâu.]`
+        `→ CHƯA báo giá; hỏi GỌN 1 câu rồi tư vấn theo chuẩn, KHÔNG hỏi dồn nhiều câu thăm dò.]` +
+        tableHint
       );
     }
   } else if (stage === "inbody" || stage === "evaluation") {
     body = RESULT_COMMIT[goal] ?? "";
-    if (body) return `[TƯ VẤN MỤC TIÊU: ${body}]`;
+    if (body) return `[TƯ VẤN MỤC TIÊU: ${body}]` + tableHint;
   } else if (stage === "negotiation" || stage === "commitment") {
     return `[TƯ VẤN MỤC TIÊU: ${CLOSE_MOTIVATION}]`;
   }

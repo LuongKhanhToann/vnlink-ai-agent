@@ -96,6 +96,7 @@ export async function loadState(
         pastMethod: m.knownInfo?.pastMethod ?? null,
         fitnessGoal: m.knownInfo?.fitnessGoal ?? null,
         bodyStats: m.knownInfo?.bodyStats ?? null,
+        gender: m.knownInfo?.gender ?? null,
       },
       turnCount: m.turnCount ?? 0,
       flowTurnCount: (m as any).flowTurnCount ?? 0,
