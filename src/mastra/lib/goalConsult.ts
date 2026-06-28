@@ -21,8 +21,10 @@
 import { ConversationState } from "./stateMachine";
 import { WEIGHT_STANDARD_HINT } from "./weightStandard";
 
-// Goal đối chiếu bảng cân chuẩn (giảm/tăng cân). Giữ dáng không cần soi lệch chuẩn.
-const WEIGHT_TABLE_GOALS = new Set(["giam-mo", "tang-can"]);
+// Goal đối chiếu bảng cân chuẩn: cả 3 body-goal đều dùng cao/nặng — giảm/tăng để biết lệch
+// mấy kg, giữ-dáng để xác nhận đang TRONG khoảng cân đối rồi duy trì. (Khớp với BODY_GOALS ở
+// stateMachine: 3 goal này đều bị giữ discovery hỏi cao/nặng trước khi tư vấn.)
+const WEIGHT_TABLE_GOALS = new Set(["giam-mo", "tang-can", "giu-dang"]);
 
 // ─────────────────────────────────────────────
 // BƯỚC 1 — KHAI THÁC "NỖI ĐAU" (discovery)
@@ -61,7 +63,9 @@ const RESULT_COMMIT: Record<string, string> = {
     "Nhấn InBody đo lượng cơ thiếu + chuyển hóa để nạp dinh dưỡng chuẩn — tăng cơ KHÔNG tích mỡ/nước. " +
     "MỖI lượt 1 ý chính rồi nhường khách. Gói/giá chỉ nói khi khách hỏi: chưa biết tập → PT giáo án tăng cơ + thực đơn 5-6 bữa; đã biết tập → thẻ hội viên, InBody chọn nhóm cơ.",
   "giu-dang":
-    "cam kết bằng số liệu: InBody theo dõi định kỳ duy trì tỷ lệ cơ-mỡ. Nhấn thẻ Full đổi môn cho đỡ chán.",
+    "Có cao/nặng → đối chiếu BẢNG CÂN CHUẨN ở prefix: đang TRONG khoảng cân đối thì ghi nhận nhẹ + hướng DUY TRÌ; lệch nhẹ thì gợi tinh chỉnh chút. " +
+    "InBody theo dõi định kỳ giữ tỷ lệ cơ-mỡ. Nhấn thẻ Full đổi môn cho đỡ chán. " +
+    "Mỗi lượt 1 ý, gói/giá chỉ nói khi khách hỏi.",
 };
 
 // ─────────────────────────────────────────────
