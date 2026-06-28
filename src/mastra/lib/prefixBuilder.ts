@@ -212,13 +212,13 @@ function buildSaleSenseHint(state: ConversationState, _message?: string): string
       ? knownInfo.fitnessGoal !== null || knownInfo.serviceType !== null
       : knownInfo.painArea !== null;
 
-  // Giai-co discovery CHƯA đủ pain slots (painArea+painSpread+pastMethod) → CHƯA mời trial / gợi
+  // Giai-co discovery CHƯA đủ pain slots (painArea+painSpread) → CHƯA mời trial / gợi
   // 'sáng hay chiều' (bug L3 T4: emotion anxious → SALE-SENSE mời thử buổi giữa lúc còn đào nỗi đau).
-  // Để discovery GATE hỏi xong painSpread/pastMethod đã. Defer cho GATE.
+  // Đủ painArea+painSpread là sang evaluation (KHÔNG còn chờ pastMethod). Defer cho GATE.
   if (
     flow === "giai-co" &&
     stage === "discovery" &&
-    !(knownInfo.painArea && knownInfo.painSpread && knownInfo.pastMethod)
+    !(knownInfo.painArea && knownInfo.painSpread)
   )
     return "";
 
@@ -822,12 +822,11 @@ export function computeDoubtMediaKey(
     return beforeAfterTarget(state);
   }
 
-  // giai-co: cần đã pitch value (stage evaluation HOẶC đủ 3 slot pain) + biết painArea.
+  // giai-co: cần đã pitch value (stage evaluation HOẶC đủ painArea+painSpread) + biết painArea.
   // guardKey = key THẬT (chung ngân sách proactive): các mr-* hiện cùng 1 folder content,
   // nên nếu đã gửi clip giới thiệu rồi thì KHÔNG bung lại — tránh khách thấy trùng video.
   const k = state.knownInfo;
-  const allPainSlots =
-    k.painArea !== null && k.painSpread !== null && k.pastMethod !== null;
+  const allPainSlots = k.painArea !== null && k.painSpread !== null;
   if (state.stage !== "evaluation" && !allPainSlots) return null;
   const key = computeSuggestedMediaKey(state);
   if (!key) return null;
@@ -1149,14 +1148,12 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   //     "mục tiêu gì"), gửi ảnh kèm câu hỏi discovery là chen ngang, sai moment.
   //     (User feedback 2026-05: bot từng gửi media ngay turn đầu khi khách mới nói
   //     "quan tâm zumba" — bot mới hỏi "đã tập chưa" mà đã đính kèm ảnh → awkward.)
-  //   - giai-co: evaluation, HOẶC khi ĐỦ 3 slot pain (painArea + painSpread + pastMethod) —
-  //     ngầm hiểu đã sang evaluation, kể cả khi stage transition lag do classifier.
-  //     KHÔNG fire khi mới có painArea+painSpread (chưa hỏi pastMethod) — moment đó vẫn
-  //     đang khai thác triệu chứng, chưa pitch value, gửi ảnh là chen ngang.
+  //   - giai-co: evaluation, HOẶC khi ĐỦ painArea + painSpread — ngầm hiểu đã sang
+  //     evaluation (pitch value + mời thử), kể cả khi stage transition lag do classifier.
+  //     KHÔNG fire khi mới có painArea (chưa hỏi painSpread) — moment đó vẫn đang
+  //     khai thác triệu chứng, chưa pitch value, gửi ảnh là chen ngang.
   const giaiCoAllPainSlots =
-    knownInfo.painArea !== null &&
-    knownInfo.painSpread !== null &&
-    knownInfo.pastMethod !== null;
+    knownInfo.painArea !== null && knownInfo.painSpread !== null;
   const stageAllowsProactiveMedia =
     flow === "fitness"
       ? stage === "inbody" || stage === "evaluation"
@@ -1437,7 +1434,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     if (shouldSkipSpread) {
       hints.push(
         "[GATE: đã hỏi painSpread 1 lần, khách không answer rõ → SKIP, KHÔNG hỏi lại 'lan ra hay cố định'. " +
-          "Tiến tới hỏi pastMethod hoặc painDuration tự nhiên hơn, vd 'Trước giờ anh/chị có thử massage hay dán cao chưa ạ?']",
+          "KHÔNG quay sang tra khảo 'đã thử massage/dán cao chưa'. Tiến thẳng sang TƯ VẤN: hình ảnh hóa vùng đau (nút thắt) + contrast bề mặt vs sâu (KTV xử đúng điểm kẹt) + mời 1 buổi thử.]",
       );
     } else {
       hints.push(
@@ -1450,41 +1447,12 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
-  // ── GIẢI CƠ: biết painArea + painSpread, chưa hỏi pastMethod ──
-  if (
-    flow === "giai-co" &&
-    stage === "discovery" &&
-    knownInfo.painArea !== null &&
-    knownInfo.painSpread !== null &&
-    knownInfo.pastMethod === null
-  ) {
-    // Anti-loop: nếu prev đã hỏi massage/thuốc → SKIP hỏi lại, tiến tới evaluation
-    const prevAskedMethod = state.lastBotReply
-      ? /(massage|thuốc|dán cao|đã thử)/i.test(state.lastBotReply)
-      : false;
-    // Anti-repeat: nếu prev đã nhắc "KTV bên em" → KHÔNG lặp ở turn này.
-    const prevMentionedKTV = state.lastBotReply
-      ? /\bKTV\s+bên\s+em\b/i.test(state.lastBotReply)
-      : false;
-    const ftc2 = state.flowTurnCount ?? state.turnCount;
-    if (prevAskedMethod || ftc2 >= 3) {
-      hints.push(
-        "[GATE: đã hỏi pastMethod tin trước → SKIP, KHÔNG hỏi lại. " +
-          "Tiến tới evaluation: hình ảnh hóa vùng đau + contrast bề mặt vs sâu + mời 1 buổi thử.]",
-      );
-    } else if (prevMentionedKTV) {
-      hints.push(
-        `[GATE: biết vùng_đau=${knownInfo.painArea}, prev đã nhắc 'KTV bên em' → KHÔNG lặp lại cụm này. ` +
-          `Hỏi thẳng 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. Có thể prefix bằng ack ngắn về vùng đau lan (1 câu).]`,
-      );
-    } else {
-      hints.push(
-        `[GATE: biết vùng_đau=${knownInfo.painArea}. ` +
-          `Cấu trúc 2 câu: (1) nhắc KTV bên em đã xử lý nhiều ca tương tự, (2) hỏi 1 LẦN: 'Trước giờ ${state.honorific} có thử massage hay dán cao chưa ạ'. KHÔNG lặp ở turn sau. ` +
-          `⛔ ĐANG THĂM DÒ — CHƯA mời chốt giờ / hỏi 'sáng hay chiều' / 'qua hôm nào'.]`,
-      );
-    }
-  }
+  // ── GIẢI CƠ: biết painArea + painSpread → KHÔNG tra khảo pastMethod, sang tư vấn ──
+  // (Bỏ hẳn GATE hỏi "đã thử massage/dán cao chưa": hỏi nó là tra khảo, không đẩy sale, và
+  //  từng lặp lại do anti-loop bằng regex lastBotReply không bền. Sale thật: đủ painArea+
+  //  painSpread thì pitch value (KTV/điểm-kẹt) + mời 1 buổi thử — giaiCoReadyForEvaluation đã
+  //  cho sang evaluation, EXAMPLE evaluation lo phần value. Nếu khách TỰ kể đã thử cách gì →
+  //  classifier vẫn extract pastMethod để làm contrast, nhưng KHÔNG cần hỏi.)
 
 
   // ── GIẢI CƠ: evaluation — khách đã đồng ý + báo giờ → skip pitch (compact) ──
@@ -2298,13 +2266,8 @@ function buildMissingSlotHint(
       missing.push("painSpread");
     if (info.painDuration === null && stage === "discovery")
       missing.push("painDuration");
-    // pastMethod là slot bắt buộc ở discovery — phải có trước khi sang evaluation
-    if (
-      info.pastMethod === null &&
-      (stage === "discovery" || stage === "evaluation")
-    ) {
-      missing.push("pastMethod");
-    }
+    // pastMethod KHÔNG còn là slot bắt buộc: hỏi nó là tra khảo, không chặn bước.
+    // (Chỉ extract khi khách tự kể, để làm contrast — không liệt vào "missing".)
     if (info.sessionPackage === null && stage === "commitment")
       missing.push("sessionPackage");
   }

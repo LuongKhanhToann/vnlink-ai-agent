@@ -853,26 +853,25 @@ function fitnessReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
 }
 
 /**
- * Giải cơ: coi là "đủ để evaluation" khi biết painArea VÀ pastMethod.
+ * Giải cơ: coi là "đủ để evaluation" khi biết painArea + painSpread.
  *
- * Lý do cần pastMethod:
- *   - Đây là bước tạo contrast quan trọng nhất: "Massage chỉ đỡ tạm — giải cơ xử lý tận gốc"
- *   - Nếu khách chưa thử gì → contrast với "không biết cơ thể đang ở đâu"
- *   - Nếu khách đã massage → contrast với "chỉ vuốt bề mặt, không gỡ được nút thắt sâu"
- *   - Chỉ skip nếu khách có intent cao (selecting/ready)
+ * pastMethod (đã thử massage/cao/dầu chưa) KHÔNG còn là slot bắt buộc: hỏi nó là tra
+ * khảo, không đẩy được sale (sale thật nghe "đau cổ" thì TƯ VẤN cơ chế + mời thử, không
+ * khảo sát khách đã bôi cao chưa). Nếu khách tự kể phương pháp đã thử → vẫn extract để
+ * làm contrast, nhưng KHÔNG chặn bước. 1 câu painSpread (lan/cố định) là đủ để cá nhân hóa
+ * value rồi sang evaluation — đúng MẪU của GiaiCoAgent.
  */
 function giaiCoReadyForEvaluation(info: KnownInfo, intent: Intent): boolean {
   if (info.painArea === null) return false;
-  
+
   // Intent cao: khách chủ động chọn
   if (intent === "selecting" || intent === "ready") return true;
-  
+
   // Khách đã đồng ý thử (có giờ cụ thể) → đủ để chuyển sang evaluation rồi commitment
   if (info.preferredTime !== null) return true;
-  
-  // Bắt buộc đủ 3 bước: painArea → painSpread → pastMethod
-  // painSpread cần để hiểu mức độ lan tỏa; pastMethod để tạo contrast tư vấn
-  return info.painSpread !== null && info.pastMethod !== null;
+
+  // painArea + painSpread là đủ: 1 câu hỏi tính chất đau rồi pitch value + mời thử.
+  return info.painSpread !== null;
 }
 
 // ─────────────────────────────────────────────

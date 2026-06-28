@@ -78,8 +78,10 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
     "Chào ngắn, hỏi ngay vùng khó chịu nhất. Không báo giá khi chưa biết painArea.",
 
   discovery_neutral:
-    "Hỏi tuần tự, 1 câu/lần: painArea → painSpread → painDuration → pastMethod. " +
-    "Giọng trò chuyện, không tra hỏi. Không báo giá khi chưa có pastMethod.",
+    "Biết vùng đau rồi thì hỏi gọn 1 câu tính chất đau (lan ra hay cố định) để cá nhân hóa, " +
+    "rồi TƯ VẤN cơ chế (nút thắt/điểm kẹt) + mời 1 buổi thử. " +
+    "KHÔNG tra khảo 'đã thử massage/dán cao/xoa dầu chưa' — hỏi vậy là khảo sát, không đẩy được sale. " +
+    "Giọng trò chuyện, không tra hỏi. Không báo giá khi chưa biết painArea.",
 
   evaluation_neutral:
     "Flow: hình dung vấn đề → contrast với cách cũ (massage bề mặt vs giải cơ chuyên sâu) → vẽ viễn cảnh dễ chịu → mời thử 1 buổi. " +
