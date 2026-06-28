@@ -984,17 +984,15 @@ export function computeNextStage(
       // Khách chủ động commit (selecting/ready), đã có giờ, hoặc đã có tên+SĐT → bỏ qua, không nài.
       const BODY_GOALS = ["giam-mo", "tang-can", "giu-dang"];
       const isBodyGoal = info.fitnessGoal !== null && BODY_GOALS.includes(info.fitnessGoal);
-      // ĐỦ ĐỂ TƯ VẤN (phản hồi sale thực tế của KH thật): goal + chỉ số cơ thể (cao/nặng) là ĐỦ
-      // để tư vấn theo CHUẨN cân nặng rồi mời trải nghiệm. KHÔNG bắt moi thêm "đã thử cách nào /
-      // vùng nào tự ti nhất" — khách thường KHÔNG trả lời được, hỏi dồn 3-4 câu làm rớt khách.
-      // Thả sang InBody khi: đã có bodyStats (cao/nặng) HOẶC đã biết thói quen/lịch sử (pastMethod)
-      // HOẶC đã qua ~2 lượt khai thác mà khách không cho số (turn≥3) → ở InBody bot TƯ VẤN theo
-      // chuẩn + mời trải nghiệm, không hỏi nữa. (Trước đây ép bodyStats VÀ pastMethod/turn≥5 → kẹt
-      // discovery, hỏi dồn "muốn giảm bao nhiêu / vùng tự ti / đã thử gì" đúng lỗi KH phản ánh.)
+      // ĐỦ ĐỂ TƯ VẤN: với body-goal, thông tin CHỐT là CAO/NẶNG (bodyStats) — để đối chiếu bảng
+      // chuẩn rồi tư vấn. pastMethod ("đã/chưa tập") KHÔNG thay được cao/nặng → KHÔNG để nó đẩy
+      // qua InBody khi bot còn CHƯA kịp hỏi cao/nặng (lỗi thật: khách "tăng cân, chưa từng tập" →
+      // bot nhảy InBody, bỏ qua cao/nặng). Anti-stuck turn≥5 (không phải 3): goal thường mới lộ
+      // GIỮA discovery (sau "đã tập chưa"), cần chừa ≥1 lượt hỏi cao/nặng trước khi thả; khách
+      // không cho số tới turn 5 thì mới tư vấn chung + mời đo InBody.
       const painExploredDeep =
         info.bodyStats !== null ||
-        info.pastMethod !== null ||
-        turnCount >= 3;
+        turnCount >= 5;
       if (
         flow === "fitness" &&
         isBodyGoal &&
