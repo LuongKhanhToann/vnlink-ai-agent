@@ -17,7 +17,6 @@ import {
   buildPrefix,
   buildPrefixWithMeta,
   computeSuggestedMediaKey,
-  detectMentionedServiceKey,
   isTerseMessage,
   isBareGreetingOrFiller,
   computeProactiveMediaKey,
@@ -261,8 +260,6 @@ async function updateStateAfterReply(
   injectedGuardKey: string | null,
 ): Promise<void> {
   const needQR    = nextStep === "show_qr"    && !currentFlags.qrShown;
-  // KHÔNG check !mediaShown ở đây — cho phép gửi media mới khi khách hỏi service khác.
-  const needMedia = nextStep === "show_media";
 
   try {
     const current = await loadState(mastra, threadId, resourceId);
@@ -277,11 +274,10 @@ async function updateStateAfterReply(
       for (const k of [injectedGuardKey, realKey]) {
         if (!updatedKeys.includes(k)) updatedKeys = [...updatedKeys, k];
       }
-    } else if (needMedia) {
-      // Media do LLM tự gửi: ưu tiên key khách vừa mention (vd "zumba") rồi fallback theo state.
-      const sentKey = detectMentionedServiceKey(customerMessage) ?? computeSuggestedMediaKey(current);
-      if (sentKey && !updatedKeys.includes(sentKey)) updatedKeys = [...updatedKeys, sentKey];
     }
+    // ⚠️ KHÔNG ghi key khi agent TỰ gọi get-media (nextStep=show_media nhưng injectedGuardKey=null):
+    // media đó đã bị ROUTER VỨT (chỉ deterministic inject mới thực gửi). Trước đây ghi phantom key
+    // → khách XIN ảnh ở turn sau bị coi "đã gửi" → câm. Chỉ injectedGuardKey (thực gửi) mới ghi.
     // Phase 6: detect câu hỏi đã hỏi + fact đã pitch → cập nhật tracking sets.
     const tracking = updateTracking(current, botReply);
     // recentBotReplies: giữ tối đa 3 reply gần nhất (cho anti-parrot không-liền-kề ở cleanReply).
@@ -293,7 +289,9 @@ async function updateStateAfterReply(
     const updated = {
       ...current,
       qrShown:    needQR    ? true : current.qrShown,
-      mediaShown: needMedia ? true : current.mediaShown,
+      // mediaShown chỉ bật khi THỰC gửi (deterministic inject). nextStep=show_media của agent
+      // có thể là media đã bị vứt → đừng bật phantom.
+      mediaShown: injectedGuardKey ? true : current.mediaShown,
       mediaShownKeys: updatedKeys,
       lastBotReply: botReply || current.lastBotReply,
       askedHistory: tracking.askedHistory,

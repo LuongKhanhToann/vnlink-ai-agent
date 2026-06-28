@@ -79,6 +79,10 @@ export async function loadState(
       // Sau buildNextState, intentTopic sẽ bị overwrite bằng kết quả classifier turn HIỆN TẠI.
       intentTopic: (m.intentTopic ?? null) as any,
       intentSignal: ((m as any).intentSignal ?? null),
+      // mediaMove: quyết định KHOE media của classifier turn TRƯỚC. PHẢI khôi phục —
+      // computeProactiveMediaKey đọc field này; rớt → media chủ động (show_results/show_service)
+      // không bao giờ bung, chỉ còn cứu được khi khách XIN thẳng (intentSignal.domain=media_request).
+      mediaMove: ((m as any).mediaMove ?? "none") as any,
       secondaryIntents: ((m as any).secondaryIntents ?? []) as any,
       honorific: m.honorific ?? DEFAULT_STATE.honorific,
       knownInfo: {
