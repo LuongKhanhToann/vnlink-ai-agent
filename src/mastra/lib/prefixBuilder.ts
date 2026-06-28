@@ -1423,18 +1423,16 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     knownInfo.painArea !== null &&
     knownInfo.painSpread === null
   ) {
-    // Anti-loop: nếu turn ≥ 3 hoặc đã có painDuration/pastMethod → SKIP painSpread,
-    // không lặp đi lặp lại câu hỏi "đau lan ra hay cố định".
-    // Dùng flowTurnCount (per-flow giải cơ) để guard chính xác hơn.
+    // Chỉ SKIP câu hỏi tính chất đau khi đã THỰC SỰ hỏi mà khách không đáp rõ (ftc≥3).
+    // TUYỆT ĐỐI KHÔNG skip chỉ vì painDuration/pastMethod được auto-extract từ CÂU MỞ của khách
+    // (vd "dạo này a đau cổ" → classifier set painDuration). Auto-extract ≠ khách đã engage
+    // discovery → vẫn phải ĐỒNG CẢM + hỏi 1 câu ở lượt đầu (nếu không sẽ "đọc bài" ngay tin 1).
     const ftc = state.flowTurnCount ?? state.turnCount;
-    const shouldSkipSpread =
-      ftc >= 3 ||
-      knownInfo.painDuration !== null ||
-      knownInfo.pastMethod !== null;
+    const shouldSkipSpread = ftc >= 3;
     if (shouldSkipSpread) {
       hints.push(
-        "[GATE: đã hỏi painSpread 1 lần, khách không answer rõ → SKIP, KHÔNG hỏi lại 'lan ra hay cố định'. " +
-          "KHÔNG quay sang tra khảo 'đã thử massage/dán cao chưa'. Tiến thẳng sang TƯ VẤN: hình ảnh hóa vùng đau (nút thắt) + contrast bề mặt vs sâu (KTV xử đúng điểm kẹt) + mời 1 buổi thử.]",
+        "[GATE: đã hỏi mà khách chưa nói rõ tính chất đau → ĐỪNG hỏi lại 'lan ra hay cố định', ĐỪNG tra khảo 'đã thử gì'. " +
+          "Đồng cảm 1 câu rồi giải thích NGẮN cơ chế + mời TRẢI NGHIỆM 1 buổi mềm (không ép giờ). Ấm, không đọc bài như tờ rơi.]",
       );
     } else {
       hints.push(
