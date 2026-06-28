@@ -413,7 +413,115 @@ const E5: Scenario = {
   ],
 };
 
-export const SCENARIOS: Scenario[] = [L1, L2, L3, L4, L5, E1, E2, E3, E4, E5];
+// ════════════════════════════════════════════════════════════════════════════
+// 🟢 LUỒNG G1 — GIẢI CƠ · đau cổ vai gáy, dân văn phòng (giai-co)
+//    Mô phỏng ĐÚNG transcript FB thật (tin ngắn, viết thường). Test NHỊP top-human:
+//    T1 đồng cảm + 1 câu HIỂU (KHÔNG phán nút thắt/contrast/giờ) →
+//    hiểu xong mới giải thích cơ chế + mời TRẢI NGHIỆM mềm → chốt giờ CHỈ khi khách tỏ ý đến.
+// ════════════════════════════════════════════════════════════════════════════
+const G1: Scenario = {
+  id: "G1",
+  title: "🟢 LUỒNG G1 — GIẢI CƠ · đau cổ vai gáy văn phòng (nhịp top-human)",
+  flow: "giai-co",
+  goal: "Khách mở cụt 'hơi đau cổ' → T1 ĐỒNG CẢM + 1 câu hiểu (⛔ chưa nút thắt/contrast/giờ) → hiểu xong mới giải thích cơ chế + mời thử mềm → giá 1 buổi answer-first → chốt giờ KHI khách tỏ ý đến → tách ngày khỏi tên/SĐT → lead → sau chốt tự nhiên.",
+  turns: [
+    {
+      msg: "dạo này a hơi đau cổ",
+      expect: "⛔ ĐỒNG CẢM ngắn THẬT 1 câu + hỏi 1 câu HIỂU (lan/1 điểm | lâu chưa | do ngồi nhiều). KHÔNG phán 'nút thắt/điểm kẹt', KHÔNG contrast xoa-ngoài, KHÔNG mời thử, KHÔNG hỏi giờ.",
+    },
+    {
+      msg: "ngồi máy tính cả ngày, cứng đơ cả cổ",
+      expect: "ACK, hỏi thêm 1 câu hiểu (đau lan xuống vai hay chỉ ở cổ / bao lâu rồi). Vẫn CHƯA pitch cơ chế/giá.",
+    },
+    {
+      msg: "lan xuống vai luôn, mấy tuần rồi",
+      expect: "đủ painArea+spread+duration → GIỜ mới giải thích cơ chế NGẮN (cơ co rút/nút thắt) + contrast nhẹ + mời TRẢI NGHIỆM 1 buổi mềm. ⛔ KHÔNG hỏi 'sáng hay chiều' (khách chưa tỏ ý đến).",
+    },
+    {
+      msg: "giải cơ là làm gì v e",
+      expect: "answer-first: value gỡ nút thắt lớp cơ sâu, hình ảnh hóa. KHÔNG vội chốt giờ.",
+    },
+    {
+      msg: "làm có đau ko",
+      expect: "trấn an: thốn ở điểm kẹt nhưng không quá ngưỡng.",
+    },
+    {
+      msg: "làm xong có hết hẳn ko hay lại đau",
+      expect: "🖼 GỬI MEDIA before-after (mr-neck-shoulder) + trấn an gốc rễ.",
+    },
+    {
+      msg: "1 buổi bao nhiêu e",
+      expect: "báo giá tham chiếu 1 BUỔI NGAY (answer-first), KHÔNG đổ gói 10 buổi.",
+    },
+    {
+      msg: "ok để thử 1 buổi xem sao",
+      expect: "GIỜ mới có tín hiệu mua → mời + HỎI NGÀY MỞ ('anh tiện qua hôm nào ạ').",
+    },
+    { msg: "chắc cuối tuần", expect: "cửa sổ mơ hồ → CHỌN 1-trong-2 ngày cụ thể." },
+    { msg: "chủ nhật đi e", expect: "mới xin tên + SĐT (TÁCH khỏi ngày)." },
+    { msg: "Hùng 0912345678", expect: "xác nhận giữ slot 1 câu → DỪNG (không tự gợi QR)." },
+    {
+      msg: "đến cần mang theo gì ko e",
+      expect: "sau chốt: trả lời tự nhiên, KHÔNG xin lại info, KHÔNG pitch lại.",
+    },
+  ],
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🟢 LUỒNG G2 — GIẢI CƠ · gym/chạy bộ, khách DÈ DẶT (giai-co, mr-sport)
+//    Test chống GIỤC CHỐT: khách than đau + "để xem đã" (CHƯA tín hiệu mua) →
+//    bot phải GIỮ ẤM, KHÔNG hỏi giờ; chỉ chốt khi khách tự ngỏ ý thử.
+// ════════════════════════════════════════════════════════════════════════════
+const G2: Scenario = {
+  id: "G2",
+  title: "🟢 LUỒNG G2 — GIẢI CƠ · gym/chạy bộ, khách dè dặt (chống giục chốt)",
+  flow: "giai-co",
+  goal: "Khách thể thao cơ căng mãn, dè dặt: nói 'để xem đã' (chưa mua) → bot KHÔNG được hỏi giờ/giục chốt, giữ ấm + value; vượt phản đối giá; chỉ chốt khi khách tự ngỏ thử → lead.",
+  turns: [
+    { msg: "hi shop", expect: "chào mở mềm." },
+    {
+      msg: "a tập gym với chạy bộ, đùi sau với thắt lưng căng cứng mãi ko giãn",
+      expect: "⛔ ĐỒNG CẢM + hỏi 1 câu hiểu (lâu chưa / lan hay 1 vùng). KHÔNG pitch trigger point/giá ngay tin đầu.",
+    },
+    {
+      msg: "kéo giãn khởi động kỹ rồi mà vẫn đơ, mấy tuần nay",
+      expect: "đủ tín hiệu (vùng+duration) → giải thích cơ chế NGẮN + value KTV tác động điểm kẹt lớp sâu (hơn foam roller). Mời thử MỀM. ⛔ chưa hỏi giờ.",
+    },
+    {
+      msg: "thôi để xem đã, chưa chắc qua được",
+      expect: "🔑 CHỐNG GIỤC CHỐT: khách CHƯA mua → KHÔNG hỏi 'sáng hay chiều'/ép giờ. Giữ ấm, hạ áp lực ('chưa cần quyết gì đâu'), để value lắng.",
+    },
+    {
+      msg: "mà giải cơ khác gì tự lăn foam ở nhà",
+      expect: "answer-first value: KTV đào tạo giải phẫu, tác động ĐÚNG điểm kẹt lớp sâu — foam chỉ bề mặt.",
+    },
+    {
+      msg: "cho a xem vài ca thể thao giống a với",
+      expect: "🖼 GỬI MEDIA mr-sport (khách xin trực tiếp).",
+    },
+    {
+      msg: "1 buổi nhiêu, làm liệu trình rẻ hơn ko",
+      expect: "báo giá 1 BUỔI answer-first + KTV đánh giá tại chỗ rồi tư vấn lộ trình, CHƯA ép gói 10.",
+    },
+    {
+      msg: "hơi đắt so với a nghĩ",
+      expect: "reframe value (xử gốc, bền hơn massage lặp lại), KHÔNG hạ giá bừa, KHÔNG giục.",
+    },
+    {
+      msg: "thôi cho a thử 1 buổi xem hợp ko",
+      expect: "GIỜ mới có tín hiệu mua → mời + HỎI NGÀY MỞ.",
+    },
+    { msg: "đầu tuần sau", expect: "mơ hồ → CHỌN 1-trong-2 ngày cụ thể." },
+    { msg: "thứ 3 nhé", expect: "mới xin tên + SĐT." },
+    { msg: "Tuấn 0938765432", expect: "giữ slot → DỪNG." },
+    {
+      msg: "trước buổi cần khởi động hay nhịn ăn gì ko e",
+      expect: "sau chốt: trả lời tự nhiên, KHÔNG xin lại info.",
+    },
+  ],
+};
+
+export const SCENARIOS: Scenario[] = [L1, L2, L3, L4, L5, E1, E2, E3, E4, E5, G1, G2];
 
 export function getScenario(id: string): Scenario | undefined {
   return SCENARIOS.find((s) => s.id.toLowerCase() === id.toLowerCase());

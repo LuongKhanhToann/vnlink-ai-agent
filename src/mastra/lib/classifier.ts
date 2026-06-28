@@ -468,7 +468,11 @@ function buildPrompt(
     ? `"flow": "fitness"|"giai-co",  // fitness=tập thể dục/gym/bơi/yoga/zumba | giai-co=massage/đau mỏi/giải cơ/spa.
   //   PHÂN XỬ khi đang fitness ĐÃ chốt bộ môn mà khách than đau/mỏi cơ-xương: nếu cơn đau là VẤN ĐỀ RIÊNG khách
   //   muốn xử lý (đau/mỏi/cứng mãn, kéo dài, do ngồi nhiều/sai tư thế) → "giai-co" (chuyển sang trị liệu). Nếu đau
-  //   chỉ là LÝ DO/mục tiêu của việc chọn môn tập (tập để cải thiện cơn đau đó) → "fitness".`
+  //   chỉ là LÝ DO/mục tiêu của việc chọn môn tập (tập để cải thiện cơn đau đó) → "fitness".
+  //   STICKY ngược lại: đang "giai-co" ĐÃ biết vùng đau, câu follow-up của buổi trị liệu (có hết hẳn
+  //   không, có đau không, xin xem ca giống mình, 1 buổi bao nhiêu, làm mấy buổi) → GIỮ "giai-co", DÙ
+  //   câu có chữ "thể thao/tập/gym". Chỉ trả "fitness" khi khách RÕ RÀNG quay sang hỏi tập gym/yoga/
+  //   hội viên cho bản thân — không phải hỏi tiếp về trị liệu.`
     : `// flow đã xác định: "${previousFlow}" — không cần classify`;
 
   const prevTopicLine = previousIntentTopic

@@ -769,7 +769,15 @@ export function needsFlowClassification(
   if (keywordFlow === null) return true;
   const committedFitness =
     previous.flow === "fitness" && previous.knownInfo.serviceType !== null;
-  return keywordFlow === "giai-co" && committedFitness;
+  const engagedGiaiCo =
+    previous.flow === "giai-co" && previous.knownInfo.painArea !== null;
+  // Flip RỜI một flow đang engaged → KHÔNG để keyword lẻ tự quyết, xin LLM phân xử (no-regex):
+  //   • fitness đã chốt môn ↔ keyword đòi giai-co (đau): cơn đau là vấn đề riêng hay lý do tập?
+  //   • giai-co đã biết vùng đau ↔ keyword đòi fitness (vd câu follow-up có "thể thao"/"tập"/"gym"):
+  //     khách thật sự đổi sang hỏi tập gym/hội viên, hay chỉ là follow-up của buổi trị liệu?
+  if (keywordFlow === "giai-co" && committedFitness) return true;
+  if (keywordFlow === "fitness" && engagedGiaiCo) return true;
+  return false;
 }
 
 // ─────────────────────────────────────────────
@@ -1152,15 +1160,46 @@ export function buildNextState(
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   let flow = keywordFlow ?? llm.flow ?? previous.flow;
 
+  // GIAI-CO LOCK (đối xứng FITNESS-SERVICE LOCK): KH đang trong trị liệu giải cơ (ĐÃ biết vùng đau)
+  // mà 1 keyword lẻ trong câu follow-up ("thể thao"/"tập"/"gym") đòi lật flow=fitness → KHÔNG để regex
+  // tự quyết. Trọng tài là LLM (needsFlowClassification bật đúng case này → llm.flow là phán đoán THẬT):
+  // Honor switch CHỈ khi khách nêu DỊCH VỤ FITNESS CỤ THỂ trong tin này (serviceType: gym/yoga/zumba/
+  // bơi/pilates). KHÔNG tính fitnessGoal (quá generic, classifier hay ảo "duy trì sức khỏe" → nhả lock
+  // sai), KHÔNG tin mỗi llm.flow="fitness" (đoán sai 1 câu mơ hồ như "làm xong có hết hẳn không").
+  //   • có serviceType fitness → khách thật sự quay sang hỏi tập môn đó → TÔN TRỌNG switch.
+  //   • else → câu "có hết hẳn không / cho xem ca giống tôi / 1 buổi bao nhiêu" là follow-up trị liệu
+  //     → GIỮ giai-co (đừng văng sang báo giá gói gym, gửi ảnh gym).
+  // Đặt TRƯỚC safety/post-surgery lock để các lock đó vẫn override sang fitness khi thật sự cần.
+  const engagedGiaiCo =
+    previous.flow === "giai-co" && previous.knownInfo.painArea !== null;
+  const FITNESS_SERVICE_SLOTS = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+  const extractedFitnessService =
+    typeof llm.extractedSlots.serviceType === "string"
+      ? llm.extractedSlots.serviceType.toLowerCase()
+      : null;
+  const switchedToFitnessSignal =
+    extractedFitnessService !== null &&
+    FITNESS_SERVICE_SLOTS.includes(extractedFitnessService);
+  if (engagedGiaiCo && flow === "fitness" && !switchedToFitnessSignal) {
+    console.log(
+      `[stateMachine] giai-co lock: painArea=${previous.knownInfo.painArea} + flow đòi fitness nhưng không có dịch vụ fitness cụ thể (llm.flow=${llm.flow ?? "—"}, service=${llm.extractedSlots.serviceType ?? "—"}) → giữ flow=giai-co`,
+    );
+    flow = "giai-co";
+  }
+
   // HEALTH-SAFETY FLOW LOCK: Nếu turn trước fire safety topic (ask_senior/postpartum/prenatal/post_surgery),
   // turn này dù có mention đau cơ (vd "khớp gối yếu", "cao huyết áp") vẫn STAY fitness flow.
-  // Lý do: đang trong context tư vấn tập an toàn, KHÔNG phải đặt giải cơ.
+  // Lý do: đang trong context tư vấn TẬP an toàn, KHÔNG phải đặt giải cơ.
+  // ⚠️ CHỈ áp khi KHÔNG engaged giai-co: "context tập an toàn" chỉ tồn tại trong flow fitness. Nếu khách
+  // đang trong trị liệu giải cơ (painArea đã biết), 1 câu lành tính bị classifier ẢO thành ask_senior_
+  // safety (vd "làm xong có hết hẳn không", "làm có đau không") KHÔNG được kéo về fitness — người già/bà
+  // bầu hỏi an toàn giải cơ vẫn là lead giai-co, agent giai-co tự xử lý chống chỉ định.
   const wasSafetyContext =
     previous.intentTopic === "ask_senior_safety" ||
     previous.intentTopic === "ask_postpartum_safety" ||
     previous.intentTopic === "ask_prenatal_safety" ||
     previous.intentTopic === "ask_post_surgery";
-  if (wasSafetyContext && flow === "giai-co") {
+  if (wasSafetyContext && flow === "giai-co" && !engagedGiaiCo) {
     console.log(`[stateMachine] safety lock: previous=${previous.intentTopic} → giữ flow=fitness`);
     flow = "fitness";
   }
