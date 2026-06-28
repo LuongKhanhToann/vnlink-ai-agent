@@ -160,6 +160,26 @@ export async function setBotEnabled(senderId: string, enabled: boolean): Promise
 }
 
 /**
+ * Xoá user khỏi bảng điều khiển + bản ghi working-memory (Mastra resource, scope=resource)
+ * sống chung Postgres. Admin gọi khi "xoá dữ liệu chat" 1 người.
+ *   - bot_controls: dòng hiển thị trong danh sách admin (sender_id = PSID).
+ *   - mastra_resources: hồ sơ ghi nhớ dài hạn theo resourceId (= PSID). Best-effort: bảng có
+ *     thể vắng ở chế độ test (libsql) → nuốt lỗi, không chặn việc xoá dòng bot_controls.
+ */
+export async function deleteBotUser(senderId: string): Promise<void> {
+  await ensureSchema();
+  await getPool().query(`DELETE FROM bot_controls WHERE sender_id = $1`, [senderId]);
+  try {
+    await getPool().query(`DELETE FROM mastra_resources WHERE id = $1`, [senderId]);
+  } catch (e) {
+    console.warn(
+      `[botControl] xoá mastra_resources cho ${senderId} (best-effort) bỏ qua:`,
+      (e as Error).message,
+    );
+  }
+}
+
+/**
  * AI có được phép trả lời user này không? Đọc cờ enabled MỖI lần (không cache).
  * User chưa có trong bảng (tin đầu) → mặc định TRUE (bật). Lỗi DB → fail-open (TRUE)
  * để sự cố DB không làm câm cả bot.

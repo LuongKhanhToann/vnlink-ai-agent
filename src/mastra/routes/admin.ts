@@ -17,7 +17,8 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { listUsers, setBotEnabled } from "../lib/botControl";
+import { listUsers, setBotEnabled, deleteBotUser } from "../lib/botControl";
+import { cancelFollowup } from "../lib/followup";
 import {
   MEDIA_CATEGORIES,
   IMAGE_MAX_BYTES,
@@ -140,6 +141,67 @@ adminWebhook.post("/admin/api/users", async (c) => {
     console.error("[admin] toggle failed:", e);
     return c.json({ error: "db_error" }, 500);
   }
+});
+
+// ── Xoá TOÀN BỘ dữ liệu chat của 1 user ──
+// Quét mọi nơi lưu dữ liệu theo PSID (= threadId = resourceId):
+//   (1) Mastra memory: tin nhắn + FSM state + vector semantic-recall  (stateStore)
+//   (2) Postgres: dòng bot_controls + working-memory mastra_resources  (botControl)
+//   (3) Cache RAM: senders (FB session) + followup timer + classify queue
+// KHÔNG đụng Google Sheets (sổ booking) — theo lựa chọn admin.
+adminWebhook.post("/admin/api/users/delete", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  let senderId: unknown;
+  try {
+    ({ senderId } = await c.req.json());
+  } catch {
+    return c.json({ error: "bad_request" }, 400);
+  }
+  if (typeof senderId !== "string" || !senderId.trim()) {
+    return c.json({ error: "bad_request" }, 400);
+  }
+
+  const warnings: string[] = [];
+
+  // (1) Mastra memory (tin nhắn + FSM state + vector).
+  try {
+    const { mastra } = await import("../index");
+    const { deleteConversationData } = await import("../lib/stateStore");
+    const r = await deleteConversationData(mastra, senderId);
+    warnings.push(...r.errors);
+  } catch (e) {
+    warnings.push(`memory: ${(e as Error).message}`);
+  }
+
+  // (2) Postgres: bot_controls + working-memory resource. Lỗi ở đây là đáng kể → trả 500.
+  try {
+    await deleteBotUser(senderId);
+  } catch (e) {
+    console.error(`[admin] delete bot_controls failed for ${senderId}:`, e);
+    return c.json({ error: "db_error", warnings }, 500);
+  }
+
+  // (3) Cache in-memory (best-effort, dynamic import tránh circular dep).
+  try {
+    const fb = await import("./facebook");
+    fb.purgeFbSessionState(senderId);
+  } catch (e) {
+    warnings.push(`fb-cache: ${(e as Error).message}`);
+  }
+  try {
+    cancelFollowup(senderId);
+  } catch (e) {
+    warnings.push(`followup: ${(e as Error).message}`);
+  }
+  try {
+    const sc = await import("../lib/silentClassify");
+    sc.cancelClassifyChain(senderId);
+  } catch (e) {
+    warnings.push(`classify: ${(e as Error).message}`);
+  }
+
+  if (warnings.length) console.warn(`[admin] delete ${senderId} hoàn tất kèm cảnh báo:`, warnings);
+  return c.json({ ok: true, warnings });
 });
 
 // ── Thư viện media: liệt kê ảnh/video theo danh mục Cloudinary ──
@@ -436,7 +498,7 @@ function render(){
     return (u.name||"").toLowerCase().indexOf(q)>=0 || String(u.sender_id).indexOf(q)>=0;
   });
   if(rows.length===0){ document.getElementById("list").innerHTML = '<p class="muted">Chưa có người dùng nào.</p>'; return; }
-  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th></tr></thead><tbody>';
+  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th><th class="right">Xoá</th></tr></thead><tbody>';
   rows.forEach(function(u){
     var p = u.lastPair || {};
     var pairHtml = (!p.user && !p.bot)
@@ -452,6 +514,7 @@ function render(){
       + '<td><span class="badge ' + (u.enabled?"on":"off") + '">' + (u.enabled?"Đang bật":"Đã tắt") + '</span></td>'
       + '<td class="right"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
       + ' onchange="toggle(\\'' + esc(u.sender_id) + '\\', this)"><span class="slider"></span></label></td>'
+      + '<td class="right"><button class="del" title="Xoá dữ liệu chat" onclick="delUser(\\'' + esc(u.sender_id) + '\\', this)">✕</button></td>'
       + '</tr>';
   });
   html += '</tbody></table></div>';
@@ -467,6 +530,23 @@ async function toggle(senderId, el){
   if(handle401(r)){ el.checked = !next; return; }
   if(r.ok){ var u = USERS.find(function(x){return x.sender_id===senderId;}); if(u) u.enabled = next; render(); }
   else { el.checked = !next; toast("Cập nhật thất bại, thử lại.", "err"); }
+}
+
+async function delUser(senderId, btn){
+  var yes = await askConfirm("Xoá toàn bộ dữ liệu chat của người này? Gồm tin nhắn, hồ sơ ghi nhớ và lịch sử hội thoại — KHÔNG thể hoàn tác. (Sổ booking trên Google Sheets vẫn giữ nguyên.)", "Xoá", true);
+  if(!yes) return;
+  if(btn) btn.disabled = true;
+  var r = await fetch("/admin/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({senderId:senderId})});
+  if(handle401(r)){ if(btn) btn.disabled = false; return; }
+  if(r.ok){
+    USERS = USERS.filter(function(x){ return x.sender_id !== senderId; });
+    render();
+    toast("Đã xoá dữ liệu chat.", "ok");
+  } else {
+    if(btn) btn.disabled = false;
+    toast("Xoá thất bại, thử lại.", "err");
+  }
 }
 
 // ── Toast + hộp xác nhận tuỳ biến (thay alert/confirm mặc định) ──

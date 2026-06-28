@@ -58,6 +58,11 @@ async function runClassifyAndSave(
  * Xếp 1 tin (lúc AI tắt) vào hàng đợi classify của sender đó. Trả promise của lượt này.
  * Best-effort: lỗi classify/DB chỉ log, không ném ra ngoài (không được chặn webhook).
  */
+/** Xoá hàng đợi classify in-memory của 1 sender (admin "xoá dữ liệu chat"). */
+export function cancelClassifyChain(threadId: string): void {
+  chains.delete(threadId);
+}
+
 export function classifyAndUpdateState(
   threadId: string,
   resourceId: string,

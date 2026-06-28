@@ -99,6 +99,19 @@ export function resetAllFbSessionState(): void {
 }
 
 /**
+ * Xoá session in-memory của 1 sender (admin "xoá dữ liệu chat" 1 người).
+ * Abort turn đang chạy + clear debounce timer + xoá khỏi map. Không đụng DB.
+ */
+export function purgeFbSessionState(senderId: string): void {
+  const state = senders.get(senderId);
+  if (!state) return;
+  state.inflight?.abort();
+  if (state.debounceTimer) clearTimeout(state.debounceTimer);
+  senders.delete(senderId);
+  console.log(`[fb] purgeFbSessionState: cleared ${senderId}`);
+}
+
+/**
  * Lưu 1 tin vào thread memory mà KHÔNG sinh reply — dùng khi AI đang tắt:
  *   (1) Tin khách lúc AI bị admin tắt        → role=user
  *   (2) Nhân viên trả tay từ inbox (echo)     → role=assistant

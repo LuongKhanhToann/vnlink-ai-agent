@@ -8,6 +8,7 @@
 import { ConversationState, DEFAULT_STATE, bookingSignature, detectAddBookingIntent, detectBeneficiaryCue, appointmentDateKey } from "./stateMachine";
 import { isLeadComplete, writeLeadToSheets, updateLeadRow } from "./sheetsWriter";
 import { recordUserName } from "./botControl";
+import { memory } from "../config/memory";
 
 const STORE_NAME = "memory";
 const STATE_SUFFIX = "-fsm-state";
@@ -282,6 +283,48 @@ export async function tryWriteLeadIfReady(
   } catch (e) {
     console.error(`[stateStore] tryWriteLeadIfReady failed for ${tid}:`, e);
   }
+}
+
+/**
+ * Xoá TOÀN BỘ dữ liệu hội thoại trong Mastra memory của 1 sender (admin "xoá dữ liệu chat").
+ * Hai thread cùng key PSID:
+ *   - `senderId`            → tin nhắn hội thoại (messages) + vector semantic-recall.
+ *   - `senderId-fsm-state`  → ConversationState (slot/stage/flow) lưu ở metadata thread.
+ * `memory.deleteThread()` xoá thread + messages + vector của thread đó. Nếu lỗi (vd thread
+ * không tồn tại / không có vector) → fallback xoá thẳng qua store. Best-effort, gom lỗi trả về.
+ * KHÔNG đụng Google Sheets (sổ booking giữ nguyên) và KHÔNG đụng bot_controls/working-memory
+ * (xem deleteBotUser ở botControl.ts).
+ */
+export async function deleteConversationData(
+  mastra: any,
+  senderId: string,
+): Promise<{ deleted: string[]; errors: string[] }> {
+  const deleted: string[] = [];
+  const errors: string[] = [];
+  const threadIds = [senderId, stateThreadId(senderId)];
+  for (const tid of threadIds) {
+    try {
+      await memory.deleteThread(tid);
+      deleted.push(tid);
+    } catch (e) {
+      // Fallback: xoá trực tiếp qua store (thread FSM không có vector nên path này hay gặp).
+      try {
+        const store = await mastra?.getStorage?.()?.getStore?.(STORE_NAME);
+        if (store?.deleteThread) {
+          await store.deleteThread({ threadId: tid });
+          deleted.push(tid);
+        } else {
+          errors.push(`thread ${tid}: store không khả dụng`);
+        }
+      } catch (e2) {
+        errors.push(`thread ${tid}: ${(e2 as Error).message}`);
+      }
+    }
+  }
+  console.log(
+    `[stateStore] deleteConversationData ${senderId}: deleted=[${deleted.join(", ")}] errors=${errors.length}`,
+  );
+  return { deleted, errors };
 }
 
 export async function debugStorageApi(mastra: any): Promise<void> {
