@@ -47,16 +47,16 @@ export function safeFallback(state: ConversationState, message?: string): string
   if (state.stage === "retention") {
     return `Dạ vâng ${h}, còn điều gì em hỗ trợ thêm cho ${h} không ạ.`;
   }
-  // ĐÃ CÓ GIỜ CỤ THỂ (preferredTime): bất kể stage → hướng THẲNG về chốt slot.
+  // ĐÃ CÓ GIỜ CỤ THỂ (preferredTime): bất kể stage → hướng THẲNG về chốt chỗ.
   // KHÔNG hỏi lại giờ, KHÔNG mời InBody/"sáng hay chiều" (đã đặt giờ rồi). Đủ tên+SĐT → xác nhận.
   if (state.knownInfo.preferredTime) {
     if (state.knownInfo.name && state.knownInfo.phone) {
-      return `Dạ vâng ${h}, em giữ slot ${state.knownInfo.preferredTime} cho mình rồi nha ${h}, hẹn gặp ${h} ạ.`;
+      return `Dạ vâng ${h}, em giữ chỗ ${state.knownInfo.preferredTime} cho mình rồi nha ${h}, hẹn gặp ${h} ạ.`;
     }
-    return `Dạ vâng ${h}, ${h} cho em xin tên với SĐT để em giữ slot ${state.knownInfo.preferredTime} ạ.`;
+    return `Dạ vâng ${h}, ${h} cho em xin tên với SĐT để em giữ chỗ ${state.knownInfo.preferredTime} ạ.`;
   }
   if (state.stage === "commitment") {
-    return `Dạ vâng ${h}, ${h} cho em xin thêm thông tin để em hỗ trợ chốt slot ạ.`;
+    return `Dạ vâng ${h}, ${h} cho em xin thêm thông tin để em hỗ trợ chốt chỗ ạ.`;
   }
   // EMOTION-AWARE (Nhánh 3, 2026-06-08 tối): khách PHÂN VÂN/LO mà LLM reply bị validator reject →
   // fallback robotic "tiện tập sáng hay chiều" càng khiến khách thấy bị ép (bỏ qua cảm xúc). Trấn an
@@ -84,7 +84,7 @@ export function safeFallback(state: ConversationState, message?: string): string
       return `Dạ ${h} ơi, sinh hoạt ăn uống ngủ nghỉ hằng ngày của mình đang thế nào ạ.`;
     }
     // ĐÃ biết buổi tập (schedule sáng/chiều/tối) → KHÔNG hỏi lại "sáng hay chiều";
-    // mời ghé thử 1 buổi + hỏi ngày để tiến tới chốt slot.
+    // mời ghé thử 1 buổi + hỏi ngày để tiến tới chốt chỗ.
     if (state.knownInfo.schedule) {
       return `Dạ vâng ${h}, ${h} ghé thử 1 buổi để em hỗ trợ tư vấn trực tiếp nha, ${h} tiện hôm nào ạ.`;
     }

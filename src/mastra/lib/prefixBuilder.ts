@@ -203,7 +203,7 @@ function buildTerseHint(state: ConversationState, message?: string): string {
 function buildSaleSenseHint(state: ConversationState, _message?: string): string {
   const { stage, emotion, knownInfo, flow, honorific } = state;
 
-  // Đã đủ tên+SĐT → đang chốt slot (GATE commitment lo). retention/recovery có concierge riêng.
+  // Đã đủ tên+SĐT → đang chốt chỗ (GATE commitment lo). retention/recovery có concierge riêng.
   if (knownInfo.name && knownInfo.phone) return "";
   if (stage === "retention" || stage === "recovery") return "";
 
@@ -944,12 +944,12 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     hints.push(
       `[GATE retention — ĐƠN ĐÃ CHỐT${heldTime}. KH${heldName} đặt lịch xong, giờ chỉ trò chuyện. ` +
         `Answer-first ngắn ấm như khách quen, KHÔNG mở lại "Dạ em chào... cảm ơn đã quan tâm". ` +
-        `TUYỆT ĐỐI KHÔNG xin lại tên/SĐT/giờ đã có, KHÔNG nhắc "giữ slot... DỪNG", KHÔNG pitch lại gói vừa chốt. ` +
+        `TUYỆT ĐỐI KHÔNG xin lại tên/SĐT/giờ đã có, KHÔNG nhắc "giữ chỗ... DỪNG", KHÔNG pitch lại gói vừa chốt. ` +
         `Chỉ upsell NHẸ 1 ý khi khách lộ tín hiệu quan tâm (hỏi môn khác/giá/khen). Muốn đặt thêm → hỏi gọn info còn thiếu cho đơn mới. ` +
         `Dặn dò hữu ích nếu hợp cảnh (mang đồ tập, đến sớm 10p).]`,
     );
     // Khách lộ cue "đặt thêm" → hướng dẫn thu thập đơn MỚI (hỏi giờ/môn còn thiếu) rồi xác nhận
-    // giữ slot mới. KHÔNG nhầm sang xác nhận lại đơn cũ.
+    // giữ chỗ mới. KHÔNG nhầm sang xác nhận lại đơn cũ.
     if (message && detectAddBookingIntent(message)) {
       hints.push(
         `[GATE đặt-thêm: khách muốn đặt THÊM đơn mới (ngoài lịch đã có). Hỏi gọn thông tin còn thiếu cho đơn mới ` +
@@ -988,7 +988,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     knownInfo.phone !== null &&
     hasConcreteDate(knownInfo.preferredTime)
   ) {
-    return `[GATE done-slots: ĐỦ tên=${knownInfo.name}, SĐT=${knownInfo.phone}, ngày=${knownInfo.preferredTime}. Reply 1 CÂU "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG. KHÔNG pitch/QR/hỏi thêm.]`;
+    return `[GATE done-slots: ĐỦ tên=${knownInfo.name}, SĐT=${knownInfo.phone}, ngày=${knownInfo.preferredTime}. Reply 1 CÂU "Dạ em giữ chỗ ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${knownInfo.name}, hẹn gặp ${state.honorific} ạ" rồi DỪNG. KHÔNG pitch/QR/hỏi thêm.]`;
   }
 
   // ── ƯU TIÊN: bot VỪA hỏi "qua hôm nào" + khách đáp bằng CỬA SỔ MƠ HỒ → ép CHỌN-1-TRONG-2 ──
@@ -1394,14 +1394,14 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     hints.push(
       !knownInfo.preferredTime
         ? "[GATE negotiation-accept (chưa có ngày): khách đã gật muốn thử → KHÔNG pitch thêm, KHÔNG xin tên/SĐT vội. HỎI NGÀY trước 1 câu 'Dạ anh/chị tiện qua hôm nào ạ' (khách mơ hồ thì gợi 2 ngày cụ thể). Chốt được NGÀY rồi turn sau mới xin tên+SĐT.]"
-        : "[GATE negotiation-accept (đã có ngày): KHÔNG pitch thêm, xin tên+SĐT 1 câu ngắn để giữ slot. KHÔNG hỏi lại ngày/giờ đã có.]",
+        : "[GATE negotiation-accept (đã có ngày): KHÔNG pitch thêm, xin tên+SĐT 1 câu ngắn để giữ chỗ. KHÔNG hỏi lại ngày/giờ đã có.]",
     );
   }
 
   // ── FITNESS: evaluation — khách đã chọn → skip pitch, xin info ──
   if (flow === "fitness" && stage === "evaluation" && (intent === "selecting" || intent === "ready")) {
     hints.push(
-      "[GATE: khách sẵn sàng đăng ký. KHÔNG pitch thêm, hỏi tên+SĐT để giữ slot.]",
+      "[GATE: khách sẵn sàng đăng ký. KHÔNG pitch thêm, hỏi tên+SĐT để giữ chỗ.]",
     );
   }
   // (Removed: evaluation pitch GATE chi tiết — đã có few-shot EXAMPLE với value + 3 gói cụ thể per goal.)
@@ -1497,7 +1497,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   ) {
     hints.push(
       hasConcreteDate(knownInfo.preferredTime)
-        ? `[GATE: khách đã xác nhận lịch ${knownInfo.preferredTime}. KHÔNG pitch lại, xin tên+SĐT để giữ slot.]`
+        ? `[GATE: khách đã xác nhận lịch ${knownInfo.preferredTime}. KHÔNG pitch lại, xin tên+SĐT để giữ chỗ.]`
         : `[GATE: khách muốn đến (giờ chưa rõ ngày: '${knownInfo.preferredTime}'). KHÔNG pitch lại; xin tên+SĐT + chốt NGÀY cụ thể (xem GATE chốt-ngày).]`,
     );
   }
@@ -1604,14 +1604,14 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
       }
     } else if (!concreteDate) {
       if (prevAskedDate) {
-        cmt = `đã có tên/SĐT, turn trước đã đưa 2 ngày mà khách chưa chốt → KHÔNG ép lại: note theo '${knownInfo.preferredTime ?? "ý khách"}', báo 'em giữ slot, sẽ gọi xác nhận ngày giờ cụ thể với mình ạ' rồi DỪNG.`;
+        cmt = `đã có tên/SĐT, turn trước đã đưa 2 ngày mà khách chưa chốt → KHÔNG ép lại: note theo '${knownInfo.preferredTime ?? "ý khách"}', báo 'em giữ chỗ, sẽ gọi xác nhận ngày giờ cụ thể với mình ạ' rồi DỪNG.`;
       } else if (askOpenDayFirst) {
         cmt = `đã có tên/SĐT nhưng khách CHƯA nói ngày → HỎI MỞ 'Anh/chị tiện qua hôm nào ạ' để khách tự chọn. CHƯA ép chọn 1-trong-2 vội.`;
       } else {
         cmt = `đã có tên/SĐT, khách đã nói cửa sổ mơ hồ → ÉP CHỌN 1-TRONG-2: 'Anh/chị qua ${dayChoice} tiện hơn ạ?'.`;
       }
     } else if (!qrShown) {
-      cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, ngày=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${name}' rồi DỪNG.`;
+      cmt = `ĐỦ INFO (tên=${name}, SĐT=${phone}, ngày=${knownInfo.preferredTime}). Xác nhận 1 câu: 'Em giữ chỗ ${knownInfo.preferredTime} cho mình rồi nha ${state.honorific} ${name}' rồi DỪNG.`;
     } else {
       cmt = "đã gửi QR. Xác nhận bước tiếp theo. DỪNG.";
     }
@@ -2176,9 +2176,9 @@ Em: "Giải cơ chuyên sâu khác massage thông thường ${h} —
     // Tách thành 2 bước để không gộp giờ + tên + SĐT trong cùng 1 câu (dồn dập, dễ scare khách).
     // Bước 1: chỉ hỏi giờ. Bước 2: khi khách chốt giờ rồi, mới xin tên + SĐT.
     const closingLine = hasContact
-      ? `Dạ em giữ slot ${preferredTime ?? "..."} cho mình rồi nha ${h} ${knownInfo.name}, hẹn gặp ${h} ạ`
+      ? `Dạ em giữ chỗ ${preferredTime ?? "..."} cho mình rồi nha ${h} ${knownInfo.name}, hẹn gặp ${h} ạ`
       : preferredTime
-        ? `Để em giữ slot ${preferredTime} cho ${h}, ${h} cho em xin tên với SĐT để em note nha`
+        ? `Để em giữ chỗ ${preferredTime} cho ${h}, ${h} cho em xin tên với SĐT để em note nha`
         : `${h} tiện khung sáng hay chiều ạ`;
 
     const timeNote = preferredTime
@@ -2218,11 +2218,11 @@ SAI: hỏi "buổi sáng/chiều/tối" thay cho NGÀY; xin tên/SĐT khi chưa 
 ⚠️ Không lặp "KTV đánh giá thực tế / tư vấn lộ trình". Không đẩy QR trừ khi khách hỏi.
 
 CHƯA đủ tên+SĐT (đã có ngày=${knownInfo.preferredTime}):
-ĐÚNG: "Dạ ${h} cho em xin tên với SĐT để em giữ slot ${knownInfo.preferredTime} cho mình ạ"
+ĐÚNG: "Dạ ${h} cho em xin tên với SĐT để em giữ chỗ ${knownInfo.preferredTime} cho mình ạ"
 SAI:  hỏi lại ngày/buổi đã có; xác nhận khi chưa có tên/SĐT.
 
 ĐÃ đủ tên+SĐT+ngày:
-ĐÚNG: "Dạ em giữ slot ${knownInfo.preferredTime} cho mình rồi nha ${h} [tên], hẹn gặp ${h} ạ" → DỪNG HẲN.
+ĐÚNG: "Dạ em giữ chỗ ${knownInfo.preferredTime} cho mình rồi nha ${h} [tên], hẹn gặp ${h} ạ" → DỪNG HẲN.
 SAI:  hỏi thêm "cọc trước không".`;
   }
 
@@ -2431,7 +2431,7 @@ function buildPrefixLegacy(
   ) {
     tactic =
       `Khách đã đủ tên=${state.knownInfo.name}, SĐT=${state.knownInfo.phone}, giờ=${state.knownInfo.preferredTime}. ` +
-      `Reply NGẮN 1 câu xác nhận: 'Dạ em giữ slot [giờ] cho mình rồi nha ${h} ${state.knownInfo.name}, hẹn gặp ${h} ạ' rồi DỪNG HẲN. ` +
+      `Reply NGẮN 1 câu xác nhận: 'Dạ em giữ chỗ [giờ] cho mình rồi nha ${h} ${state.knownInfo.name}, hẹn gặp ${h} ạ' rồi DỪNG HẲN. ` +
       "TUYỆT ĐỐI KHÔNG hỏi gộp lại tên/SĐT/giờ. KHÔNG gợi cọc/QR.";
   }
 
@@ -2495,7 +2495,7 @@ function buildPrefixLegacy(
   // ─── MODE = PITCH (no template, no GATE override) ───
   console.log(`[prefix] MODE=PITCH stage=${state.stage}`);
 
-  // Slim PITCH: skip Knowledge khi commitment + đủ name/phone (đang chốt slot, không cần pitch nữa).
+  // Slim PITCH: skip Knowledge khi commitment + đủ name/phone (đang chốt chỗ, không cần pitch nữa).
   const isLateCommitment =
     state.stage === "commitment" &&
     state.knownInfo.name !== null &&
@@ -2639,26 +2639,26 @@ function buildFitnessStageFocus(state: ConversationState): string {
       `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. Gợi đo InBody / thử 1 buổi như bước trải nghiệm value. ` +
       `Có thể thúc nhẹ bằng 2 đòn (chỉ khi tự nhiên, KHÔNG ép, KHÔNG mỗi tin một lần): suất trải nghiệm miễn phí có GIỚI HẠN theo tuần (tạo lý do hành động sớm); rủ thêm bạn/người thân tập cùng có ƯU ĐÃI nhóm + đỡ ngại, dễ duy trì. ⛔ KHÔNG bịa con số cụ thể (còn mấy suất, giảm bao nhiêu %) — nói chung "đang giới hạn suất" / "có ưu đãi nhóm" thôi. ` +
       `★ Khi khách TỰ nhắc rủ bạn / đi cùng người thân / đi 2 người → BÁM NGAY: xác nhận có ƯU ĐÃI NHÓM (đi đông tiết kiệm hơn, đỡ ngại) — đừng để trôi cơ hội này. ` +
-      `Khi mời chốt: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi hỏi NGÀY khách qua (hôm nào; nếu khách mơ hồ thì gợi 2 ngày cụ thể) — ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" khi CHƯA chốt được NGÀY (ngày mới là cái giữ slot). ` +
+      `Khi mời chốt: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi hỏi NGÀY khách qua (hôm nào; nếu khách mơ hồ thì gợi 2 ngày cụ thể) — ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" khi CHƯA chốt được NGÀY (ngày mới là cái giữ chỗ). ` +
       `⛔ CHỈ chốt khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
     );
   }
 
   if (stage === "commitment") {
     if (ki.name && ki.phone && ki.preferredTime) {
-      return `[VIỆC CẦN LÀM — CHỐT XONG] Đã đủ tên+SĐT+giờ → xác nhận giữ slot 1 câu NGẮN rồi DỪNG. KHÔNG hỏi lại thông tin đã có.`;
+      return `[VIỆC CẦN LÀM — CHỐT XONG] Đã đủ tên+SĐT+giờ → xác nhận giữ chỗ 1 câu NGẮN rồi DỪNG. KHÔNG hỏi lại thông tin đã có.`;
     }
     // CHỐT NGÀY TRƯỚC, rồi mới xin liên hệ — tránh dồn ngày+tên+SĐT 1 câu (dồn dập).
     // Dùng isPreferredTimeSpecific (nhận THỨ-trong-tuần "thứ 7"/"chủ nhật" là ĐÃ chốt ngày);
     // hasConcreteDate quá ngặt (đòi DD/MM) → "thứ 7" bị coi chưa chốt → loop hỏi ngày.
     if (!isPreferredTimeSpecific(ki.preferredTime)) {
       return (
-        `[VIỆC CẦN LÀM — CHỐT NGÀY] Khách sẵn sàng nhưng CHƯA chốt được NGÀY cụ thể → nêu 1 lý do giá trị ngắn (em giữ slot / HLV chuẩn bị lộ trình & InBody) rồi CHỐT NGÀY: khách nói mơ hồ ("cuối tuần"/"tuần sau") thì gợi 2 NGÀY cụ thể cho chọn; chưa nói ngày thì hỏi qua hôm nào. ` +
+        `[VIỆC CẦN LÀM — CHỐT NGÀY] Khách sẵn sàng nhưng CHƯA chốt được NGÀY cụ thể → nêu 1 lý do giá trị ngắn (em giữ chỗ / HLV chuẩn bị lộ trình & InBody) rồi CHỐT NGÀY: khách nói mơ hồ ("cuối tuần"/"tuần sau") thì gợi 2 NGÀY cụ thể cho chọn; chưa nói ngày thì hỏi qua hôm nào. ` +
         `⛔ CHƯA xin tên/SĐT ở tin này, ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" thay cho ngày — chốt được NGÀY rồi turn sau mới xin liên hệ.`
       );
     }
     return (
-      `[VIỆC CẦN LÀM — XIN LIÊN HỆ] Đã chốt ngày (${ki.preferredTime}) → giờ xin tên+SĐT gọn 1 câu để giữ slot. ` +
+      `[VIỆC CẦN LÀM — XIN LIÊN HỆ] Đã chốt ngày (${ki.preferredTime}) → giờ xin tên+SĐT gọn 1 câu để giữ chỗ. ` +
       `KHÔNG hỏi lại ngày/buổi đã có, KHÔNG dồn dập.`
     );
   }
@@ -2738,7 +2738,7 @@ function buildFitnessLeadTactic(state: ConversationState): string {
 
   // Pitch InBody: chặn "sáng hay chiều" + cá nhân hóa theo đã/chưa biết tập, ngay ở đầu.
   // CHỈ khi đang thực sự ở moment pitch InBody — KHÔNG fire khi KH đã cho liên hệ (name+phone)
-  // hoặc đang chốt/đặt lịch (domain=commitment/scheduling): lúc đó việc cần làm là hỏi giờ/giữ slot,
+  // hoặc đang chốt/đặt lịch (domain=commitment/scheduling): lúc đó việc cần làm là hỏi giờ/giữ chỗ,
   // không phải pitch InBody nữa (tránh đè "xin khung giờ").
   if (
     state.stage === "inbody" &&

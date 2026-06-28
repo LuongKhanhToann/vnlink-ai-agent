@@ -62,8 +62,8 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
     "Lắng nghe. Thừa nhận. Cam kết giải quyết cụ thể có timeline.",
 
   retention_neutral:
-    "SAU CHỐT (concierge): đơn đã đặt xong, slot đã giữ. Trả lời answer-first câu khách hỏi, ấm áp như khách quen — " +
-    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ slot... DỪNG', KHÔNG pitch lại gói đã chốt. " +
+    "SAU CHỐT (concierge): đơn đã đặt xong, chỗ đã giữ. Trả lời answer-first câu khách hỏi, ấm áp như khách quen — " +
+    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ chỗ... DỪNG', KHÔNG pitch lại gói đã chốt. " +
     "Upsell NHẸ chỉ khi khách lộ tín hiệu (hỏi môn khác/giá/rảnh thêm) — gợi 1 ý liên quan, không chèo kéo. " +
     "Khách muốn đặt thêm (môn/buổi/người khác) → vui vẻ hỏi gọn info còn thiếu cho đơn mới.",
 };
@@ -83,7 +83,7 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
 
   evaluation_neutral:
     "Flow: hình dung vấn đề → contrast với cách cũ (massage bề mặt vs giải cơ chuyên sâu) → vẽ viễn cảnh dễ chịu → mời thử 1 buổi. " +
-    "KHÔNG show bảng 3 gói lần đầu. Hỏi giữ slot 1 lần trong cuộc thoại.",
+    "KHÔNG show bảng 3 gói lần đầu. Hỏi giữ chỗ 1 lần trong cuộc thoại.",
 
   negotiation_neutral:
     "Chia nhỏ giá/buổi: '10 buổi ~380k/buổi, tặng 1 buổi'. Reframe: 'massage bề mặt 2 ngày lại đau vì chưa gỡ sâu'. KHÔNG giảm giá.",
@@ -103,7 +103,7 @@ const GIAI_CO_PLAYBOOK: Record<string, string> = {
 
   retention_neutral:
     "SAU CHỐT (concierge): lịch đã đặt xong. Trả lời answer-first, ấm áp, hỏi cảm giác/dặn dò nếu hợp ngữ cảnh — " +
-    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ slot... DỪNG'. Gợi lộ trình/buổi tiếp CHỈ khi khách quan tâm. " +
+    "KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp 'giữ chỗ... DỪNG'. Gợi lộ trình/buổi tiếp CHỈ khi khách quan tâm. " +
     "Khách muốn đặt thêm buổi/người khác → vui vẻ hỏi gọn info còn thiếu.",
 };
 
