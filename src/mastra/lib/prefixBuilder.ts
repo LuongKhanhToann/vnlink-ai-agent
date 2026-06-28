@@ -1792,7 +1792,8 @@ function buildKnowledgeBlock(
   if (flow === "fitness") {
     if (stage === "opening" || stage === "discovery") {
       blocks.push(
-        `[CENTER: Fami Fitness & Yoga Center Vĩnh Yên | 05:00–20:30 | Thành lập 2014\n` +
+        `[CENTER (KIẾN THỨC THAM CHIẾU — chỉ để trả ĐÚNG khi khách HỎI; khách CHƯA hỏi địa chỉ/giờ/cơ sở vật chất thì ⛔ KHÔNG tự khai, chỉ ACK ngắn + hỏi 1 câu):\n` +
+        `  Fami Fitness & Yoga Center Vĩnh Yên | 32A Nguyễn Chí Thanh, Vĩnh Yên | 05:00–20:30 | Thành lập 2014\n` +
         `  Bơi → Bể 4 mùa 350m2 DUY NHẤT Vĩnh Yên, nước nóng quanh năm, lọc ozone\n` +
         `  Gym → 700m2 trong nhà + 300m2 ngoài có mái che, chứa 100 người\n` +
         `  Yoga/Zumba → GV người Ấn Độ chuyên nghiệp, 4 ca/ngày\n` +
@@ -1852,7 +1853,7 @@ function buildFewShot(
 Khách: "bao nhiêu tiền/tháng" / "giá thế nào" / "có ưu đãi gì không"
 ĐÚNG (chọn 1):
   (a) "Dạ hiện tại bên em có rất nhiều ưu đãi chỉ từ 333k/tháng ${h}. Vì ${h} là người mới, em tặng ${h} chương trình trải nghiệm thử để xem có phù hợp không. ${h} có muốn đăng ký trải nghiệm không ạ?"
-  (b) "Dạ trung tâm mở từ 5h–20h30, giá ưu đãi chỉ từ 333k/tháng. Không biết ${h} đang quan tâm bộ môn nào để em tư vấn gói phù hợp ạ?"
+  (b) "Dạ bên em đang có ưu đãi chỉ từ 333k/tháng ${h}. Không biết ${h} đang quan tâm bộ môn nào để em tư vấn gói phù hợp ạ?"
 SAI: bung 3 gói chi tiết ngay (Gym 5tr/PT 6tr/Full 7tr); pitch InBody; hỏi 'tập để làm gì' (quá direct).
 NGUYÊN TẮC: nói giá ƯU ĐÃI chung chung → hỏi bộ môn / MỜI trải nghiệm → khách trả lời bộ môn mới bung gói cụ thể.`;
   }
@@ -1907,7 +1908,7 @@ SAI: "nhóm thường rẻ hơn cá nhân ạ" (mơ hồ, không số);
 Khách: "alo" / "quan tâm" / "có gì không"
 ĐÚNG (chọn 1, ngắn 1-2 câu):
   (a) "Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ?"
-  (b) "Dạ em chào ${h}, bên em là Tổ hợp thể thao có Gym, Yoga, Zumba và Bơi. Phòng tập mở từ 5h–20h30 ạ. Không biết ${h} đi tập được khung giờ nào để em hỗ trợ tư vấn?"
+  (b) "Dạ em chào ${h}, bên em là Tổ hợp thể thao có Gym, Yoga, Zumba và Bơi. Không biết ${h} đang quan tâm bộ môn nào để em hỗ trợ tư vấn ạ?"
 SAI: list ngay 4 dịch vụ + mục tiêu trong tin chào → quá nhiều thông tin, mất "câu hỏi mở".`;
   }
 
