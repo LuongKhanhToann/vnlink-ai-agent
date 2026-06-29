@@ -8,8 +8,6 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "test:scenarios": "npx -y tsx src/mastra/scripts/runTestScenarios.ts",
-    "test:routing": "npx -y tsx src/mastra/scripts/testTemplateRouting.ts",
     "test:kichban": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/runKichBan.ts"
   },
   "keywords": [],

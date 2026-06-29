@@ -9,7 +9,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const KEY_TO_FOLDER: Record<string, string> = {
+export const KEY_TO_FOLDER: Record<string, string> = {
   "mr-sport":         "giaiCo",
   "mr-neck-shoulder": "giaiCo",
   "mr-female":        "giaiCo",
@@ -85,6 +85,21 @@ export async function fetchMedia(key: string): Promise<MediaItem[]> {
   ];
   console.log(`[getMedia] key=${key} → images=${images.length} videos=${videos.length} picked=${data.length}`);
   return data;
+}
+
+/**
+ * List TOÀN BỘ media (ảnh + video) của 1 key — KHÔNG random, KHÔNG cap 2, KHÔNG cache.
+ * Khác fetchMedia (chọn ngẫu nhiên 1 ảnh+1 video để gửi khách): hàm này dùng cho TOOLING
+ * (vd export bảng test-case kèm link chuẩn) cần thấy đủ link thật trong folder.
+ */
+export async function listMediaByKey(key: string): Promise<MediaItem[]> {
+  const folder = KEY_TO_FOLDER[key];
+  if (!folder) return [];
+  const [images, videos] = await Promise.all([
+    listResources(`${folder}/img`, "image"),
+    listResources(`${folder}/video`, "video"),
+  ]);
+  return [...images, ...videos];
 }
 
 export const getMediaTool = createTool({
