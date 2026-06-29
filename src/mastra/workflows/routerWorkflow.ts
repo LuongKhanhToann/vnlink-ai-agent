@@ -33,6 +33,7 @@ import {
   lockHonorific,
   forceStudentPricing,
   stripQrMention,
+  softenGiaiCoPrematureClose,
 } from "../lib/replyGuards";
 
 // ─────────────────────────────────────────────
@@ -571,6 +572,19 @@ function buildAgentStep(
         if (effectiveNextStep === "show_qr") effectiveNextStep = hasMedia ? "show_media" : "ask_info";
         cleanedText = stripQrMention(cleanedText);
       }
+
+      // G6 — chặn GIỤC CHỐT sớm (giai-co). Đặt CUỐI cùng (sau validator/safeFallback) vì chính
+      // safeFallback — khi agent trả text rỗng (structured-output flaky) — cũng đẻ ra câu hỏi
+      // "sáng hay chiều". Chưa có tín hiệu mua mà hỏi giờ → thay bằng mời trải nghiệm mềm.
+      cleanedText = softenGiaiCoPrematureClose(cleanedText, {
+        flow: stateBeforeReply.flow,
+        intent: stateBeforeReply.intent,
+        preferredTime: stateBeforeReply.knownInfo.preferredTime,
+        hasContact:
+          stateBeforeReply.knownInfo.name !== null &&
+          stateBeforeReply.knownInfo.phone !== null,
+        honorific,
+      });
 
       await updateStateAfterReply(
         mastra,

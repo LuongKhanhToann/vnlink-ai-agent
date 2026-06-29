@@ -127,3 +127,46 @@ export function stripQrMention(text: string): string {
     .trim();
   return out ? capFirst(out) : text;
 }
+
+/**
+ * GUARD 6 — CHẶN GIỤC CHỐT SỚM (giai-co).
+ * KH chưa có tín hiệu mua (intent chưa selecting/ready, chưa có giờ, chưa có liên hệ) mà reply lỡ
+ * HỎI CHỌN KHUNG GIỜ ("sáng hay chiều"…) = giục chốt, phản tác dụng. Prefix đã dặn mời-mềm nhưng
+ * model nhỏ freelance ~1/3 lượt → cưỡng chế bằng code: bỏ câu hỏi giờ, thay bằng lời mời TRẢI NGHIỆM
+ * mềm. Quyết định "CÓ tín hiệu mua" lấy TỪ CLASSIFIER (intent/slots) — guard chỉ soi/nắn TEXT bot,
+ * KHÔNG phân loại ý khách (đúng biên giới pure-text-parsing của file này).
+ */
+export function softenGiaiCoPrematureClose(
+  text: string,
+  ctx: {
+    flow: string;
+    intent: string;
+    preferredTime: string | null;
+    hasContact: boolean;
+    honorific: string;
+  },
+): string {
+  if (ctx.flow !== "giai-co") return text;
+  const buyingSignal =
+    ctx.intent === "selecting" ||
+    ctx.intent === "ready" ||
+    ctx.preferredTime !== null ||
+    ctx.hasContact;
+  if (buyingSignal) return text;
+
+  // Marker câu HỎI CHỌN KHUNG GIỜ trong OUTPUT bot (chỉ kỹ thuật chuỗi). cleanReply đã strip "?"
+  // nên không yêu cầu dấu hỏi.
+  const SCHED =
+    /(sáng hay chiều|sáng\s*\/\s*chiều|chiều hay (?:tối|sáng)|sáng hay tối|tiện (?:ghé|qua|đến|sang|sắp xếp)[^.!?]*?(?:sáng|chiều|tối|hôm nào|bữa nào|giờ nào))/iu;
+  if (!SCHED.test(text)) return text;
+
+  const h = ctx.honorific === "chị" ? "chị" : "anh";
+  const soft = `Mình cứ thử trải nghiệm 1 buổi để KTV kiểm tra trực tiếp rồi tư vấn lộ trình đã, chưa cần quyết gì đâu ${h} ạ`;
+
+  // Bỏ những câu chứa marker giục chốt, ghép lời mời mềm vào cuối phần value còn lại.
+  const kept = text
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => s.trim() && !SCHED.test(s));
+  const body = kept.join(" ").trim().replace(/[.,;\s]+$/, "");
+  return body ? `${capFirst(body)}. ${soft}` : soft;
+}
