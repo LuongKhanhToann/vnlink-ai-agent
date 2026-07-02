@@ -527,7 +527,7 @@ export function detectFacilityQuestion(
 
   // Tiện ích chung: gửi xe, lock, wifi, vệ sinh
   if (/(gửi\s*xe|chỗ\s*xe|bãi\s*xe|đỗ\s*xe|parking)/.test(m))
-    return { topic: "parking", fact: "Bên em có chỗ gửi xe rộng, ghé tập không lo" };
+    return { topic: "parking", fact: "Bên em có chỗ gửi xe rộng: xe máy miễn phí, ô tô có thu phí" };
   if (/(tủ\s*đồ|locker|lock|tủ\s*khóa|cất\s*đồ)/.test(m))
     return { topic: "locker", fact: "Có tủ đồ riêng cho hội viên cất đồ an toàn" };
   if (/(wifi|wi-?fi|internet)/.test(m))
@@ -861,7 +861,12 @@ export function computeProactiveMediaKey(
     return k ? { key: k, guardKey: k } : null;
   }
 
-  // show_service — gửi ĐÚNG bộ môn
+  // show_service — gửi ĐÚNG bộ môn khách đang soi.
+  // ⛔ KHÔNG bung ảnh CHỦ ĐỘNG ở tin đầu / lúc còn chào-thăm dò (turnCount<=1 hoặc stage opening) —
+  //    trừ khi khách XIN xem trực tiếp (domain=media_request). Gửi sớm = chen ngang, sai nhịp.
+  const explicitAsk = state.intentSignal?.domain === "media_request";
+  if (!explicitAsk && (state.stage === "opening" || state.turnCount <= 1)) return null;
+
   if (state.flow === "fitness") {
     const svc = state.intentSignal?.service ?? null;
     const mapSvc: Record<string, string> = {
@@ -872,14 +877,15 @@ export function computeProactiveMediaKey(
       zumba: "fitness-zumba",
       boi: "fitness-pool",
     };
-    const key =
-      (svc && mapSvc[svc]) || computeSuggestedMediaKey(state) || "fitness-gym";
-    return { key, guardKey: key };
+    // ⛔ KHÔNG default "fitness-gym" khi không rõ bộ môn — hỏi tiện ích chung ("có sauna/điều hòa
+    //    không") KHÔNG được phọt ảnh phòng gym bừa. Không có bộ môn rõ → KHÔNG gửi.
+    const key = (svc && mapSvc[svc]) || computeSuggestedMediaKey(state);
+    return key ? { key, guardKey: key } : null;
   }
 
-  // giai-co show_service
-  const k = computeSuggestedMediaKey(state) ?? "mr-general";
-  return { key: k, guardKey: k };
+  // giai-co show_service — không rõ ca → KHÔNG gửi ảnh mặc định
+  const k = computeSuggestedMediaKey(state);
+  return k ? { key: k, guardKey: k } : null;
 }
 
 // ─────────────────────────────────────────────
@@ -2504,8 +2510,13 @@ function buildPrefixLegacy(
   // slice theo stage. Đặt cạnh saleSenseHint (cùng tầng advisory, defer cho GATE/TACTIC).
   const goalConsultHint = buildGoalConsultHint(state);
 
+  // ANSWER-FIRST: khách hỏi thẳng câu cụ thể (giá/giờ/cơ sở/chê giá/xin ảnh) → trả thẳng, đặt ở ĐẦU
+  // để đè pitch tactic khi câu hỏi lệch luồng (chống pivot). Rỗng ở discovery/greeting → tactic dẫn như cũ.
+  const giaiCoAnswerFirst = buildGiaiCoAnswerFirst(state);
+
   const lines: string[] = [
     `[HON: ${h}] [STAGE: ${state.stage}] [INTENT: ${state.intent}] [FLOW: ${state.flow}]`,
+    giaiCoAnswerFirst,
     `[TACTIC: ${tactic}]`,
     `[RULES: Nhắn như sale thật đang chat — văn nói, NGẮN GỌN, text thuần KHÔNG markdown. Mặc định 1-2 câu (≤200 chữ); CHỈ khi liệt kê 3+ gói mới xuống dòng "-" mỗi mục (≤350 chữ). Giá viết bằng chữ ("12 tháng 5 triệu", "3 buổi/tuần") — KHÔNG để "12m=5tr","|","=". ACK trung tính NGẮN rồi vào ý chính, ĐỔI cách mở mỗi tin (đừng đóng đinh "Dạ vâng ${h}" mọi lượt — lặp opener nghe như máy; có thể vào thẳng nội dung): CẤM khen đáp án khách (tuyệt vời/tốt quá/hợp lý/chuẩn rồi/lý tưởng...), CẤM đọc lại nguyên văn lời khách, CẤM "em note/ghi nhận", CẤM "em gửi hình" khi không gọi tool. Tối đa 1 câu hỏi, kết "?" hoặc "ạ?" (KHÔNG "nha?"). Đọc TACTIC/GATE/KNOWLEDGE rồi TỰ viết — KHÔNG chép lại.]`,
     antiLoopHint,
@@ -2582,8 +2593,9 @@ function buildFitnessStageFocus(state: ConversationState): string {
             : "giảm";
       return (
         `[BƯỚC: KHAI THÁC] Khách muốn ${goalLabelVi(goal)}. Đang HIỂU khách, chưa chốt. ` +
-        `Hỏi gọn từng ý (1 câu/tin), khai thác dần: cao–nặng & số kg muốn ${dir}; vùng tự ti; thói quen sinh hoạt; đã thử cách nào chưa hiệu quả. ` +
-        `⛔ KHÔNG InBody, KHÔNG đặt lịch/"sáng hay chiều", KHÔNG báo giá, KHÔNG recommend gói.`
+        `Cần cao–nặng để tư vấn theo chuẩn: CHƯA có thì hỏi GỌN cao–nặng (1 câu). ĐÃ có cao–nặng → đối chiếu bảng cân chuẩn, nói khách đang lệch tầm mấy kg + gợi hướng tập hợp mục tiêu (muốn ${dir}). ` +
+        `⛔ KHÔNG hỏi "vùng nào tự ti / thói quen sinh hoạt / đã thử cách nào" — khách khó trả lời, hỏi dồn làm rớt khách; có cao–nặng là tư vấn được rồi. ` +
+        `⛔ KHÔNG InBody, KHÔNG đặt lịch/"sáng hay chiều", KHÔNG báo giá, KHÔNG recommend gói cụ thể.`
       );
     }
     if (svc && !goal) {
@@ -2686,6 +2698,35 @@ function buildFitnessAnswerFirst(state: ConversationState): string {
 }
 
 /**
+ * ANSWER-FIRST cho giai-co (đọc classifier domain — KHÔNG regex). Đối xứng buildFitnessAnswerFirst.
+ * Khách hỏi thẳng gì thì TRẢ thẳng cái đó; chống rơi về pitch trị liệu khi câu hỏi lệch luồng
+ * (đây là điểm giòn cũ: off-vocab không khớp GATE → MODE=PITCH → pivot). Non-empty = ưu tiên cao.
+ */
+function buildGiaiCoAnswerFirst(state: ConversationState): string {
+  const sig = state.intentSignal;
+  const domain = sig?.domain ?? null;
+  const attr = sig?.attribute ? ` (${sig.attribute})` : "";
+  switch (domain) {
+    case "pricing":
+      return `[KHÁCH HỎI GIÁ: trả THẲNG giá tham chiếu 1 buổi NGAY (answer-first), KHÔNG đổ gói 10 buổi từ đầu, KHÔNG né. KTV đánh giá tại chỗ rồi tư vấn lộ trình.]`;
+    case "scheduling":
+      return `[KHÁCH HỎI LỊCH/GIỜ: trả giờ mở (9h–23h) — KHÔNG trả bằng bảng giá.]`;
+    case "service_inquiry":
+      return `[KHÁCH HỎI VỀ DỊCH VỤ/CƠ SỞ${attr}: trả THẲNG đúng câu hỏi (giờ, địa chỉ, buổi 45/75 phút, KTV nam/nữ, đỗ xe, tắm tại chỗ, đặt trước...) rồi mới dẫn tiếp. ĐỪNG lái sang pitch trị liệu khi khách chưa hỏi.]`;
+    case "safety_concern":
+      return `[KHÁCH LO AN TOÀN${attr}: trấn an nhẹ + trả thật. Có bệnh lý xương khớp/chấn thương thì khuyên hỏi bác sĩ trước, KTV sẽ đánh giá tại chỗ. KHÔNG ép đặt.]`;
+    case "objection":
+      return `[KHÁCH PHÂN VÂN/CHÊ GIÁ: ghi nhận ngắn → reframe bằng giá trị (xử đúng chỗ gây đau nên đỡ bền hơn massage lặp lại) + mời thử 1 buổi. KHÔNG hạ giá, KHÔNG giục chốt.]`;
+    case "media_request":
+      return `[KHÁCH XIN XEM ẢNH: gọi tool get-media rồi 1 câu dẫn ngắn.]`;
+    case "commitment":
+      return `[KHÁCH MUỐN ĐẶT/CHỐT: xin thông tin còn thiếu gọn gàng, KHÔNG pitch lại nữa.]`;
+    default:
+      return "";
+  }
+}
+
+/**
  * TACTIC TRỌNG TÂM đặt ĐẦU prefix (mini-model tuân directive ở ĐẦU tốt hơn ở giữa —
  * xem MODEL_NOTES "TACTIC đầu > GATE giữa"). Chỉ fire ở 2 khúc model hay drift:
  *   - inbody  → bot hay nhảy "sáng hay chiều" thay vì pitch InBody.
@@ -2713,7 +2754,12 @@ function buildFitnessLeadTactic(state: ConversationState): string {
     state.stage === "inbody" &&
     !(ki.name && ki.phone) &&
     domain !== "commitment" &&
-    domain !== "scheduling"
+    domain !== "scheduling" &&
+    // Khách đang HỎI câu cụ thể (FAQ cơ sở/chính sách, lo an toàn, xin ảnh) → answer-first câu đó,
+    // ĐỪNG chèn directive pitch InBody ở đầu (nó salience cao sẽ đè, làm bot lơ câu khách hỏi → pivot).
+    domain !== "service_inquiry" &&
+    domain !== "safety_concern" &&
+    domain !== "media_request"
   ) {
     return (
       `[TRỌNG TÂM TIN NÀY] Đây là lúc PITCH đo InBody MIỄN PHÍ (máy bóc tách mỡ/cơ thật) làm bước value. ` +

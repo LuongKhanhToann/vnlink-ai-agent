@@ -20,6 +20,7 @@ import {
   isTerseMessage,
   isBareGreetingOrFiller,
   computeProactiveMediaKey,
+  computeDoubtMediaKey,
 } from "../lib/prefixBuilder";
 import { fetchMedia } from "../tools/media";
 import { logTurn, type PrefixMode } from "../lib/observability";
@@ -433,7 +434,11 @@ function buildAgentStep(
       // Chống trùng: 1 lần/key qua mediaShownKeys (guardKey). fetch rỗng/lỗi → không gửi.
       let effectiveNextStep = obj.nextStep;
       let injectedGuardKey: string | null = null;
-      const proactive = computeProactiveMediaKey(stateBeforeReply);
+      // Backstop: classifier đôi khi bỏ sót show_results ở câu nghi ngờ kết quả ("làm xong có đỡ thật
+      // không hay lại đau"). computeDoubtMediaKey bắt theo EMOTION (frustrated/anxious/hesitant) + đúng
+      // moment value → vẫn bung ảnh before-after dù mediaMove=none. Ưu tiên tín hiệu classifier trước.
+      const proactive =
+        computeProactiveMediaKey(stateBeforeReply) ?? computeDoubtMediaKey(stateBeforeReply);
       const proactiveAlreadyShown =
         proactive != null &&
         (stateBeforeReply.mediaShownKeys ?? []).includes(proactive.guardKey);

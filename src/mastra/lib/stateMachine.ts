@@ -1170,8 +1170,12 @@ export function buildNextState(
   //   • else → câu "có hết hẳn không / cho xem ca giống tôi / 1 buổi bao nhiêu" là follow-up trị liệu
   //     → GIỮ giai-co (đừng văng sang báo giá gói gym, gửi ảnh gym).
   // Đặt TRƯỚC safety/post-surgery lock để các lock đó vẫn override sang fitness khi thật sự cần.
-  const engagedGiaiCo =
-    previous.flow === "giai-co" && previous.knownInfo.painArea !== null;
+  // Giai-co STICKY: một khi đang trong luồng giải cơ (Hoa Sen), câu follow-up — kể cả hỏi tiện ích/
+  // logistics ("đỗ ô tô được không", "làm bao lâu", "có tắm không") TRƯỚC khi kịp khai vùng đau —
+  // KHÔNG được rò sang fitness (trả nhầm giờ/địa chỉ Fami). Chỉ nhả lock khi khách nêu RÕ 1 dịch vụ
+  // fitness (switchedToFitnessSignal bên dưới). (Trước đây đòi painArea != null → leak khi khách hỏi
+  // logistics trước lúc kể đau.)
+  const engagedGiaiCo = previous.flow === "giai-co";
   const FITNESS_SERVICE_SLOTS = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
   const extractedFitnessService =
     typeof llm.extractedSlots.serviceType === "string"
