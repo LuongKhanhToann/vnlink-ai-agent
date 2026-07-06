@@ -676,20 +676,26 @@ function isVideoUrl(url: string): boolean {
 
 async function sendMedia(recipientId: string, url: string) {
   const type = isVideoUrl(url) ? "video" : "image";
-  await callSendAPI({
-    recipient: { id: recipientId },
-    message: {
-      attachment: {
-        type,
-        payload: { url, is_reusable: true },
+  // FB PHẢI tự tải file từ URL (Cloudinary) trước khi gửi cho khách — video .mov vài MB
+  // dễ mất >15s. Cho video hạn rộng (60s) để hoàn tất trong 1 lần, khỏi rơi vào timeout.
+  await callSendAPI(
+    {
+      recipient: { id: recipientId },
+      message: {
+        attachment: {
+          type,
+          payload: { url, is_reusable: true },
+        },
       },
     },
-  });
+    { timeoutMs: type === "video" ? 60000 : 30000 },
+  );
 }
 
-async function callSendAPI(body: object) {
+async function callSendAPI(body: object, opts: { timeoutMs?: number } = {}) {
   console.log("[fb] callSendAPI:", JSON.stringify(body));
 
+  const timeoutMs = opts.timeoutMs ?? 15000;
   const MAX_ATTEMPTS = 3;
   // Status không nên retry: 4xx (bad request) trừ 408 (timeout) và 429 (rate limit).
   const isRetriableStatus = (s: number) =>
@@ -697,7 +703,7 @@ async function callSendAPI(body: object) {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(
@@ -725,6 +731,18 @@ async function callSendAPI(body: object) {
       if (!isRetriableStatus(res.status) || attempt === MAX_ATTEMPTS) return;
     } catch (e) {
       clearTimeout(timeout);
+      // ⚠️ TIMEOUT phía client (AbortError) = KẾT QUẢ KHÔNG XÁC ĐỊNH, KHÔNG phải lỗi.
+      // Khi ta ngừng chờ response, FB CÓ THỂ đã nhận request + đã gửi tin cho khách rồi.
+      // Retry lúc này = gửi TRÙNG (send không idempotent) — chính là bug "1 video gửi 3 lần
+      // liền nhau" (video tải lâu >15s → abort → retry MAX_ATTEMPTS lần → FB gửi đủ 3 lần).
+      // → Gặp abort thì DỪNG, coi như đã gửi. Chỉ retry lỗi mạng thật (request chưa tới FB).
+      const isAbort = (e as Error)?.name === "AbortError";
+      if (isAbort) {
+        console.warn(
+          `[fb] callSendAPI timeout sau ${timeoutMs}ms (attempt ${attempt}) — coi như ĐÃ gửi, KHÔNG retry (tránh trùng)`,
+        );
+        return;
+      }
       console.error(`[fb] fetch exception (attempt ${attempt}):`, e);
       if (attempt === MAX_ATTEMPTS) return;
     }
