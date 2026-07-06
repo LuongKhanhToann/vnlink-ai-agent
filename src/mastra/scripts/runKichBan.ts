@@ -26,6 +26,8 @@ type Scenario = import("./scenarios").Scenario;
 const SEP = "═".repeat(82);
 const SUB = "─".repeat(82);
 
+const { checkInvariants } = await import("../lib/invariants");
+
 function printList(): void {
   console.log(`\n${SEP}`);
   console.log("KỊCH BẢN có sẵn — chạy:  npm run test:kichban -- <id> [<id>…]  |  all");
@@ -64,7 +66,20 @@ function stateLine(state: any): string {
   return parts.join(" ");
 }
 
-async function runScenario(scn: Scenario, idx: number, total: number): Promise<void> {
+/** Vi phạm invariant gom lại (in ở summary cuối). */
+interface Violation {
+  scenario: string;
+  turn: number;
+  msg: string;
+  reason: string;
+}
+
+async function runScenario(
+  scn: Scenario,
+  idx: number,
+  total: number,
+  violations: Violation[],
+): Promise<void> {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const threadId = `test-${scn.id.toLowerCase()}-${runId}`;
   const resourceId = `kichban-tester-${scn.id.toLowerCase()}`;
@@ -101,6 +116,13 @@ async function runScenario(scn: Scenario, idx: number, total: number): Promise<v
       }
       if (qr) console.log(`    🔳 QR: ${qr}`);
       console.log(`    BOT: ${reply.replace(/\n/g, "\n         ")}`);
+
+      // Lưới gác TẤT ĐỊNH — vi phạm in ngay + gom vào summary.
+      const turnViolations = checkInvariants({ state, out, reply });
+      for (const reason of turnViolations) {
+        console.log(`    ❌ ${reason}`);
+        violations.push({ scenario: scn.id, turn: i + 1, msg, reason });
+      }
     } catch (e) {
       console.error(`[${i + 1}] ❌ error:`, e);
     }
@@ -136,12 +158,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const violations: Violation[] = [];
   for (let i = 0; i < selected.length; i++) {
-    await runScenario(selected[i], i, selected.length);
+    await runScenario(selected[i], i, selected.length, violations);
   }
 
-  console.log(`\n${SEP}\n✅ Xong ${selected.length} kịch bản.\n${SEP}`);
-  process.exit(0);
+  console.log(`\n${SEP}`);
+  if (violations.length === 0) {
+    console.log(`✅ Xong ${selected.length} kịch bản — 0 vi phạm invariant.`);
+    console.log(SEP);
+    process.exit(0);
+  }
+  console.log(`❌ Xong ${selected.length} kịch bản — ${violations.length} VI PHẠM INVARIANT:`);
+  for (const x of violations) {
+    console.log(`   [${x.scenario} T${x.turn}] ${x.reason}  ← KH: "${x.msg}"`);
+  }
+  console.log(SEP);
+  process.exit(1);
 }
 
 main().catch((e) => {

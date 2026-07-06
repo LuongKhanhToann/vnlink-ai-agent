@@ -389,26 +389,6 @@ export function detectPriceQuestion(message: string): boolean {
 }
 
 /**
- * Khách hỏi CÓ/KHÔNG về sự TỒN TẠI của dịch vụ ("có gói gym giảm mỡ không", "có lớp yoga không",
- * "bên em có PT không") — KHÔNG phải hỏi giá. Sale thật phải AFFIRM "Dạ có ạ" trước rồi mới discovery,
- * KHÔNG bổ thẳng giá/teaser "333k" (anchor thấp, mời mặc cả — bug §3).
- *
- * VI-safe: \b KHÔNG match "có"/"không" (ký tự có dấu) → dùng lookaround \p{L} + flag u (bài học Batch 2b/6h).
- * Bảo thủ: yêu cầu ĐỦ 3 phần (có + danh từ dịch vụ + phủ định "không/chứ") để tránh false-positive.
- */
-export function detectServiceAvailabilityQuestion(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  const hasCo = /(?<!\p{L})có(?!\p{L})/u.test(m);
-  const hasNeg = /(?<!\p{L})(không|ko|khong|hông|hong|chứ)(?!\p{L})/u.test(m);
-  const hasServiceNoun =
-    /(gói|khoá|khóa|lớp|dịch\s*vụ|gym|yoga|zumba|bơi|pilates|(?<!\p{L})pt(?!\p{L})|hlv|huấn\s*luyện)/u.test(
-      m,
-    );
-  return hasCo && hasNeg && hasServiceNoun;
-}
-
-/**
  * Khách là sinh viên / học sinh.
  */
 export function detectStudent(message: string): boolean {
@@ -440,22 +420,6 @@ export function detectHoursQuestion(message: string): boolean {
     /^(lúc\s+nào|khi\s+nào|mấy\s+giờ)\s*(được|cũng|là\s+được)?[?\s]*$/.test(m) ||
     /\b(giờ\s+giấc|giờ\s+làm)\b/.test(m)
   );
-}
-
-/**
- * Khách hỏi LỊCH LỚP cụ thể (lịch học bơi, lịch yoga, lịch các bộ môn) —
- * KHÔNG được trả bằng bảng giá. Phải trả lịch sơ bộ + mời ghé xem trực tiếp.
- */
-export function detectClassScheduleQuestion(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  // "lịch (học/lớp/tập) ..." hoặc "ca/buổi/khung giờ của lớp ..."
-  if (/lịch\s+(học|lớp|tập|của|các)/.test(m)) return true;
-  if (/(lớp|ca|buổi|khung\s*giờ)\s+(học|của|cho|nào)/.test(m) && /(yoga|zumba|bơi|pilates|gym|bộ\s*môn|dịch\s*vụ)/.test(m)) return true;
-  if (/(yoga|zumba|bơi|pilates)\s+.*?(lịch|ca\s*nào|giờ\s*nào|mấy\s*ca)/.test(m)) return true;
-  // "lịch các bộ môn", "lịch hoạt động lớp"
-  if (/lịch\s+(các\s+)?(bộ\s*môn|môn|lớp|hoạt\s+động)/.test(m)) return true;
-  return false;
 }
 
 /**
@@ -543,61 +507,6 @@ export function detectFacilityQuestion(
 }
 
 /**
- * Khách hỏi về chính sách bảo lưu / hủy / hoãn / vắng.
- */
-export function detectHoldPolicy(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return /(bảo\s*lưu|hủy|huỷ|hoãn|nghỉ\s+(tập|gói)|vắng|đi\s*công\s*tác|đi\s*xa|chuyển\s+nhượng)/.test(
-    m,
-  );
-}
-
-/**
- * Khách cần PT 1-1 / mới tập / sợ sai tư thế.
- */
-export function detectPTNeed(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    /(hlv\s*riêng|hlv\s*cá\s*nhân|hlv\s*1[-\s]?1|pt\s*riêng|tập\s*riêng|1\s*kèm\s*1|kèm\s*riêng)/.test(
-      m,
-    ) ||
-    /(mới\s*tập|sợ\s*sai\s*tư\s*thế|chưa\s*biết\s*tập|sợ\s*chấn\s*thương|sợ\s*tập\s*sai)/.test(
-      m,
-    )
-  );
-}
-
-/**
- * Khách so sánh 2 dịch vụ ("gym với yoga", "gym hay yoga", "cái nào tốt hơn")
- * → bot phải recommend dứt khoát 1 môn, không neutral.
- */
-export function detectComparison(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  const services = "(gym|yoga|zumba|bơi|pilates|cardio|aerobic)";
-  return (
-    new RegExp(`${services}\\s+(với|hay|và|hoặc|so\\s+với)\\s+${services}`, "i").test(m) ||
-    /(cái\s+nào|nên\s+chọn|chọn\s+gì\s+(thì\s+)?tốt|môn\s+nào|tập\s+gì\s+(thì\s+)?tốt)/.test(m)
-  );
-}
-
-/**
- * Khách indecisive — không tự quyết, nhờ bot chọn ("chọn giúp", "tư vấn cho",
- * "chưa biết tập gì"). Bot phải recommend dứt khoát theo goal/context.
- */
-export function detectIndecisive(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    /(chọn\s+giúp|tư\s+vấn\s+(cho\s+|giúp\s+))/.test(m) ||
-    /(chưa\s+biết|không\s+biết)\s*(tập\s+(gì|môn\s+nào)|môn\s+nào|nên)/.test(m) ||
-    /(em|mình|chị|anh)?\s*chọn\s+(hộ|giúp|cho)/.test(m)
-  );
-}
-
-/**
  * Khách answer câu hỏi cụ thể (số/thời gian/lựa chọn) — bot phải ACK trước.
  * Pattern: số kèm "tuần"/"buổi"/"ngày", hoặc "sáng/chiều/tối" đơn lẻ, hoặc "ok/được/đồng ý".
  */
@@ -624,16 +533,6 @@ export function detectShortAnswer(message: string): boolean {
 // REMOVED: detectChuongTrinhConsult, detectTrialAsk, detectExplicitPriceList,
 // detectFullPackageConfirm, detectChuaBietTapGi, detectThamQuan
 // Đã thay thế bằng LLM intent classification (state.intentTopic). Xem questionFlow.ts.
-
-/**
- * Khách nói tuổi bé (vd "cháu 6 tuổi", "bé 7 tuổi nhé", "cháu nhà 6t"). Match thuần số tuổi.
- * Dùng kèm context serviceType=boi để switch sang ask test bạo nước.
- */
-export function detectChildAgeStated(message: string): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return /\b(\d{1,2})\s*(tuổi|t)\b/.test(m);
-}
 
 // ─────────────────────────────────────────────
 // MEDIA KEY SUGGESTION
@@ -762,21 +661,6 @@ function buildMediaHint(state: ConversationState): string {
  * KHÔNG regex/keyword). Đây là ảnh CHỨNG MINH KẾT QUẢ, tách khỏi ngân sách ảnh giới thiệu
  * cơ sở — phải bung được kể cả khi đã lỡ gửi ảnh phòng tập trước đó (vũ khí chốt trust).
  */
-export function isBeforeAfterMoment(state: ConversationState): boolean {
-  if (state.flow !== "fitness") return false;
-  // Chỉ hợp SAU khi đã pitch value (inbody/evaluation/negotiation). Ở opening/discovery bot còn
-  // đang đào nỗi đau → bung ảnh chứng minh là chen ngang, sai nhịp (giống guard proactive-media).
-  const stageOk =
-    state.stage === "inbody" || state.stage === "evaluation" || state.stage === "negotiation";
-  if (!stageOk) return false;
-  const g = state.knownInfo.fitnessGoal;
-  const bodyGoal =
-    g === "giam-mo" || g === "tang-co" || g === "tang-can" || g === "giu-dang";
-  const doubtful =
-    state.emotion === "frustrated" || state.emotion === "anxious" || state.emotion === "hesitant";
-  return bodyGoal && doubtful;
-}
-
 /** Emotion nghi ngờ kết quả (đọc thẳng classifier — KHÔNG regex). */
 function isDoubtfulEmotion(state: ConversationState): boolean {
   return (
@@ -815,10 +699,27 @@ function beforeAfterTarget(state: ConversationState): { key: string; guardKey: s
 export function computeDoubtMediaKey(
   state: ConversationState,
 ): { key: string; guardKey: string } | null {
-  if (!isDoubtfulEmotion(state)) return null;
+  // Tín hiệu NGHI NGỜ đọc TỪ classifier (KHÔNG regex): cảm xúc nghi ngờ (frustrated/anxious/hesitant)
+  // HOẶC domain=objection (khách phản biện/lăn tăn kết quả). mediaMove là cửa CHÍNH; đây là LƯỚI ĐỠ
+  // cho lúc mini-model để mediaMove=none (flaky ~1/2 lượt) mà khách rõ ràng đang doubt — vd
+  // "tập rồi liệu có xuống ko hay lại lên lại như cũ" hay bị classify objection/discovery_answer, emotion=neutral.
+  const doubtSignal =
+    isDoubtfulEmotion(state) ||
+    state.intentSignal?.domain === "objection" ||
+    // "giảm xong lại lên như cũ" / "làm xong có hết hẳn ko hay lại đau lại" — nghi ngờ ĐỘ BỀN kết quả.
+    // Mini-model hay map nhầm sang topic maintain_after_goal + emotion trusting/neutral → mediaMove rớt.
+    // Đây vẫn là DOUBT kết quả → bung ảnh trước-sau là đúng nhịp (đúng ca scenarios GIAMCAN/GIAICO).
+    state.intentTopic === "maintain_after_goal";
+  if (!doubtSignal) return null;
 
   if (state.flow === "fitness") {
-    if (!isBeforeAfterMoment(state)) return null;
+    // Khách có mục tiêu ĐỔI VÓC DÁNG + đang doubt → bung ảnh trước-sau BẤT KỂ stage (kể cả discovery):
+    // khách tự hỏi "liệu có thật không" thì trả bằng BẰNG CHỨNG là đúng nhịp, không phải chen ngang.
+    // Mục tiêu chưa rõ (hỏi giá trơ, chưa có body-goal) → không có gì để chứng minh → bỏ.
+    const g = state.knownInfo.fitnessGoal;
+    const bodyGoal =
+      g === "giam-mo" || g === "tang-co" || g === "tang-can" || g === "giu-dang";
+    if (!bodyGoal) return null;
     return beforeAfterTarget(state);
   }
 
@@ -921,19 +822,10 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const mentionedKey = message ? detectMentionedServiceKey(message) : null;
   const isNewServiceKey = mentionedKey !== null && !mediaShownKeys.includes(mentionedKey);
 
-  // ── BEFORE-AFTER: ngân sách RIÊNG, không bị ảnh giới thiệu cơ sở chặn ──
-  // Khách nghi ngờ kết quả (đọc emotion từ classifier) → ảnh hội viên lột xác là chốt trust.
-  // Gate CỨNG (không phải hint mềm "tự quyết") vì đây là moment quyết định: trước đây để LLM
-  // tự quyết + lại bị khóa "đã gửi ảnh" nên before-after thành cò quay (FB lúc gửi lúc không).
-  const needBeforeAfter =
-    isBeforeAfterMoment(state) && !mediaShownKeys.includes("fitness-before-after");
-  if (needBeforeAfter) {
-    hints.push(
-      `[GATE before-after (khách đang nghi ngờ kết quả): BẮT BUỘC gọi get-media key="fitness-before-after" 1 LẦN, copy URLs vào mediaUrls, nextStep="show_media" — bung kể cả khi đã gửi ảnh phòng tập trước đó (đây là ảnh CHỨNG MINH, khác ảnh cơ sở). Kèm 1-2 câu trấn an gốc rễ: ở nhà thiếu mức tải/lộ trình nên lâu thấy đổi, qua đây có InBody + HLV chỉnh đúng điểm yếu thì lên rõ.]`,
-    );
-  }
+  // (before-after nghi-ngờ-kết-quả cho fitness giờ do router computeDoubtMediaKey lo — deterministic
+  //  fetch, không qua GATE prompt. buildLogicGate CHỈ chạy giai-co nên không cần block đó ở đây.)
 
-  if (mediaShown && !customerAskingMedia && !isNewServiceKey && !needBeforeAfter) {
+  if (mediaShown && !customerAskingMedia && !isNewServiceKey) {
     hints.push(
       "[GATE media-shown: ĐÃ gửi ảnh. KHÔNG gọi lại get-media. Nếu khách xin thêm → text 'em đã gửi rồi nha, mời ghé trực tiếp xem'.]",
     );
@@ -973,9 +865,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     // Limitation 4: hỏi giá SAU chốt → inject PRICING block để báo giá CHÍNH XÁC (GATE mode
     // không tự kèm knowledge). Concierge vẫn trả lời tự nhiên, không pitch ép.
     if (message && detectPriceQuestion(message)) {
-      hints.push(
-        flow === "fitness" ? buildFitnessPricing(knownInfo) : buildGiaiCoPricing(),
-      );
+      hints.push(buildGiaiCoPricing());
       hints.push(
         `[GATE giá-sau-chốt: khách hỏi giá → báo đúng số trong PRICING ở trên, gọn gàng. KHÔNG ép đăng ký, KHÔNG nhắc lại đơn đã chốt.]`,
       );
@@ -1050,18 +940,6 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách DOANH NGHIỆP/công ty (sticky) → KHÔNG báo giá lẻ retail ──
-  // Bug E4 T2: sau khi nhận diện công ty (T1), KH hỏi "bao nhiêu 1 người" → classifier ra pricing,
-  // mất context corporate → bot báo giá lẻ. corporateHold giữ context để giữ hướng "sale báo riêng".
-  if (flow === "fitness" && (state as any).corporateHold === true) {
-    return (
-      "[GATE doanh nghiệp/công ty (sticky, ưu tiên cao): KH mua gói cho công ty/đoàn nhiều người — hệ thống KHÔNG có bảng giá doanh nghiệp cố định. " +
-      "TUYỆT ĐỐI KHÔNG báo giá lẻ retail (Full 7tr, 1.2tr/tháng…) cho ca này, KHÔNG bịa số/người. " +
-      "Nói 'bên em có ưu đãi riêng cho nhóm/công ty ạ', xin SĐT + đầu mối để sale báo phương án & mức chính xác theo số người. " +
-      "Nếu ĐÃ có SĐT/đầu mối: xác nhận đã ghi nhận, sale sẽ liên hệ báo phương án — DỪNG, KHÔNG pitch gói lẻ, KHÔNG ép đặt lịch.]"
-    );
-  }
-
   // ── ƯU TIÊN: khách lạnh → KHÔNG push (compact) ──
   if (message && detectColdLead(message)) {
     return (
@@ -1083,16 +961,9 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // Lưu ý: trường hợp classifier hit `ask_open_hours` topic, questionFlow đã short-circuit
   // với ANSWER_LOCK rồi. GATE này chỉ là safety net khi classifier miss.
   if (message && detectHoursQuestion(message)) {
-    const hours = flow === "fitness" ? "5h sáng – 20h30" : "9h – 23h";
+    const hours = "9h – 23h";
     hints.push(
       `[GATE giờ mở cửa: trả "bên em mở từ ${hours} hàng ngày" + hỏi sáng/chiều tiện. ❌ TUYỆT ĐỐI KHÔNG list 3 gói/giá. KHÔNG xin tên/SĐT turn này.]`,
-    );
-  }
-
-  // ── ƯU TIÊN: bảo lưu/vắng/hoãn (compact) ──
-  if (flow === "fitness" && message && detectHoldPolicy(message)) {
-    hints.push(
-      "[GATE bảo lưu: gói năm (3m+) bảo lưu được khi vắng 1-2 tuần, gói tháng không bảo lưu nhưng chuyển nhượng được trong gia đình. Answer câu này trước, KHÔNG nhảy InBody.]",
     );
   }
 
@@ -1103,24 +974,11 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     );
   }
 
-  // ── ƯU TIÊN: khách cần PT 1-1 (compact) ──
-  if (flow === "fitness" && message && detectPTNeed(message)) {
-    hints.push(`[GATE PT: pitch thẳng "PT 20 buổi 6 triệu (2 tháng), HLV 1-1". KHÔNG hỏi gym/yoga.]`);
-  }
-
   // ── ƯU TIÊN: khách phản đối giá → reframe theo VALUE ──
-  // (Detail value 3 mũi đã có ở playbook negotiation_neutral + [OBJECTIONS] block)
   const priceObjectionSignal =
     state.intentTopic === "price_objection" ||
     (message ? detectPriceObjection(message) : false);
-  if (priceObjectionSignal && flow === "fitness") {
-    return (
-      "[GATE: khách phản đối giá. KHÔNG hạ giá, KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê. " +
-      "Reframe value 3 mũi (cơ sở 700m2 + bể 4 mùa duy nhất / GV Ấn Độ + InBody miễn phí / social proof hội viên gắn bó 2-3 năm). " +
-      "Mời thử 1 buổi miễn phí. KHÔNG xin tên/SĐT tin này.]"
-    );
-  }
-  if (priceObjectionSignal && flow === "giai-co") {
+  if (priceObjectionSignal) {
     return (
       "[GATE: khách phản đối giá. Reframe: KTV đào tạo giải phẫu cơ bài bản, tác động đúng nhóm cơ kẹt, đỡ rõ trong 1-2 buổi. " +
       "Mời thử 1 buổi không cam kết.]"
@@ -1161,9 +1019,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   const giaiCoAllPainSlots =
     knownInfo.painArea !== null && knownInfo.painSpread !== null;
   const stageAllowsProactiveMedia =
-    flow === "fitness"
-      ? stage === "inbody" || stage === "evaluation"
-      : stage === "evaluation" || giaiCoAllPainSlots;
+    stage === "evaluation" || giaiCoAllPainSlots;
   if (
     !keyAlreadySent &&
     !customerAskingMedia &&
@@ -1182,133 +1038,9 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
   // pool_child_no_age, pool_child_with_age ĐÃ MIGRATE sang questionFlow.TEMPLATES.
   // questionFlow chạy trước buildLogicGate trong buildPrefix.
 
-  // ── Multi-service: khách nhắc 2+ dịch vụ trong 1 tin (compact) ──
-  // Yêu cầu: tư vấn SONG SONG từng môn, KHÔNG tự lái về Full. Chỉ chốt Full khi khách
-  // chủ động hỏi giá-cả-gói/combo hoặc muốn tập nhiều môn 1 lúc.
-  const wantsComboNow =
-    message != null &&
-    /(combo|cả\s*(gói|hai|2|ba|3)|trọn\s*gói|tất\s*cả\s*(các\s*)?môn|full|chung\s*1\s*thẻ|dùng\s*chung|bao\s*nhiêu\s*tất)/i.test(
-      message,
-    );
-  if (
-    flow === "fitness" &&
-    message &&
-    /(gym|yoga|zumba|bơi|pilates).{0,30}(và|\+|với)\s*(gym|yoga|zumba|bơi|pilates)/i.test(
-      message,
-    )
-  ) {
-    hints.push(
-      wantsComboNow
-        ? "[GATE multi-service: khách hỏi combo/cả gói → giới thiệu thẻ Full 4 dịch vụ (1.2tr/tháng → 7tr/12 tháng, dùng chung 1 thẻ).]"
-        : "[GATE multi-service: khách nhắc 2 môn → trả lời TỪNG môn theo đúng câu hỏi (lợi ích/giá riêng mỗi môn), KHÔNG tự gộp ép thẻ Full. Chỉ khi khách hỏi 'cả gói/combo/tập nhiều môn 1 lúc' mới gợi Full.]",
-    );
-  }
-
-  // ── HS/SV (compact, giá cụ thể) ──
-  if (
-    flow === "fitness" &&
-    knownInfo.memberType === "hoc-sinh" &&
-    !knownInfo.preferredTime
-  ) {
-    hints.push(
-      "[GATE HS/SV: bên em CÓ thẻ Full HS/SV (1 thẻ dùng cả 4 dịch vụ, KHÔNG phải gym riêng) — 1 tháng 700k, 3 tháng 2 triệu, 6 tháng 3 triệu, 12 tháng 4 triệu. Báo 1 gói hợp nhất + giá ĐÚNG cặp tháng-giá (vd '3 tháng 2 triệu'), rồi hé gói ngắn '1 tháng 700k'. KHÔNG ghép sai giá, KHÔNG nói 'có ưu đãi' chung chung, KHÔNG né 'xin SĐT'.]",
-    );
-  }
-
-  // ── Gia đình (compact, giá cụ thể) ──
-  if (
-    flow === "fitness" &&
-    knownInfo.memberType === "gia-dinh" &&
-    !knownInfo.preferredTime
-  ) {
-    hints.push(
-      "[GATE gia-đình: gói Full gia đình (4 dịch vụ dùng chung 1 thẻ) — 2 người 12 triệu, 3 người 17 triệu, 4 người 20 triệu. Pitch CỤ THỂ với số người, KHÔNG list 4 bộ môn chung chung. Bé < 6 tuổi miễn phí kèm bố mẹ ạ.]",
-    );
-  }
-
-  // ── Khách chỉ muốn 1 dịch vụ (compact) ──
-  if (
-    flow === "fitness" &&
-    message &&
-    (/chỉ\s*(tập|cần|muốn)?\s*(yoga|zumba|bơi|gym|pilates)\s*(thôi|nhỉ)?/i.test(message) ||
-      /không\s+cần\s+(gym|yoga|zumba|bơi|pilates|full)/i.test(message) ||
-      /(muốn|chỉ)\s+(học\s+)?(yoga|zumba|bơi|pilates)(?!\s*\+)/i.test(message) ||
-      /(yoga|zumba|bơi|pilates|gym)\s+thôi/i.test(message))
-  ) {
-    hints.push("[GATE single-service: KHÔNG ép Full, pitch gói đơn dịch vụ khách chọn. KHÔNG nói 'kết hợp cardio'.]");
-  }
-
-  // ── Khách hỏi CÓ/KHÔNG về dịch vụ ("có gói gym giảm mỡ không") → AFFIRM trước, KHÔNG bổ giá ──
-  // Bug §3: bot từng bổ thẳng "ưu đãi chỉ từ 333k/tháng" khi khách MỚI hỏi có/không (anchor thấp,
-  // mời mặc cả). Sale thật: "Dạ có ạ" + 1 câu value + 1 câu discovery. Bảo thủ: chỉ early-funnel,
-  // KHÔNG phải hỏi giá/lịch/giờ, chưa có tên+SĐT. Return sớm (kèm hint đã có) để chặn inbody/price pitch dưới.
-  if (
-    flow === "fitness" &&
-    message &&
-    detectServiceAvailabilityQuestion(message) &&
-    !detectPriceQuestion(message) &&
-    !detectClassScheduleQuestion(message) &&
-    !detectHoursQuestion(message) &&
-    // HS/SV & gia-đình có BẢNG GIÁ RIÊNG cần báo thẳng. "sinh viên có gói rẻ hơn không"
-    // tuy là dạng câu CÓ/KHÔNG nhưng thực chất là hỏi GIÁ ưu đãi → để GATE HS/SV/gia-đình
-    // governing (báo giá), KHÔNG để availability-GATE suppress giá (bug L1 T12).
-    knownInfo.memberType !== "hoc-sinh" &&
-    knownInfo.memberType !== "gia-dinh" &&
-    !knownInfo.name &&
-    !knownInfo.phone &&
-    stage !== "commitment"
-  ) {
-    // stage "retention" đã return sớm ở trên → không cần loại lại ở đây.
-    const svc = knownInfo.serviceType ?? "bộ môn mình quan tâm";
-    hints.push(
-      `[GATE hỏi-có-không (availability): khách hỏi CÓ/KHÔNG về dịch vụ — TRẢ LỜI THẲNG "Dạ có ạ, bên em có ${svc}" + 1 câu value ngắn (hợp mục tiêu của khách), rồi hỏi 1 câu discovery (đã tập chưa / mục tiêu rõ hơn / tiện lịch nào). ` +
-        `TUYỆT ĐỐI KHÔNG bung giá hay "ưu đãi chỉ từ 333k", KHÔNG ép InBody, KHÔNG xin tên/SĐT. Tối đa 1 câu hỏi.]`,
-    );
-    return hints.join("\n");
-  }
-
-  // ── Goal ĐÃ biết + KH cho LỊCH/giờ nhưng chưa chốt bộ môn → recommend value-first, KHÔNG hỏi history lùi ──
-  // Bug (real_so_sanh T3): goal=giảm-mỡ đã biết, KH "tập sáng hoặc tối tùy" → bot hỏi LÙI
-  // "đã thử tập cách nào chưa" (PITCH tự chọn). Sale thật: ack lịch ngắn + recommend bộ môn hợp goal + mời thử.
-  if (
-    flow === "fitness" &&
-    stage === "discovery" &&
-    knownInfo.fitnessGoal !== null &&
-    knownInfo.serviceType === null &&
-    !knownInfo.name &&
-    !knownInfo.phone &&
-    message &&
-    /(sáng|chiều|tối|trưa|\d+\s*buổi|mỗi\s*tuần|tuần\s*\d|hàng\s*ngày|giờ\s*nào\s*cũng|lúc\s*nào\s*cũng)/iu.test(message) &&
-    !detectPriceQuestion(message) &&
-    !detectServiceAvailabilityQuestion(message) &&
-    !detectClassScheduleQuestion(message) &&
-    !detectHoursQuestion(message)
-  ) {
-    hints.push(
-      `[GATE goal-rõ-cho-lịch: đã biết mục tiêu "${knownInfo.fitnessGoal}" + khách vừa cho lịch/giờ → TUYỆT ĐỐI KHÔNG hỏi lại quá khứ/history ("đã tập cách nào chưa"). Ack lịch 1 câu ngắn + RECOMMEND bộ môn hợp mục tiêu (value-first) + mời thử 1 buổi hoặc đo InBody. Tối đa 1 câu hỏi.]`,
-    );
-    return hints.join("\n");
-  }
-
-  // ── Khách hỏi giá (Fami trial-first close style) ──
+  // ── Khách hỏi giá → trả giá NGAY (compact) ──
   if (message && detectPriceQuestion(message) && !knownInfo.name && !knownInfo.phone) {
-    if (flow === "fitness") {
-      // Theo kịch bản Fami: cần BIẾT BỘ MÔN trước khi bung 3 gói chi tiết.
-      //   - Chưa serviceType (kể cả khi có goal) → nói ưu đãi CHUNG 333k/tháng + hỏi bộ môn.
-      //   - Đã có serviceType → bung gói theo service+goal (PRICING block lọc).
-      // KHÔNG dựa duy nhất vào fitnessGoal — có goal nhưng chưa biết môn vẫn phải hỏi môn trước.
-      if (knownInfo.serviceType === null) {
-        hints.push(
-          "[GATE giá (chưa serviceType): nói ưu đãi CHUNG 'chỉ từ 333k/tháng' + hỏi BỘ MÔN nào. KHÔNG bung 3 gói chi tiết khi chưa biết khách quan tâm bộ môn nào. Vd 'Hiện tại bên em có nhiều ưu đãi chỉ từ 333k/tháng. Không biết " + state.honorific + " đang quan tâm đến bộ môn nào để em tư vấn ưu đãi phù hợp ạ'. KHÔNG xin tên/SĐT, KHÔNG bung PT/Full số cụ thể.]",
-        );
-      } else {
-        hints.push(
-          "[GATE giá (đã có service+goal): trả giá CỤ THỂ từ [PRICING] theo service+goal. Vd 'Full 1.2tr/tháng, 3tr/3 tháng, 7tr/12 tháng'. KHÔNG né, KHÔNG xin tên/SĐT.]",
-        );
-      }
-    } else {
-      hints.push("[GATE giá: trả giá NGAY. Lẻ 200k-590k, liệu trình từ 3.3tr/10 buổi.]");
-    }
+    hints.push("[GATE giá: trả giá NGAY. Lẻ 200k-590k, liệu trình từ 3.3tr/10 buổi.]");
   }
 
   // ── Khách hỏi cọc/thanh toán (compact) ──
@@ -1316,8 +1048,7 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     const qrShown = (state as any).qrShown ?? false;
     if (!qrShown) {
       if (knownInfo.name && knownInfo.phone) {
-        const qrFlow = flow === "fitness" ? "fitness" : "muscle-release";
-        return `[GATE deposit: GỌI get-qr flow="${qrFlow}" NGAY. Reply ngắn xác nhận cọc + gửi QR + hướng dẫn nội dung CK (tên+SĐT). Copy qrUrl, nextStep="show_qr".]`;
+        return `[GATE deposit: GỌI get-qr flow="muscle-release" NGAY. Reply ngắn xác nhận cọc + gửi QR + hướng dẫn nội dung CK (tên+SĐT). Copy qrUrl, nextStep="show_qr".]`;
       }
       return `[GATE deposit (chưa tên/SĐT): "Dạ cọc trước được nha ${state.honorific} — cho em xin tên với SĐT để lập đơn rồi gửi QR". CHƯA gọi get-qr.]`;
     }
@@ -1342,54 +1073,6 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
     }
   }
 
-  // (Removed: discovery serviceType/goal null GATEs — đã có few-shot OPENING + discovery_neutral tactic.)
-
-  // ── FITNESS: inbody pitch — chỉ pitch khi khách KHÔNG có signal khác ──
-  // Skip InBody pitch nếu khách:
-  //   - đang compare / hỏi giá (đáp ứng giá trước)
-  //   - phản đối giá (objection trước)
-  //   - bảo "chỉ tập X thôi" (single-service)
-  //   - cold lead (đã handle ở GATE ưu tiên trên, nhưng safety)
-  if (flow === "fitness" && stage === "inbody") {
-    const skipInbody =
-      intent === "compare" ||
-      knownInfo.memberType === "hoc-sinh" ||
-      knownInfo.memberType === "gia-dinh" ||
-      // InBody chủ yếu cho gym/giảm mỡ. Bơi/yoga/zumba/pilates không cần.
-      knownInfo.serviceType === "boi" ||
-      knownInfo.serviceType === "yoga" ||
-      knownInfo.serviceType === "zumba" ||
-      knownInfo.serviceType === "pilates" ||
-      knownInfo.fitnessGoal === "thu-gian" ||
-      knownInfo.fitnessGoal === "hoc-boi" ||
-      state.intentTopic === "price_ask_generic" ||
-      state.intentTopic === "price_explicit_list" ||
-      state.intentTopic === "price_with_worry" ||
-      state.intentTopic === "price_objection" ||
-      (message && /chỉ\s*(tập|cần|muốn)?\s*(yoga|zumba|bơi|gym|pilates)\s*(thôi|nhỉ)?/i.test(message)) ||
-      (message && /(muốn|chỉ)\s+(học\s+)?(yoga|zumba|bơi|pilates)(?!\s*\+)/i.test(message));
-
-    let ib: string;
-    if (skipInbody) {
-      const banInBody =
-        knownInfo.serviceType === "yoga" ||
-        knownInfo.serviceType === "boi" ||
-        knownInfo.serviceType === "zumba" ||
-        knownInfo.serviceType === "pilates" ||
-        knownInfo.fitnessGoal === "thu-gian" ||
-        knownInfo.fitnessGoal === "hoc-boi";
-      ib = banInBody
-        ? `khách ${knownInfo.serviceType ?? "yoga/bơi/zumba/pilates"}/thư-giãn → KHÔNG nhắc InBody. Phản hồi ĐÚNG cái khách vừa nói (mục tiêu/băn khoăn) + 1 nét value bộ môn hợp mục tiêu đó (người mới → trấn an có lớp cộng đồng/cơ bản dễ theo). ⛔ ĐỪNG hỏi "sáng/chiều mấy buổi" lúc này (chưa tới bước chốt lịch), chưa pitch giá.`
-        : "skip InBody pitch, answer nhu cầu trước. Có thể nhắc InBody 1 dòng cuối.";
-    } else if (knownInfo.schedule === null) {
-      const svc = knownInfo.serviceType ?? "dịch vụ";
-      ib = `chưa schedule → ack "${svc} cho ${knownInfo.fitnessGoal ?? "mục tiêu"}" + hỏi "sáng/chiều, mấy buổi/tuần". KHÔNG pitch gói.`;
-    } else {
-      ib = `có schedule=${knownInfo.schedule} → ack lịch + pitch InBody ngắn ("máy đọc mỡ/cơ thật") + mời ghé sáng/chiều. KHÔNG show giá.`;
-    }
-    hints.push(`[GATE inbody: ${ib}]`);
-  }
-
   // ── Negotiation + khách đã chấp nhận (compact) ──
   // CHỐT NGÀY 2 bước: chưa có preferredTime → HỎI NGÀY trước (KHÔNG xin tên/SĐT vội, tránh dồn dập
   // — bug E3 T5). Có ngày rồi → mới xin tên+SĐT.
@@ -1400,14 +1083,6 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
         : "[GATE negotiation-accept (đã có ngày): KHÔNG pitch thêm, xin tên+SĐT 1 câu ngắn để giữ chỗ. KHÔNG hỏi lại ngày/giờ đã có.]",
     );
   }
-
-  // ── FITNESS: evaluation — khách đã chọn → skip pitch, xin info ──
-  if (flow === "fitness" && stage === "evaluation" && (intent === "selecting" || intent === "ready")) {
-    hints.push(
-      "[GATE: khách sẵn sàng đăng ký. KHÔNG pitch thêm, hỏi tên+SĐT để giữ chỗ.]",
-    );
-  }
-  // (Removed: evaluation pitch GATE chi tiết — đã có few-shot EXAMPLE với value + 3 gói cụ thể per goal.)
 
   // ── GIẢI CƠ: chưa biết vùng đau — chỉ giữ case "có giờ trước" (cần ack đặc biệt) ──
   if (
@@ -1811,300 +1486,7 @@ function buildFewShot(
     return `[EXAMPLE — đã pitch giá tin trước → tin này KHÔNG list lại 3 gói. Tối đa nhắc 1 gói + chuyển sang câu hỏi chốt giờ. Reply ≤ 150 ký tự.]`;
   }
 
-  // ── KHÁCH HỎI GIÁ lần đầu (chưa biết bộ môn) — Fami trial-first close ──
-  // Phong cách Fami: nói giá "ưu đãi chỉ từ Xk/tháng" → hỏi BỘ MÔN nào (TL kịch bản).
-  // Trigger khi serviceType=null — kể cả có goal vẫn phải hỏi bộ môn trước khi bung 3 gói.
-  if (
-    state.flow === "fitness" &&
-    !prevHadPricing &&
-    message &&
-    detectPriceQuestion(message) &&
-    state.knownInfo.serviceType === null
-  ) {
-    return `[EXAMPLE — KHÁCH HỎI GIÁ lần đầu (chưa biết bộ môn): TRIAL-FIRST CLOSE phong cách Fami]
-Khách: "bao nhiêu tiền/tháng" / "giá thế nào" / "có ưu đãi gì không"
-ĐÚNG (chọn 1):
-  (a) "Dạ hiện tại bên em có rất nhiều ưu đãi chỉ từ 333k/tháng ${h}. Vì ${h} là người mới, em tặng ${h} chương trình trải nghiệm thử để xem có phù hợp không. ${h} có muốn đăng ký trải nghiệm không ạ?"
-  (b) "Dạ bên em đang có ưu đãi chỉ từ 333k/tháng ${h}. Không biết ${h} đang quan tâm bộ môn nào để em tư vấn gói phù hợp ạ?"
-SAI: bung 3 gói chi tiết ngay (Gym 5tr/PT 6tr/Full 7tr); pitch InBody; hỏi 'tập để làm gì' (quá direct).
-NGUYÊN TẮC: nói giá ƯU ĐÃI chung chung → hỏi bộ môn / MỜI trải nghiệm → khách trả lời bộ môn mới bung gói cụ thể.`;
-  }
-
-  // ── DISCOVERY + khách hỏi giá LẦN 2 sau khi bot đã pitch giá ──
-  // Trường hợp này hay xảy ra: khách "chi phí cao quá" / "nói rõ ra" / "có gói nào khác".
-  // Bot phải pivot — ack → đào sâu 1 gói cụ thể HOẶC mời InBody, KHÔNG list lại 3 gói.
-  if (
-    state.flow === "fitness" &&
-    state.stage === "discovery" &&
-    prevHadPricing &&
-    message &&
-    detectPriceQuestion(message)
-  ) {
-    return `[EXAMPLE — KHÁCH HỎI GIÁ LẦN 2 / "NÓI RÕ RA" — KHÔNG repeat 3 gói cũ]
-Khách: "chi phí như nào nói rõ ra" / "gói nào rẻ nhất" / "còn gói khác không"
-ĐÚNG (chọn 1 hướng, ngắn ≤ 150 ký tự):
-  (a) Đào sâu 1 gói: "Dạ rẻ nhất là Gym 3 buổi/tuần 12 tháng 4.5tr ${h}, chia ra ~375k/tháng — phù hợp nếu ${h} chỉ tập gym tự."
-  (b) Mời thử miễn phí: "Dạ ${h} qua đo InBody miễn phí trước, HLV xem mỡ/cơ rồi mới chọn gói chuẩn — ${h} tiện sáng hay chiều ạ?"
-  (c) Hỏi schedule: "Dạ ${h} tập mấy buổi 1 tuần để em chọn đúng gói tiết kiệm nhất ạ?"
-SAI: list lại "Gym 5tr | Full 7tr"; lặp y câu cũ; nói chung chung "tùy gói".`;
-  }
-
-  // ── DISCOVERY + khách hỏi nhóm vs cá nhân / nhóm có rẻ hơn ──
-  if (
-    state.flow === "fitness" &&
-    state.stage === "discovery" &&
-    message &&
-    /(nhóm|cá\s*nhân|tập\s*riêng|tập\s*chung)/i.test(message) &&
-    /(rẻ|giá|chi\s*phí|bao\s*nhiêu|khác|hơn)/i.test(message)
-  ) {
-    return `[EXAMPLE — KHÁCH HỎI NHÓM VS CÁ NHÂN — phải có CON SỐ CỤ THỂ]
-Khách: "nhóm có rẻ hơn không" / "tập nhóm với cá nhân khác gì"
-ĐÚNG (kèm con số, không generic):
-  "Dạ có ${h} — gym tập chung ai cũng tự tập như nhau, gói 3 buổi/tuần 12 tháng 4.5tr.
-   PT 1-1 thì kèm sát hơn, 20 buổi (2 tháng) 6tr (~300k/buổi), HLV chỉnh kỹ thuật từng động tác.
-   ${h} đang muốn nhanh thấy kết quả hay tiết kiệm hơn ạ?"
-SAI: "nhóm thường rẻ hơn cá nhân ạ" (mơ hồ, không số);
-     hỏi tiếp "muốn tham gia nhóm hay tập riêng" mà chưa cho khách thấy chênh lệch.`;
-  }
-
-  const { stage, intent, flow, knownInfo } = state;
-
-  // ── FITNESS: OPENING — phong cách Fami: hỏi bộ môn quan tâm trước, KHÔNG list ngay ──
-  if (
-    flow === "fitness" &&
-    stage === "opening" &&
-    knownInfo.serviceType === null &&
-    knownInfo.fitnessGoal === null
-  ) {
-    return `[EXAMPLE — OPENING phong cách Fami: chào ấm áp, HỎI quan tâm trước]
-Khách: "alo" / "quan tâm" / "có gì không"
-ĐÚNG (chọn 1, ngắn 1-2 câu):
-  (a) "Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. Không biết ${h} đang quan tâm đến bộ môn nào để em tư vấn hỗ trợ ạ?"
-  (b) "Dạ em chào ${h}, bên em là Tổ hợp thể thao có Gym, Yoga, Zumba và Bơi. Không biết ${h} đang quan tâm bộ môn nào để em hỗ trợ tư vấn ạ?"
-SAI: list ngay 4 dịch vụ + mục tiêu trong tin chào → quá nhiều thông tin, mất "câu hỏi mở".`;
-  }
-
-  // ── FITNESS: hỏi dịch vụ/giá chung khi chưa biết loại ──
-  if (
-    flow === "fitness" &&
-    intent === "compare" &&
-    knownInfo.serviceType === null
-  ) {
-    return `[EXAMPLE — ANSWER FIRST + BUILD INTEREST]
-Khách: "bên mình có gói gì / giá bao nhiêu"
-Em: "Fami có 4 dịch vụ chính ${h}, điểm đặc biệt là dùng chung 1 thẻ:
-     Bơi — bể 4 mùa duy nhất Vĩnh Yên, nước nóng quanh năm
-     Gym — 700m2 trong nhà + sân ngoài, chứa 100 người cùng lúc
-     Yoga & Zumba — GV người Ấn Độ chuyên nghiệp, 4 ca/ngày
-     Pilates — 13 máy chuẩn quốc tế (mới mở 12/2024)
-     Thẻ Full cả 4 dịch vụ từ 1.2tr/tháng ${h}.
-     ${h} đang muốn tập để đạt mục tiêu gì để em gợi gói chuẩn nha"`;
-  }
-
-  // ── FITNESS: biết dịch vụ + mục tiêu, đang discovery → xác nhận + hỏi schedule ──
-  // ⚠️ KHÔNG fire cho body-goal (giảm/tăng cân, tăng cơ, giữ dáng): các mục tiêu này phải đi
-  // qua luồng KHAI THÁC NỖI ĐAU (cao/nặng/thói quen/đã thử gì) — hỏi "sáng hay chiều" lúc này là
-  // chốt lịch sớm, mâu thuẫn với khối [BƯỚC: KHAI THÁC] (buildFitnessStageFocus) → model nghe "cụt
-  // ngủn/chốt sớm". Few-shot lịch chỉ hợp với goal không-body (sức khoẻ/thư giãn) — nơi không có nỗi đau để đào.
-  const isBodyGoalSchedule =
-    knownInfo.fitnessGoal === "giam-mo" ||
-    knownInfo.fitnessGoal === "tang-can" ||
-    knownInfo.fitnessGoal === "tang-co" ||
-    knownInfo.fitnessGoal === "giu-dang";
-  if (
-    flow === "fitness" &&
-    stage === "discovery" &&
-    knownInfo.serviceType !== null &&
-    knownInfo.fitnessGoal !== null &&
-    !isBodyGoalSchedule &&
-    knownInfo.schedule === null
-  ) {
-    const svc = knownInfo.serviceType;
-    const goal = knownInfo.fitnessGoal;
-    return `[EXAMPLE — TIN ĐẦU: 1 CÂU HỎI SCHEDULE, KHÔNG KHEN, KHÔNG GIỚI THIỆU, KHÔNG GIÁ]
-Khách: "mình muốn tập ${svc} ${goal}"
-ĐÚNG: "${h} tập mấy buổi một tuần?" hoặc "${h} hay tập sáng hay chiều tối hơn?"
-SAI: "Tuyệt vời!", "Dạ, tập Gym để giảm mỡ là hợp lý...", giới thiệu cơ sở, list gói/giá.`;
-  }
-
-  // ── FITNESS: KH muốn giảm cân nhưng chưa chọn môn — Fami pitch giải pháp Gym+Zumba+Bơi ──
-  if (
-    flow === "fitness" &&
-    stage === "discovery" &&
-    knownInfo.fitnessGoal === "giam-mo" &&
-    knownInfo.serviceType === null
-  ) {
-    // Turn đầu (turnCount<=1): hỏi history theo TL Fami
-    // Turn sau: pitch giải pháp Gym + Zumba (+Bơi)
-    if (state.turnCount <= 1 || !prevBotReply) {
-      return `[EXAMPLE — giảm cân lần đầu: HỎI HISTORY trước, KHÔNG pitch ngay]
-"Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến dịch vụ của trung tâm. Không biết ${h} có đang tập luyện hay sử dụng biện pháp giảm cân nào không ạ?"`;
-    }
-    return `[EXAMPLE — giảm cân (đã qua hỏi history): PITCH GIẢI PHÁP Gym+Zumba+Bơi theo TL Fami]
-"Dạ với giảm cân, em khuyến khích ${h} kết hợp Gym và Zumba ạ. Nếu ${h} thích Bơi, có thể kết hợp thêm Bơi. 3 bộ môn này đều đốt calo và săn chắc cơ thể, kết hợp với nhau sẽ đạt mục tiêu nhanh hơn. Zumba còn xả stress, giúp ${h} có động lực duy trì lâu dài. ${h} có muốn thử 1 buổi để cảm nhận không ạ?"
-⚠️ KHÔNG pitch 3 gói số giá vào lúc này — chỉ recommend giải pháp. Khách hỏi giá mới bung.`;
-  }
-
-  // ── FITNESS: biết dịch vụ, chưa có mục tiêu — phong cách Fami: hỏi DEEP, không pitch ngay ──
-  if (
-    flow === "fitness" &&
-    stage === "discovery" &&
-    knownInfo.serviceType !== null &&
-    knownInfo.fitnessGoal === null
-  ) {
-    const svc = knownInfo.serviceType;
-    // Per-service discovery question theo tone Fami thực tế.
-    const discoveryByService: Record<string, string> = {
-      gym: `"Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến bộ môn gym của trung tâm. Không biết ${h} đã tập gym bao giờ chưa ạ?"\n(Turn sau hỏi: "Mục tiêu tập gym của mình là tăng cân, giảm cân hay duy trì sức khoẻ ạ?")`,
-      yoga: `"Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập yoga chưa ạ?"\n(Nếu chưa tập: trấn an "Yoga là chuỗi các động tác bắt đầu từ hơi thở, động tác chậm có HLV hướng dẫn nên ${h} hoàn toàn yên tâm tập được ở lớp cộng đồng kể cả người mới ạ".)`,
-      zumba: `"Dạ em chào ${h}, ${h} ơi trước đây ${h} đã tập zumba chưa ạ?"\n(Nếu chưa tập: "Zumba là quá trình rèn luyện, ${h} yên tâm đừng lo không theo được — vào lớp cô giáo sẽ hỗ trợ trong giờ giải lao. Bài mới cô hướng dẫn từng đoạn ạ".)`,
-      boi: `"Dạ em chào ${h}, không biết ${h} đang quan tâm học bơi cho người lớn hay trẻ em ạ?"\n(Nếu trẻ em: hỏi "Bên em nhận từ 6 tuổi, bạn nhà mình năm nay mấy tuổi rồi ạ?" + test bạo nước "Ở nhà bé có dám ngụp nước/tắm vòi sen không ạ?")`,
-      pilates: `"Dạ em chào ${h}, Pilates bên em có 13 máy chuẩn quốc tế ${h} ơi. Trước đây ${h} đã tập pilates hay yoga gì chưa ạ?"`,
-      full: `"Dạ em chào ${h}, bên em là Tổ hợp thể thao Gym + Yoga + Zumba + Bơi. ${h} ơi trước đây mình đã tập bộ môn nào chưa ạ? Hay có yêu thích bộ môn nào không?"`,
-    };
-    const example = discoveryByService[svc] ??
-      `"Dạ em chào ${h}, cảm ơn ${h} đã quan tâm đến ${svc} của trung tâm. Trước đây ${h} đã tập ${svc} chưa ạ?"`;
-    return `[EXAMPLE — DISCOVERY phong cách Fami: hỏi 1 CÂU sâu, KHÔNG pitch gói/giá]
-Khách: "muốn đăng ký ${svc}" / "cho hỏi lớp ${svc}"
-ĐÚNG:
-${example}
-SAI: "Tuyệt vời!", list gói/giá, list nhiều câu hỏi gộp.`;
-  }
-
-  // ── FITNESS: inbody pitch — few-shot ──
-  if (flow === "fitness" && stage === "inbody") {
-    // GUARD: KH hỏi FAQ off-topic → KHÔNG ép pitch InBody — answer câu hỏi trước.
-    if (
-      message &&
-      (detectHoursQuestion(message) ||
-        detectClassScheduleQuestion(message) ||
-        detectFacilityQuestion(message, flow) ||
-        state.intentTopic === "ask_open_hours" ||
-        state.intentTopic === "pool_hours" ||
-        state.intentTopic === "pool_temperature" ||
-        state.intentTopic === "pool_swimwear" ||
-        state.intentTopic === "pool_chlorine" ||
-        state.intentTopic === "pool_water_change" ||
-        state.intentTopic === "pool_lifeguard" ||
-        state.intentTopic === "pool_traffic" ||
-        state.intentTopic === "pool_limit" ||
-        state.intentTopic === "guidance_ask" ||
-        state.intentTopic === "combo_service_ask" ||
-        state.intentTopic === "maintain_after_goal" ||
-        state.intentTopic === "new_class_inquiry" ||
-        state.intentTopic === "class_has_newbies")
-    ) {
-      return null;
-    }
-    const goal = knownInfo.fitnessGoal ?? "mục tiêu";
-    return `[EXAMPLE — INBODY PITCH: text thuần, KHÔNG **bold**, KHÔNG giá/gói]
-1 message = xác nhận lịch ngắn + pitch Inbody + câu mời. KHÔNG kèm bất cứ gì khác.
-
-SAI: "Với lịch X, ${h} có thể chọn Full 12 tháng 7tr..."  ← nhảy gói
-ĐÚNG: "Dạ, để ${goal} hiệu quả thì cần kết hợp tập luyện đúng hướng ${h}. Bên em đo InBody miễn phí lần đầu, HLV phân tích tỷ lệ mỡ cơ rồi tư vấn lộ trình chuẩn luôn. ${h} qua thử 1 buổi để dễ chọn gói ạ"`;
-  }
-
-  // ── FITNESS: đang evaluation → show gói có narrative ──
-  if (
-    flow === "fitness" &&
-    stage === "evaluation" &&
-    knownInfo.serviceType !== null
-  ) {
-    // GUARD: KH hỏi FAQ off-topic (giờ mở cửa, lịch lớp, cơ sở vật chất) → KHÔNG pitch 3 gói.
-    // Để GATE/template trả lời câu hỏi cụ thể trước. Sale tự nhiên là answer-first.
-    if (
-      message &&
-      (detectHoursQuestion(message) ||
-        detectClassScheduleQuestion(message) ||
-        detectFacilityQuestion(message, flow) ||
-        state.intentTopic === "ask_open_hours" ||
-        state.intentTopic === "pool_hours" ||
-        state.intentTopic === "pool_temperature" ||
-        state.intentTopic === "pool_swimwear" ||
-        state.intentTopic === "pool_chlorine" ||
-        state.intentTopic === "pool_water_change" ||
-        state.intentTopic === "pool_lifeguard" ||
-        state.intentTopic === "pool_traffic" ||
-        state.intentTopic === "pool_limit" ||
-        state.intentTopic === "guidance_ask" ||
-        state.intentTopic === "combo_service_ask" ||
-        state.intentTopic === "maintain_after_goal" ||
-        state.intentTopic === "new_class_inquiry" ||
-        state.intentTopic === "class_has_newbies")
-    ) {
-      return null;
-    }
-    const svc = knownInfo.serviceType;
-    const goal = knownInfo.fitnessGoal ?? "sức khỏe tổng thể";
-
-    // Goal-specific value hint
-    const goalHint: Record<string, string> = {
-      "tang-co": `Tăng cơ cần tập có hệ thống + kỹ thuật đúng giai đoạn đầu → nhấn PT cá nhân, cộng thêm Yoga/Pilates để phục hồi cơ. KHÔNG chỉ nhấn diện tích phòng.`,
-      "tang-can": `Tăng cân khoa học = tăng cơ, KHÔNG tích mỡ bụng/tích nước → nhấn PT lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn, InBody đo lượng cơ thiếu + chuyển hóa cơ bản để nạp dinh dưỡng chính xác.`,
-      "giam-mo": `Giảm mỡ hiệu quả = cardio + weight training kết hợp → nhấn thẻ Full (Gym + Zumba/Bơi dùng chung), bể bơi 4 mùa duy nhất Vĩnh Yên. KHÔNG chỉ nhấn diện tích phòng.`,
-      "thu-gian": `Thư giãn → nhấn Yoga GV Ấn Độ 4 ca/ngày linh hoạt lịch + không gian rộng không chen chúc.`,
-      "hoc-boi": `Học bơi → nhấn bể 4 mùa duy nhất Vĩnh Yên + cam kết biết bơi sau khóa (học lại miễn phí).`,
-      "suc-khoe": `Sức khỏe tổng thể → nhấn thẻ Full 4 dịch vụ trong 1 thẻ, dùng cả năm bảo lưu được khi bận.`,
-      "giu-dang": `Giữ dáng = duy trì vóc dáng săn chắc + tinh chỉnh vùng chưa ưng → nhấn thẻ Full đa năng đổi môn cho đỡ chán, InBody theo dõi định kỳ.`,
-    };
-    const specificHint =
-      goalHint[goal] ??
-      `Nhấn điểm khác biệt cụ thể của ${svc} phù hợp mục tiêu ${goal}.`;
-
-    // Concrete package examples per goal — correct anchor order: high → mid → light
-    const goalPackages: Record<string, string> = {
-      "giam-mo":
-        `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, kết hợp cardio + weight + xả stress (giải pháp giảm cân Fami)\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập, tiết kiệm\n` +
-        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 kèm sát cho ai muốn đốt mỡ nhanh + đúng kỹ thuật`,
-      "tang-co":
-        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 xây kỹ thuật nền đúng, tránh chấn thương\n` +
-        `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — tự tập theo lịch dài hơi`,
-      "tang-can":
-        `PT 20 buổi (2 tháng) 6tr — HLV 1-1 lên giáo án tăng khối cơ + thực đơn 5-6 bữa dễ ăn\n` +
-        `Full 12 tháng 7tr — Gym + Yoga/Pilates phục hồi cơ trong 1 thẻ\n` +
-        `Gym fulltime 12 tháng 5tr — tự tập tập trung nhóm cơ ngực/xô/mông/đùi`,
-      "thu-gian":
-        `Full 12 tháng 7tr — Gym + Yoga + Zumba + Bơi trong 1 thẻ\n` +
-        `Yoga/Zumba fulltime 12 tháng 5.8tr — không giới hạn ca, GV Ấn Độ 4 ca/ngày\n` +
-        `Yoga/Zumba 3 buổi/tuần 12 tháng 4.5tr — lịch cố định 3 buổi/tuần`,
-      "hoc-boi":
-        `Học bơi 1-1 (12 buổi) 3tr + 3 tháng bể — HLV riêng, cam kết biết bơi, học lại miễn phí\n` +
-        `Học bơi lớp nhóm (12 buổi) 1.2tr + 1 tháng bể — lớp nhỏ, tiết kiệm hơn\n` +
-        `Bơi NL fulltime 12 tháng 5tr — sau khi biết bơi, tập tự do cả năm`,
-      "suc-khoe":
-        `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, toàn diện nhất\n` +
-        `Full 6 tháng 4.5tr — đủ 4 dịch vụ, thử 6 tháng trước\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — chỉ gym nếu muốn đơn giản`,
-      "giu-dang":
-        `Full 12 tháng 7tr — Gym + Bơi + Yoga + Zumba 1 thẻ, đổi môn duy trì vóc dáng đỡ chán\n` +
-        `Full 6 tháng 4.5tr — đủ 4 dịch vụ, thử 6 tháng trước\n` +
-        `Gym 3 buổi/tuần 12 tháng 4.5tr — giữ form gọn nhẹ nếu muốn đơn giản`,
-    };
-    const concretePackages =
-      goalPackages[goal] ??
-      `[gói cao nhất] [giá] — [lý do gắn ${goal}]\n[gói vừa] [giá] — [lý do]\n[gói nhẹ nhất] [giá] — thử trước`;
-
-    // NHỊP TƯ VẤN: chỉ bung bảng giá KHI khách chủ động hỏi giá. Khách mới cho 1 chi tiết
-    // ấm (lịch/buổi/kinh nghiệm) mà CHƯA hỏi giá → trial-first, gợi 1 hướng + mời InBody.
-    // Đổ cả 3 gói lúc khách chưa hỏi = "tờ rơi", mất tự nhiên (user feedback 2026-05).
-    const askedPriceNow = message ? detectPriceQuestion(message) : false;
-    if (askedPriceNow) {
-      return `[EXAMPLE — KHÁCH HỎI GIÁ ở evaluation: bung DẦN, KHÔNG đổ cả 3 gói thành bảng. Reply ≤ 260 ký tự]
-Value 1 câu: ${specificHint}
-Gói tham chiếu (anchor cao→nhẹ — CHỌN 1 gói anchor + 1 gói nhẹ hơn để nói, KHÔNG đọc cả 3):
-${concretePackages}
-Mẫu: "[1 câu value]. Phù hợp nhất với ${h} là [gói anchor + giá] ạ. Nếu muốn nhẹ hơn thì có [1 gói tiết kiệm + giá]. ${h} ghé đo InBody miễn phí 1 buổi rồi HLV tư vấn lộ trình chuẩn nha?"
-SAI: liệt kê cả 3 gói thành danh sách khô; lặp giá đã pitch tin trước.`;
-    }
-    return `[EXAMPLE — TRIAL-FIRST, KHÔNG dump bảng giá. Reply ≤ 220 ký tự, giọng trò chuyện, 1-MOVE]
-Khách vừa cho 1 chi tiết ấm (lịch/buổi/kinh nghiệm) và CHƯA hỏi giá → ĐỪNG đổ 3 gói (nghe như tờ rơi). Soi độ dài: khách nhắn cụt → reply NGẮN ấm.
-Value theo mục tiêu: ${specificHint}
-Cấu trúc: (1) ACK ấm chi tiết khách vừa nói (KHÔNG khen "tốt/hợp lý"). (2) Gợi 1 HƯỚNG phù hợp nhất + lý do ngắn, KHÔNG kèm số giá. (3) Mời đo InBody/thử 1 buổi miễn phí + hỏi nhẹ buổi nào (sáng/chiều).
-Mẫu: "Dạ chiều ${h} ghé sau giờ làm cũng tiện ạ. Người mới muốn giảm mỡ thì em gợi bắt đầu Gym kết hợp Zumba cho đỡ chán mà đốt mỡ tốt. ${h} ghé đo InBody miễn phí 1 buổi để HLV xem mỡ cơ rồi lên lộ trình chuẩn nha, ${h} tiện chiều nào ạ?"
-SAI: ACK + value + 3 gói + câu hỏi dồn 1 tin; bung giá khi khách chưa hỏi.`;
-  }
+  const { stage, flow, knownInfo } = state;
 
   // ── GIẢI CƠ: chưa biết vùng đau ──
   if (

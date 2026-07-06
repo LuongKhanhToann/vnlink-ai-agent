@@ -449,7 +449,10 @@ function buildAgentStep(
           if (urls.length > 0) {
             dedupedMediaUrls = urls;
             effectiveNextStep = "show_media";
-            injectedGuardKey = proactive.key;
+            // Ghi GUARD-KEY (không phải key thật) để chống gửi lại: dedup check dùng proactive.guardKey.
+            // before-after: key="fitness-before-after-loss/gain" nhưng guardKey="fitness-before-after"
+            // (1 lần/cuộc, không gửi cả loss lẫn gain). giai-co: guardKey===key nên không đổi.
+            injectedGuardKey = proactive.guardKey;
             console.log(`[proactive-media] inject ${urls.length} media key=${proactive.key} move=${stateBeforeReply.mediaMove ?? "none"}`);
           } else {
             dedupedMediaUrls = null; // fetch rỗng (không có media cho key) → không gửi

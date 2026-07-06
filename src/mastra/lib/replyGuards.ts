@@ -47,7 +47,7 @@ export function ensureMediaCaption(
     cap = `Dạ em gửi ${honorific} vài ca bên em làm thực tế để dễ hình dung ạ.`;
   else cap = `Dạ em gửi ${honorific} ít hình bên em để dễ hình dung không gian tập ạ.`;
   const body = dropLeadingDa(text);
-  return body ? `${cap} ${body}` : cap;
+  return body ? `${cap} ${capFirst(body)}` : cap;
 }
 
 /** Reply có phải template CHÀO MỞ ĐẦU (turn-1) không — soi kỹ thuật. */
@@ -112,7 +112,7 @@ export function forceStudentPricing(
     `Dạ bên em có bảng giá riêng cho học sinh/sinh viên ạ: gói Full 12 tháng 4 triệu là đáng nhất, ` +
     `nếu ${honorific} muốn nhẹ hơn thì 1 tháng 700 nghìn ạ.`;
   const body = dropLeadingDa(text);
-  return body ? `${line} ${body}` : line;
+  return body ? `${line} ${capFirst(body)}` : line;
 }
 
 /**

@@ -742,6 +742,9 @@ MEDIA_MOVE — quyết định CHỦ ĐỘNG gửi ảnh/video như một nhân 
                  ⭐ BẮT BUỘC chọn show_results (ĐỪNG để none) khi khách hỏi kiểu NGHI NGỜ KẾT QUẢ, ví dụ:
                     fitness: "liệu có lên/giảm thật không", "tập mãi chẳng thấy gì", "có hiệu quả thật không";
                     giai-co: "làm xong có đỡ/khỏi thật không", "có hết hẳn không hay lại đau", "có tái lại không".
+                 ⭐ NGHI NGỜ TÁI PHÁT / DỘI LẠI (khách sợ kết quả KHÔNG BỀN) cũng là show_results, KHÔNG phải hỏi giữ-dáng:
+                    "giảm xong lại lên lại như cũ", "tập rồi có xuống bền không hay lên lại", "sợ lại về như cũ",
+                    "được thời gian lại béo lại". Đây là DOUBT về độ bền kết quả → bung ảnh trước-sau, ĐỪNG gán maintain_after_goal.
                  Đây là lúc VÀNG để bung ảnh trước-sau tạo niềm tin.
   NGUYÊN TẮC: chỉ chọn show_* khi ĐÚNG LÚC giúp khách quyết — như sale đọc vị, KHÔNG gửi cho có, KHÔNG gửi khi đang
   thăm dò sơ khởi hay đang nói chuyện khác. Không chắc thì để none. Đây chỉ là Ý ĐỊNH gửi — hệ thống tự lo việc gửi
