@@ -1151,11 +1151,16 @@ export function buildNextState(
   llm: LLMClassification
 ): ConversationState {
   // Xưng hô: lấy từ classifier (LLM hiểu "a"→anh, "c"→chị, ngữ cảnh) — KHÔNG regex.
-  // Sticky: classifier cho giá trị mới thì cập nhật, không thì giữ previous.
+  // Sticky THẬT: giới tính KH không đổi giữa cuộc → một khi đã CHỐT ("anh"/"chị") thì
+  // KHÓA, classifier ảo "chị" trên tin không có tín hiệu giới KHÔNG được lật (bug: KH nói
+  // "a chưa tập gym" → anh, câu sau vô-giới → classifier nhả "chị" → đảo xưng hô giữa chừng).
+  // Chỉ nhận giá trị classifier khi CHƯA rõ (previous = "anh/chị").
   const honorific: "anh" | "chị" | "anh/chị" =
-    llm.honorific === "anh" || llm.honorific === "chị"
-      ? llm.honorific
-      : previous.honorific;
+    previous.honorific === "anh" || previous.honorific === "chị"
+      ? previous.honorific
+      : llm.honorific === "anh" || llm.honorific === "chị"
+        ? llm.honorific
+        : previous.honorific;
 
   const keywordFlow = detectFlowByKeyword(message, previous.flow);
   let flow = keywordFlow ?? llm.flow ?? previous.flow;
