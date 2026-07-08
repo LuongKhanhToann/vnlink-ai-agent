@@ -749,6 +749,9 @@ MEDIA_MOVE — quyết định CHỦ ĐỘNG gửi ảnh/video như một nhân 
                     "giảm xong lại lên lại như cũ", "tập rồi có xuống bền không hay lên lại", "sợ lại về như cũ",
                     "được thời gian lại béo lại". Đây là DOUBT về độ bền kết quả → bung ảnh trước-sau, ĐỪNG gán maintain_after_goal.
                  Đây là lúc VÀNG để bung ảnh trước-sau tạo niềm tin.
+                 ⛔ RANH GIỚI: show_results CHỈ cho nghi ngờ HIỆU QUẢ/KẾT QUẢ dịch vụ. Lo lắng về TIỆN NGHI / TRẢI NGHIỆM chỗ tập
+                    (bể/phòng có ĐÔNG-chen chúc không, có ồn không, chỗ đỗ xe, khung giờ vắng-đông) là bận tâm về sự thoải mái,
+                    KHÔNG phải nghi ngờ kết quả → TUYỆT ĐỐI KHÔNG show_results: khách đang soi cơ sở thật thì show_service, còn lại none.
   NGUYÊN TẮC: chỉ chọn show_* khi ĐÚNG LÚC giúp khách quyết — như sale đọc vị, KHÔNG gửi cho có, KHÔNG gửi khi đang
   thăm dò sơ khởi hay đang nói chuyện khác. Không chắc thì để none. Đây chỉ là Ý ĐỊNH gửi — hệ thống tự lo việc gửi
   thật, đúng bộ môn và chống trùng, nên cứ chọn theo nhịp hội thoại, KHÔNG cần bận tâm đã gửi hay chưa.

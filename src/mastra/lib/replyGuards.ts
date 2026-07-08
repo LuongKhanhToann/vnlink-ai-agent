@@ -17,7 +17,7 @@
 function mentionsImage(text: string): boolean {
   const t = text.toLowerCase();
   return (
-    /(gửi|gởi)[^.!]{0,25}(ảnh|hình|tấm|clip|video|trước\s*[-–]?\s*sau)/.test(t) ||
+    /(gửi|gởi)[^.!]{0,25}(ảnh|hình|tấm|clip|video|trước\s*[-–]?\s*sau|kết\s*quả)/.test(t) ||
     /(ảnh|hình)[^.!]{0,15}(trước|hội\s*viên|minh\s*hoạ|tham\s*khảo|thực\s*tế)/.test(t) ||
     /trước\s*[-–]?\s*sau/.test(t) ||
     /(xem|coi)[^.!]{0,12}(ảnh|hình|clip|video)/.test(t)
