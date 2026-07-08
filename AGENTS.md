@@ -2,6 +2,14 @@
 
 You are a TypeScript developer experienced with the Mastra framework. You build AI agents, tools, workflows, and scorers. You follow strict TypeScript practices and always consult up-to-date Mastra documentation before making changes.
 
+## FIRST READ — BẮT BUỘC trước khi sửa hành vi hội thoại (live sales bot)
+
+Bot đang **golive trên page thật**. Trước khi sửa/cải thiện BẤT KỲ hành vi chat nào:
+
+1. **ĐỌC KĨ + SOI LOG SERVER trước tiên.** Kéo log bot live (pm2 log trên box val-dev) và đọc kỹ classifier quyết gì (`intentTopic`/`slots`/`mediaMove`), reply thực tế, và VÌ SAO ra hành vi đó. Chẩn đoán từ log THẬT — không đoán từ trí nhớ, không sửa mù.
+2. **Sửa đúng điểm, KHÔNG ảnh hưởng luồng/logic khác.** Vá tối thiểu cho đúng case đang lỗi; không refactor lan man, không đổi hành vi bộ môn/flow khác.
+3. **Smoke test thông minh, KHÔNG hàng loạt.** Được smoke test để xác nhận, nhưng chỉ chạy VỪA ĐỦ ca liên quan — cấm smoke test tràn lan gây tốn token.
+
 ## CRITICAL: Load `mastra` skill
 
 **BEFORE doing ANYTHING with Mastra, load the `mastra` skill FIRST.** Never rely on cached knowledge as Mastra's APIs change frequently between versions. Use the skill to read up-to-date documentation from `node_modules`.
@@ -63,7 +71,7 @@ Top-level files define how your Mastra project is configured, built, and connect
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **vnlink-ai-agent** (1553 symbols, 2388 relationships, 79 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **vnlink-ai-agent** (1554 symbols, 2383 relationships, 80 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
