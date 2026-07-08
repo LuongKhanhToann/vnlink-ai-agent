@@ -1999,9 +1999,9 @@ function buildFitnessStageFocus(state: ConversationState): string {
   if (stage === "evaluation" || stage === "negotiation") {
     return (
       `[VIỆC CẦN LÀM — TƯ VẤN & TẠO ĐỘNG LỰC] CHỦ ĐỘNG dẫn dắt, đừng trả lời xong để lửng. Recommend DỨT KHOÁT 1 hướng hợp mục tiêu (value-first, không "cả 2 đều tốt"). ` +
-      `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. Gợi đo InBody / thử 1 buổi như bước trải nghiệm value. ` +
-      `Có thể thúc nhẹ bằng 2 đòn (chỉ khi tự nhiên, KHÔNG ép, KHÔNG mỗi tin một lần): suất trải nghiệm miễn phí có GIỚI HẠN theo tuần (tạo lý do hành động sớm); rủ thêm bạn/người thân tập cùng có ƯU ĐÃI nhóm + đỡ ngại, dễ duy trì. ⛔ KHÔNG bịa con số cụ thể (còn mấy suất, giảm bao nhiêu %) — nói chung "đang giới hạn suất" / "có ưu đãi nhóm" thôi. ` +
-      `★ Khi khách TỰ nhắc rủ bạn / đi cùng người thân / đi 2 người → BÁM NGAY: xác nhận có ƯU ĐÃI NHÓM (đi đông tiết kiệm hơn, đỡ ngại) — đừng để trôi cơ hội này. ` +
+      `Tạo động lực bằng KẾT QUẢ khách sẽ đạt + ưu đãi nhẹ. NẾU khách CHƯA được mời thử lần nào (đọc lịch sử chat) → gợi đo InBody / thử 1 buổi như bước trải nghiệm value; đã mời ở tin trước mà khách chưa từ chối/chưa gật → ĐỪNG mời lại, tiến thẳng sang chốt NGÀY. ` +
+      `Có thể thúc nhẹ (chỉ khi tự nhiên, KHÔNG ép, KHÔNG mỗi tin một lần): suất trải nghiệm miễn phí đang GIỚI HẠN theo tuần (tạo lý do hành động sớm). ⛔ KHÔNG bịa con số cụ thể (còn mấy suất, giảm bao nhiêu %) — nói chung "đang giới hạn suất" thôi. ⛔ ĐỪNG tự chèn "rủ bạn / đi cùng cho đỡ ngại" khi khách KHÔNG nhắc — nudge rủ bạn lạc chỗ nghe rất sượng, lạc câu khách đang hỏi. ` +
+      `★ CHỈ khi khách TỰ nhắc rủ bạn / đi cùng người thân / đi 2 người → BÁM NGAY: xác nhận có ƯU ĐÃI NHÓM (đi đông tiết kiệm hơn, đỡ ngại) — đừng để trôi cơ hội này. ` +
       `Khi mời chốt: DẪN bằng 1 lý do cụ thể (em giữ chỗ trước / HLV chuẩn bị lộ trình + InBody cho mình) rồi hỏi NGÀY khách qua (hôm nào; nếu khách mơ hồ thì gợi 2 ngày cụ thể) — ⛔ KHÔNG hỏi "buổi sáng/chiều/tối" khi CHƯA chốt được NGÀY (ngày mới là cái giữ chỗ). ` +
       `⛔ CHỈ chốt khi khách đã GẬT muốn đến. CHỈ bung giá/gói khi khách HỎI giá. KHÔNG ép.`
     );

@@ -327,7 +327,7 @@ async function generateFollowupReply(senderId: string, attempt: number): Promise
 
     const nudgeTone =
       attempt === 0
-        ? "nhắc nhẹ, hỏi tiếp đúng bước đang dở"
+        ? "nhắc hiện diện nhẹ, KHÔNG lặp lại câu hỏi/lời mời vừa gửi ở tin trước"
         : "nhắc thêm 1 lần, gợi 1 lý do/giá trị để khách quay lại, vẫn nhẹ nhàng";
     // Follow-up phải BIẾT lượt trước vừa làm gì — nếu đã gửi ảnh thì đừng re-announce/mời lại
     // (bug: bot gửi ảnh gym xong, 2p sau follow-up "em gửi mình xem khu tập trước..." → rời rạc, thô).
@@ -336,10 +336,13 @@ async function generateFollowupReply(senderId: string, attempt: number): Promise
       : `KHÔNG gọi tool gửi ảnh/QR. `;
     const followupInstruction =
       `[FOLLOW-UP — khách CHƯA trả lời tin trước của em (im 1 lúc). CHỦ ĐỘNG nhắn 1 tin NGẮN kéo khách tiếp tục: ${nudgeTone}. ` +
-      `KHÔNG lặp y nguyên tin trước (kể cả lặp lại câu hỏi cũ), KHÔNG xin lỗi vì nhắn lại, KHÔNG spam. ${mediaNote}` +
-      `1 ack/đỡ lời nhẹ + tiến đúng bước funnel hiện tại (hoặc 1 câu hỏi), kết "ạ".]`;
+      `⛔ QUAN TRỌNG: prefix/[VIỆC CẦN LÀM] bên dưới có thể bảo em HỎI 1 câu hoặc MỜI THỬ 1 buổi — nhưng nếu tin trước em ĐÃ hỏi đúng câu đó / ĐÃ mời thử mà khách chưa đáp, thì tin follow-up này TUYỆT ĐỐI KHÔNG hỏi lại, KHÔNG mời lại (kể cả đổi chữ diễn đạt) — lặp lại câu hỏi/lời mời nghe như bot, khách ngán. ` +
+      `Cách đúng: 1 câu nhắc hiện diện ẤM + thêm 1 lý do/giá trị ngắn để khách muốn quay lại trả lời; KHÔNG xin lỗi vì nhắn lại, KHÔNG spam, KHÔNG ép chốt. ${mediaNote}` +
+      `Kết "ạ".]`;
 
-    const res: any = await agent.generate(`${followupInstruction}\n${prefix}`, {
+    // Prefix TRƯỚC (context/facts), chỉ thị FOLLOW-UP ĐẶT CUỐI để model đọc sau cùng →
+    // ưu tiên cao hơn, không bị block pitch trong prefix "lấn" (bug: followup lặp mời-thử).
+    const res: any = await agent.generate(`${prefix}\n\n${followupInstruction}`, {
       maxSteps: 1,
       modelSettings: { temperature: 0.7, topP: 0.95 },
       memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
