@@ -931,6 +931,25 @@ export function computeNextStage(
       info.preferredTime !== null ||
       intent !== "explore"
     ) {
+      // FUNNEL BƠI: mới CHỚM biết serviceType=boi mà CHƯA có tín hiệu chốt (loại thẻ / lịch /
+      // giờ / tên+SĐT / selecting-ready) → chỉ tiến tới DISCOVERY 1 nhịp để hỏi trình độ/nhu cầu
+      // bơi TRƯỚC khi báo giá, KHÔNG recurse nhảy thẳng inbody. `hoc-boi` chỉ là NÓI LẠI tên môn,
+      // không phải discovery thật (khác body-goal phải hỏi cao/nặng) → nếu không chặn, bot báo giá
+      // ngay lượt đầu. Đối tượng (người lớn/trẻ em) do PROMPT suy luận từ ngữ cảnh ("a muốn tập
+      // bơi" = người lớn tự học), KHÔNG hỏi máy móc. Chỉ áp cho nhánh bơi — không đụng môn khác.
+      if (
+        flow === "fitness" &&
+        info.serviceType === "boi" &&
+        info.memberType === null &&
+        info.schedule === null &&
+        info.preferredTime === null &&
+        !(info.name !== null && info.phone !== null) &&
+        intent !== "selecting" &&
+        intent !== "ready"
+      ) {
+        console.log(`[stateMachine] funnel bơi: chớm biết serviceType=boi ở opening → 1 nhịp discovery (goal=${info.fitnessGoal}) trước khi báo giá`);
+        return "discovery";
+      }
       return computeNextStage("discovery", info, intent, flow, llmSuggestedStage, turnCount, painProbed);
     }
     // Anti-stuck: nếu turn ≥ 3 mà vẫn opening → đẩy về discovery để bot không lặp template chào.
