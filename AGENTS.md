@@ -8,7 +8,7 @@ Bot đang **golive trên page thật**. Trước khi sửa/cải thiện BẤT K
 
 1. **ĐỌC KĨ + SOI LOG SERVER trước tiên.** Kéo log bot live (pm2 log trên box val-dev) và đọc kỹ classifier quyết gì (`intentTopic`/`slots`/`mediaMove`), reply thực tế, và VÌ SAO ra hành vi đó. Chẩn đoán từ log THẬT — không đoán từ trí nhớ, không sửa mù.
 2. **Sửa đúng điểm, KHÔNG ảnh hưởng luồng/logic khác.** Vá tối thiểu cho đúng case đang lỗi; không refactor lan man, không đổi hành vi bộ môn/flow khác.
-3. **Smoke test thông minh, KHÔNG hàng loạt.** Được smoke test để xác nhận, nhưng chỉ chạy VỪA ĐỦ ca liên quan — cấm smoke test tràn lan gây tốn token.
+3. **Test KĨ, KHÔNG sơ sài — và phải test ĐÚNG cái khách thấy.** Sửa hành vi hội thoại thì BẮT BUỘC smoke chạy REPLY THẬT qua pipeline (routerWorkflow + LLM, đặt `STORAGE_BACKEND=libsql` để không đụng prod), rồi ĐỌC câu chữ bot thực sự trả. TUYỆT ĐỐI KHÔNG chỉ unit-test logic/FSM rồi tuyên bố xong — logic đúng ≠ câu tự nhiên. Reply là ngẫu nhiên → chạy VÀI LẦN xem có ổn định không. Smoke thông minh & vừa đủ (không hàng loạt tốn token) nhưng KHÔNG được bỏ bước đọc reply thật TRƯỚC khi deploy.
 
 ## CRITICAL: Load `mastra` skill
 
