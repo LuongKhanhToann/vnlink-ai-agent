@@ -61,6 +61,12 @@ function humanizeSignal(s: IntentSignal): string {
  * Đặt ở CUỐI prefix (sau GATE) để agent đọc cuối cùng, dễ tích hợp vào reply.
  */
 function buildMultiIntentHint(state: ConversationState): string {
+  // GUARD TIN ĐẦU: ở tin nhắn ĐẦU (chào + nêu bộ môn/mục tiêu), classifier đôi khi BỊA 1 secondary
+  // informational (giờ giấc / bể / cơ sở) KHÔNG có trong tin → agent xổ cơ sở+giờ lúc chưa ai hỏi
+  // (lỗi "tự khai cơ sở/giờ khi khách chưa hỏi"). Tin đầu chỉ tập trung intent CHÍNH (mở discovery),
+  // KHÔNG cover secondary. Multi-intent THẬT (khách hỏi 2-3 thứ) gần như luôn ở lượt sau → vẫn giữ.
+  if ((state.turnCount ?? 1) <= 1) return "";
+
   // Lọc secondary KHÔNG phải câu hỏi cần trả lời riêng:
   //   - greeting: câu chào đã nằm trong "Dạ..." của reply chính → KHÔNG append "Dạ em chào..."
   //     (classifier temp thấp vẫn thỉnh thoảng đẩy greeting/general_hi làm secondary khi tin gộp
