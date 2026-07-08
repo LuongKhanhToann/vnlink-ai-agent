@@ -78,6 +78,20 @@ const CLOSE_MOTIVATION =
   "tạo động lực chốt hẹn: mời trải nghiệm MIỄN PHÍ (InBody + 1-2 buổi cùng HLV), " +
   "nhấn nhẹ số suất giới hạn để khách quyết sớm. Có thể gợi rủ bạn/người thân nhận thêm ưu đãi. KHÔNG ép, KHÔNG hạ giá.";
 
+// ─────────────────────────────────────────────
+// BƠI (hoc-boi) — funnel RIÊNG, KHÔNG dùng InBody/cao-nặng
+// ─────────────────────────────────────────────
+// Vì sao cần: hoc-boi trước đây KHÔNG có tactic discovery nào trong prefix → model nhỏ tự bơi
+// trong prompt fitness, vớ nhầm câu "cho em xin chiều cao/cân nặng" của body-goal (lỗi thật đã gặp).
+const SWIM_DISCOVERY =
+  "khách HỌC BƠI — TUYỆT ĐỐI KHÔNG hỏi chiều cao/cân nặng/InBody (đó chỉ dành cho mục tiêu cân nặng; bơi là cardio). " +
+  "Hỏi GỌN 1 câu về trình độ/nhu cầu: đã biết bơi chút nào chưa, hoặc muốn học cho BIẾT bơi hay bơi BÀI BẢN/khoẻ hơn. " +
+  "Suy đối tượng từ ngữ cảnh (khách tự xưng = người lớn tự học), chỉ hỏi tuổi khi khách nhắc con/bé. " +
+  "CHƯA báo giá, KHÔNG tự khai bể/giờ/cơ sở khi khách chưa hỏi.";
+const SWIM_RECOMMEND =
+  "đề xuất lớp bơi theo trình độ: chưa biết bơi → 1-1 cam kết biết bơi (HLV kèm từ nhịp thở, nổi nước); muốn tiết kiệm → lớp nhóm. " +
+  "KHÔNG InBody/cao-nặng. Mỗi lượt 1 ý chính, giá nói khi hợp lý sau khi hiểu nhu cầu.";
+
 const CONSULT_GOALS = new Set(["giam-mo", "tang-can", "giu-dang"]);
 
 /**
@@ -88,6 +102,16 @@ export function buildGoalConsultHint(state: ConversationState): string {
   const { flow, stage, knownInfo } = state;
   if (flow !== "fitness") return "";
   const goal = knownInfo.fitnessGoal;
+
+  // BƠI: goal=hoc-boi (hoặc serviceType=boi mà chưa rõ goal) → tactic bơi riêng, KHÔNG cao/nặng/InBody.
+  const isSwim = goal === "hoc-boi" || (knownInfo.serviceType === "boi" && goal === null);
+  if (isSwim) {
+    if (knownInfo.name && knownInfo.phone) return "";
+    if (stage === "discovery" || stage === "opening") return `[TƯ VẤN BƠI: ${SWIM_DISCOVERY}]`;
+    if (stage === "inbody" || stage === "evaluation") return `[TƯ VẤN BƠI: ${SWIM_RECOMMEND}]`;
+    return "";
+  }
+
   if (!goal || !CONSULT_GOALS.has(goal)) return "";
 
   // Đã đủ tên + SĐT → đang chốt slot (GATE commitment lo) → không chèn pitch nữa.
