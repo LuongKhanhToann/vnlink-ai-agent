@@ -160,22 +160,71 @@ export async function setBotEnabled(senderId: string, enabled: boolean): Promise
 }
 
 /**
- * Xoá user khỏi bảng điều khiển + bản ghi working-memory (Mastra resource, scope=resource)
- * sống chung Postgres. Admin gọi khi "xoá dữ liệu chat" 1 người.
- *   - bot_controls: dòng hiển thị trong danh sách admin (sender_id = PSID).
- *   - mastra_resources: hồ sơ ghi nhớ dài hạn theo resourceId (= PSID). Best-effort: bảng có
- *     thể vắng ở chế độ test (libsql) → nuốt lỗi, không chặn việc xoá dòng bot_controls.
+ * Xoá SẠCH mọi dấu vết Postgres của 1 PSID — admin "xoá dữ liệu chat" 1 người phải dọn HẾT,
+ * không để sót gì làm bot "nhớ" lại như cache. Mọi bảng keyed theo PSID = threadId = resourceId
+ * (thread phụ giữ FSM state = "<PSID>-fsm-state").
+ *   - bot_controls           : dòng hiển thị trong danh sách admin (sender_id = PSID). Xoá TRƯỚC.
+ *   - mastra_workflow_snapshot: ⚠️ Mastra memory API (memory.deleteThread) KHÔNG đụng bảng này →
+ *                               snapshot workflow (slot/stage/flow cũ) sống dai = "cache khó chịu".
+ *                               Đây là bảng HAY BỊ SÓT nhất. Lọc theo cột resourceId + literal
+ *                               trong snapshot jsonb (strpos, tránh wildcard LIKE với PSID có "_").
+ *   - memory_messages        : vector semantic-recall (metadata.resource_id/thread_id). Sót =
+ *                               recall lôi lại nguyên văn chat cũ.
+ *   - mastra_messages/threads : belt-and-suspenders phòng khi memory.deleteThread thất bại lặng lẽ.
+ *   - mastra_resources       : hồ sơ working-memory dài hạn theo resourceId.
+ * bot_controls là bước bắt buộc (lỗi → ném ra để endpoint trả 500). Các bảng còn lại best-effort:
+ * vắng ở chế độ libsql test / Mastra đã tự xoá → nuốt lỗi, không chặn các bảng khác.
  */
 export async function deleteBotUser(senderId: string): Promise<void> {
   await ensureSchema();
+  // Bắt buộc: dòng admin thấy. Lỗi ở đây là đáng kể → để ném ra ngoài.
   await getPool().query(`DELETE FROM bot_controls WHERE sender_id = $1`, [senderId]);
-  try {
-    await getPool().query(`DELETE FROM mastra_resources WHERE id = $1`, [senderId]);
-  } catch (e) {
-    console.warn(
-      `[botControl] xoá mastra_resources cho ${senderId} (best-effort) bỏ qua:`,
-      (e as Error).message,
-    );
+
+  const fsm = `${senderId}-fsm-state`;
+  const sweeps: Array<[string, string, unknown[]]> = [
+    [
+      // ⚠️ Cột resourceId của bảng này THƯỜNG null (createRun không set) → PSID chỉ nằm trong
+      //    snapshot jsonb dưới inputData. Postgres jsonb::text render CÓ dấu cách sau ":" (canonical
+      //    '"key": "val"') nên phải match đúng dạng có cách + đóng ngoặc kép (để "psid_2" không
+      //    dính "psid_20"). Khớp cả resourceId lẫn threadId (đều = PSID) cho chắc.
+      "mastra_workflow_snapshot",
+      `DELETE FROM mastra_workflow_snapshot
+         WHERE "resourceId" = $1
+            OR strpos(snapshot::text, '"resourceId": "' || $1 || '"') > 0
+            OR strpos(snapshot::text, '"threadId": "' || $1 || '"') > 0`,
+      [senderId],
+    ],
+    [
+      "memory_messages",
+      `DELETE FROM memory_messages
+         WHERE metadata->>'resource_id' = $1
+            OR metadata->>'thread_id' = $1
+            OR metadata->>'thread_id' = $2`,
+      [senderId, fsm],
+    ],
+    [
+      "mastra_messages",
+      `DELETE FROM mastra_messages WHERE thread_id = $1 OR thread_id = $2 OR "resourceId" = $1`,
+      [senderId, fsm],
+    ],
+    [
+      "mastra_threads",
+      `DELETE FROM mastra_threads WHERE id = $1 OR id = $2 OR "resourceId" = $1`,
+      [senderId, fsm],
+    ],
+    ["mastra_resources", `DELETE FROM mastra_resources WHERE id = $1`, [senderId]],
+  ];
+
+  for (const [name, sql, params] of sweeps) {
+    try {
+      const r = await getPool().query(sql, params);
+      if (r.rowCount) console.log(`[botControl] purge ${senderId}: ${name} -${r.rowCount} dòng`);
+    } catch (e) {
+      console.warn(
+        `[botControl] purge ${name} cho ${senderId} (best-effort) bỏ qua:`,
+        (e as Error).message,
+      );
+    }
   }
 }
 

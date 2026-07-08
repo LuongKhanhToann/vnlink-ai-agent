@@ -144,10 +144,12 @@ adminWebhook.post("/admin/api/users", async (c) => {
 });
 
 // ── Xoá TOÀN BỘ dữ liệu chat của 1 user ──
-// Quét mọi nơi lưu dữ liệu theo PSID (= threadId = resourceId):
-//   (1) Mastra memory: tin nhắn + FSM state + vector semantic-recall  (stateStore)
-//   (2) Postgres: dòng bot_controls + working-memory mastra_resources  (botControl)
-//   (3) Cache RAM: senders (FB session) + followup timer + classify queue
+// Quét mọi nơi lưu dữ liệu theo PSID (= threadId = resourceId), THỨ TỰ QUAN TRỌNG:
+//   (1) Cache RAM TRƯỚC: fb session + followup timer + classify queue — chặn tái tạo sau khi xoá.
+//   (2) Mastra memory: tin nhắn + FSM state + vector semantic-recall  (stateStore)
+//   (3) Postgres purge TRIỆT ĐỂ: bot_controls + mastra_workflow_snapshot (bảng Mastra memory API
+//       KHÔNG đụng → hay sót, gây "cache") + memory_messages(vector) + mastra_messages/threads
+//       (belt-and-suspenders) + working-memory mastra_resources  (botControl.deleteBotUser)
 // KHÔNG đụng Google Sheets (sổ booking) — theo lựa chọn admin.
 adminWebhook.post("/admin/api/users/delete", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
@@ -163,25 +165,10 @@ adminWebhook.post("/admin/api/users/delete", async (c) => {
 
   const warnings: string[] = [];
 
-  // (1) Mastra memory (tin nhắn + FSM state + vector).
-  try {
-    const { mastra } = await import("../index");
-    const { deleteConversationData } = await import("../lib/stateStore");
-    const r = await deleteConversationData(mastra, senderId);
-    warnings.push(...r.errors);
-  } catch (e) {
-    warnings.push(`memory: ${(e as Error).message}`);
-  }
-
-  // (2) Postgres: bot_controls + working-memory resource. Lỗi ở đây là đáng kể → trả 500.
-  try {
-    await deleteBotUser(senderId);
-  } catch (e) {
-    console.error(`[admin] delete bot_controls failed for ${senderId}:`, e);
-    return c.json({ error: "db_error", warnings }, 500);
-  }
-
-  // (3) Cache in-memory (best-effort, dynamic import tránh circular dep).
+  // (1) CẮT RAM TRƯỚC TIÊN — mọi tiến trình còn treo có thể GHI LẠI dữ liệu sau khi xoá:
+  //     followup (nhắc khi khách im) đang hẹn giờ sẽ fire và tái tạo thread/state; fb session +
+  //     classify queue giữ ngữ cảnh. Nếu xoá DB trước rồi mới cắt, followup fire NGAY sau đó =
+  //     khách "sống lại" y như cache. Cắt RAM trước = chặn nguồn tái tạo trước khi dọn DB.
   try {
     const fb = await import("./facebook");
     fb.purgeFbSessionState(senderId);
@@ -198,6 +185,24 @@ adminWebhook.post("/admin/api/users/delete", async (c) => {
     sc.cancelClassifyChain(senderId);
   } catch (e) {
     warnings.push(`classify: ${(e as Error).message}`);
+  }
+
+  // (2) Mastra memory (tin nhắn + FSM state + vector) qua memory API.
+  try {
+    const { mastra } = await import("../index");
+    const { deleteConversationData } = await import("../lib/stateStore");
+    const r = await deleteConversationData(mastra, senderId);
+    warnings.push(...r.errors);
+  } catch (e) {
+    warnings.push(`memory: ${(e as Error).message}`);
+  }
+
+  // (3) Postgres purge TRIỆT ĐỂ (bao gồm workflow_snapshot). Lỗi ở đây đáng kể → trả 500.
+  try {
+    await deleteBotUser(senderId);
+  } catch (e) {
+    console.error(`[admin] delete bot_controls failed for ${senderId}:`, e);
+    return c.json({ error: "db_error", warnings }, 500);
   }
 
   if (warnings.length) console.warn(`[admin] delete ${senderId} hoàn tất kèm cảnh báo:`, warnings);
