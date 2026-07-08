@@ -1205,12 +1205,29 @@ export function buildNextState(
     typeof llm.extractedSlots.serviceType === "string"
       ? llm.extractedSlots.serviceType.toLowerCase()
       : null;
+  // Đa-intent: khách nhắc CẢ dịch vụ fitness LẪN giải cơ trong 1 tin ("gym với giải cơ làm cùng được
+  // không") KHÔNG phải cú pivot rời giai-co — chỉ là hỏi phối hợp. secondaryIntents>0 = classifier thấy
+  // >1 ý → giữ giai-co, đừng để flip qua fitness kích FLOW-CHANGE RESET wipe booking đang dở + reset
+  // stage (bug DOIFLOW T8: "tập gym với giải cơ làm cùng được ko" → flip fitness → mất painArea + về
+  // discovery → chốt lead giữa chừng phải hỏi lại vùng đau).
+  const isMultiIntent = (llm.secondaryIntents?.length ?? 0) > 0;
   const switchedToFitnessSignal =
     extractedFitnessService !== null &&
-    FITNESS_SERVICE_SLOTS.includes(extractedFitnessService);
-  if (engagedGiaiCo && flow === "fitness" && !switchedToFitnessSignal) {
+    FITNESS_SERVICE_SLOTS.includes(extractedFitnessService) &&
+    !isMultiIntent;
+  // CONTACT-HANDOFF GUARD: tin CHỈ giao SĐT để chốt lead giải cơ đang dở KHÔNG bao
+  // giờ là cú "pivot sang fitness" — dù classifier lỡ re-extract serviceType cũ (vd "gym") từ lịch sử
+  // hội thoại. Tin "Tên 090..." không có chữ dịch vụ nào → switch signal đó là GIẢ. Giữ giai-co để
+  // lead ghi đúng trung tâm (Hoa Sen), không lật về fitness đúng lúc chốt. (Bug DOIFLOW T12: khách đưa
+  // "Sơn 0904…" → classifier bịa service=gym + llm.flow=fitness → nhả lock sai.)
+  const deliversContactNow =
+    typeof llm.extractedSlots.phone === "string" && llm.extractedSlots.phone.trim().length > 0;
+  // Đang trong hội thoại giai-co mà tin này GIAO SĐT (chốt lead) → không đòi painArea (classifier có
+  // lúc làm rơi slot đau giữa chừng), chỉ cần engagedGiaiCo: giao SĐT không bao giờ là pivot sang tập.
+  const fakeSwitchOnContact = deliversContactNow && engagedGiaiCo;
+  if (engagedGiaiCo && flow === "fitness" && (!switchedToFitnessSignal || fakeSwitchOnContact)) {
     console.log(
-      `[stateMachine] giai-co lock: painArea=${previous.knownInfo.painArea} + flow đòi fitness nhưng không có dịch vụ fitness cụ thể (llm.flow=${llm.flow ?? "—"}, service=${llm.extractedSlots.serviceType ?? "—"}) → giữ flow=giai-co`,
+      `[stateMachine] giai-co lock: painArea=${previous.knownInfo.painArea} + flow đòi fitness${fakeSwitchOnContact ? " (tin chỉ giao SĐT chốt lead → switch giả)" : " nhưng không có dịch vụ fitness cụ thể"} (llm.flow=${llm.flow ?? "—"}, service=${llm.extractedSlots.serviceType ?? "—"}) → giữ flow=giai-co`,
     );
     flow = "giai-co";
   }

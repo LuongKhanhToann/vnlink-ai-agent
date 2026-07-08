@@ -1046,7 +1046,16 @@ export function buildLogicGate(state: ConversationState, message?: string): stri
 
   // ── Khách hỏi giá → trả giá NGAY (compact) ──
   if (message && detectPriceQuestion(message) && !knownInfo.name && !knownInfo.phone) {
-    hints.push("[GATE giá: trả giá NGAY. Lẻ 200k-590k, liệu trình từ 3.3tr/10 buổi.]");
+    if (flow === "giai-co") {
+      // Số phút/giá buổi lẻ hay bị model nhỏ đọc lệch từ bảng nén "45p(1-2v)=200k|75p=330k" (từng bịa
+      // "45 phút 400k"). Bơm mốc RÕ RÀNG ngay điểm quyết: buổi lẻ chỉ có 2 mức, đúng số, KHÔNG chế.
+      hints.push(
+        "[GATE giá giải cơ: trả giá NGAY, ĐÚNG bảng — buổi lẻ CHỈ 2 mức: 45 phút = 200k, 75 phút = 330k. " +
+          "TUYỆT ĐỐI không chế số khác, không để buổi ngắn đắt hơn buổi dài. Liệu trình từ 3.3tr/10 buổi. Rồi gợi thử 1 buổi.]",
+      );
+    } else {
+      hints.push("[GATE giá: trả giá NGAY. Lẻ 200k-590k, liệu trình từ 3.3tr/10 buổi.]");
+    }
   }
 
   // ── Khách hỏi cọc/thanh toán (compact) ──

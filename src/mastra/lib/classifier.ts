@@ -760,8 +760,9 @@ MEDIA_MOVE — quyết định CHỦ ĐỘNG gửi ảnh/video như một nhân 
 ${slotsFor(scope)}
 
 SLOTS chung (áp dụng cả fitness và giai-co):
-  name  = tên khách (tên đơn như "trung", "Lan" hoặc họ tên đầy đủ đều được — chấp nhận bất kỳ dạng tên nào).
-          ⚠️ CHỈ lấy phần TÊN, BỎ động từ/xưng hô dẫn vào: "tên anh là Trung"→"Trung", "mình tên Lan"→"Lan", "em là Hùng"→"Hùng". KHÔNG bao giờ gồm "là"/"tên"/"anh"/"chị".
+  name  = tên RIÊNG của khách khi khách tự xưng/giới thiệu tên (thường lúc chốt lịch). Tên đơn hoặc họ tên đầy đủ đều được.
+          ⚠️ Đây là tên NGƯỜI. TUYỆT ĐỐI KHÔNG bịa tên từ danh từ chỉ nơi chốn/thương hiệu/xưng hô cửa hàng ("trung tâm", "shop", "phòng tập", "bên mình", "bên em"…) dù chữ nghe na ná tên. Câu hỏi về cơ sở kiểu "trung tâm gần đây không", "shop ở đâu" KHÔNG chứa tên khách → name=null.
+          ⚠️ CHỈ lấy đúng phần TÊN, BỎ động từ/xưng hô dẫn vào ("mình tên …", "em là …") — không bao giờ gồm "là"/"tên"/"anh"/"chị".
   phone = số điện thoại
   preferredTime = thời gian khách muốn đến — RESOLVE dựa bảng "NGÀY HIỆN TẠI" ở phần DỮ LIỆU bên dưới (đã có sẵn thứ→DD/MM 14 ngày tới). Viết CÓ DẤU, KHÔNG slugify ("cuối tuần" không phải "cuoi tuan").
     - NGÀY/GIỜ RÕ (có thứ/ngày/giờ cụ thể, kể cả "mai"/"ngày kia"/"thứ 4 tuần sau") → "[giờ] [buổi] [thứ] DD/MM", gom đủ phần khách cho, bỏ phần không có. Buổi suy từ giờ: <12=sáng, 12–17=chiều, ≥18=tối. Chỉ có giờ → suy ngày gần nhất hợp lý.
