@@ -368,6 +368,8 @@ const SLOTS_FITNESS = `SLOTS cho fitness:
                   "học bơi" / "muốn biết bơi" → "hoc-boi"
                   "giữ dáng" / "duy trì vóc dáng" / "giữ form" / "giữ cân" / "săn chắc duy trì" → "giu-dang"
                   Phân biệt: "tăng cơ" (cơ bắp, gym thuần) = tang-co; "tăng cân" (người gầy muốn lên cân) = tang-can.
+                  ⚠️ KHÔNG mặc định "giam-mo": CHỈ chọn giam-mo khi khách THỰC SỰ nói giảm mỡ/giảm cân/nhiều mỡ. "tập gym" trơ, "tập cho đều", "săn chắc", "lên cơ tay/vai/ngực/ngực lép" KHÔNG phải giảm mỡ.
+                  Mục tiêu GỘP "duy trì + tăng cơ" (vd "duy trì với tăng cơ tay vai") → "tang-co" (xây cơ là hướng hành động chính) — KHÔNG phải giu-dang, KHÔNG phải giam-mo.
                   VD: "muốn tập gym giảm mỡ" → serviceType="gym", fitnessGoal="giam-mo"
   bodyStats     = chỉ số cơ thể khách TỰ KHAI (chiều cao / cân nặng / số cân muốn giảm-tăng).
                   Ghi NGUYÊN VĂN gọn những gì khách nói, để null nếu không nhắc.
@@ -742,6 +744,7 @@ MEDIA_MOVE — quyết định CHỦ ĐỘNG gửi ảnh/video như một nhân 
                  ⭐ BẮT BUỘC chọn show_results (ĐỪNG để none) khi khách hỏi kiểu NGHI NGỜ KẾT QUẢ, ví dụ:
                     fitness: "liệu có lên/giảm thật không", "tập mãi chẳng thấy gì", "có hiệu quả thật không";
                     giai-co: "làm xong có đỡ/khỏi thật không", "có hết hẳn không hay lại đau", "có tái lại không".
+                 ⭐ KỂ đã TỰ TẬP/TỰ LÀM lâu mà CHƯA có kết quả rồi hỏi bên mình "ở đây khác gì / có hơn chỗ khác không / sao tin được / có ăn thua không" = NGHI NGỜ KẾT QUẢ (ĐỪNG nhầm là câu so sánh gói/intent=compare thường) → show_results.
                  ⭐ NGHI NGỜ TÁI PHÁT / DỘI LẠI (khách sợ kết quả KHÔNG BỀN) cũng là show_results, KHÔNG phải hỏi giữ-dáng:
                     "giảm xong lại lên lại như cũ", "tập rồi có xuống bền không hay lên lại", "sợ lại về như cũ",
                     "được thời gian lại béo lại". Đây là DOUBT về độ bền kết quả → bung ảnh trước-sau, ĐỪNG gán maintain_after_goal.

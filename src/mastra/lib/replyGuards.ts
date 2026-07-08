@@ -160,13 +160,21 @@ export function softenGiaiCoPrematureClose(
     /(sáng hay chiều|sáng\s*\/\s*chiều|chiều hay (?:tối|sáng)|sáng hay tối|tiện (?:ghé|qua|đến|sang|sắp xếp)[^.!?]*?(?:sáng|chiều|tối|hôm nào|bữa nào|giờ nào))/iu;
   if (!SCHED.test(text)) return text;
 
+  // FACT giờ mở cửa: câu "…mở từ 9h–23h, anh tiện qua sáng hay chiều ạ" khớp SCHED nhưng
+  // ĐÂY LÀ câu TRẢ LỜI giờ mở cửa (GATE giờ dặn "trả giờ + hỏi sáng/chiều"), KHÔNG phải giục
+  // chốt. Cắt nó = giết luôn vế GIỜ khách vừa hỏi (bug né câu hỏi info). Giữ nguyên câu mang fact giờ.
+  const HOURS_FACT = /\b\d{1,2}\s*h(?:\d{2}|\b)|mở\s*cửa|mở\s*từ|giờ\s*mở/iu;
+  const isPremature = (s: string): boolean => SCHED.test(s) && !HOURS_FACT.test(s);
+
+  const sentences = text.split(/(?<=[.!?])\s+/).filter((s) => s.trim());
+  // Không có câu giục-chốt THẬT (chỉ khớp SCHED trong câu trả giờ) → để nguyên, đừng nối câu mềm thừa.
+  if (!sentences.some(isPremature)) return text;
+
   const h = ctx.honorific === "chị" ? "chị" : "anh";
   const soft = `Mình cứ thử trải nghiệm 1 buổi để KTV kiểm tra trực tiếp rồi tư vấn lộ trình đã, chưa cần quyết gì đâu ${h} ạ`;
 
-  // Bỏ những câu chứa marker giục chốt, ghép lời mời mềm vào cuối phần value còn lại.
-  const kept = text
-    .split(/(?<=[.!?])\s+/)
-    .filter((s) => s.trim() && !SCHED.test(s));
+  // Bỏ những câu giục chốt THẬT, ghép lời mời mềm vào cuối phần value còn lại (giữ câu mang fact giờ).
+  const kept = sentences.filter((s) => !isPremature(s));
   const body = kept.join(" ").trim().replace(/[.,;\s]+$/, "");
   return body ? `${capFirst(body)}. ${soft}` : soft;
 }
