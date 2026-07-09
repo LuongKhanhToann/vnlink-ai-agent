@@ -145,8 +145,16 @@ async function classifyTurn(
     const pickedFlow = res?.object?.flow;
     const flow: Flow = pickedFlow === "fitness" || pickedFlow === "giai-co" ? pickedFlow : current;
     const pickedMedia = res?.object?.media;
-    const media = (MEDIA_KEYS as readonly string[]).includes(pickedMedia) ? (pickedMedia as MediaKey) : null;
-    return { flow, media, ready: res?.object?.ready === true };
+    let media = (MEDIA_KEYS as readonly string[]).includes(pickedMedia) ? (pickedMedia as MediaKey) : null;
+    // Tin ĐẦU (khách vừa vào — chào + khai nhu cầu) TUYỆT ĐỐI không bắn ảnh: chưa có tín hiệu
+    // nghi ngờ kết quả hay đòi xem cơ sở. Chặn cứng ở code (media-timing = hành vi phải-đúng-100%).
+    if (fresh && media) {
+      console.log(`[brain] router media=${media} bị CHẶN (tin đầu, chưa nên gửi ảnh)`);
+      media = null;
+    }
+    const ready = res?.object?.ready === true;
+    console.log(`[brain] router: flow=${flow} media=${media ?? "none"} ready=${ready}`);
+    return { flow, media, ready };
   } catch (e) {
     console.error("[brain] classifyTurn failed → giữ nhánh cũ, media none:", (e as Error).message);
     return { flow: current, media: null, ready: false };
