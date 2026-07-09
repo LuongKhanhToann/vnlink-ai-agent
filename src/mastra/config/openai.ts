@@ -3,7 +3,9 @@ import "dotenv/config";
 
 // PROVIDER SWITCH (reversible):
 //   Mặc định = OPENAI (DeepSeek đang âm số dư, is_available:false → mọi call bị từ chối).
-//   Reply  = gpt-5.4-mini  (mạnh hơn nhiều 4o-mini, ~1.4s, không tốn reasoning tokens)
+//   Reply  = gpt-5.4 (full) — nâng từ mini 2026-07-09: A/B cho thấy mini rớt chủ ngữ câu hỏi
+//     (bơi "đã biết bơi chưa" 4/4 cụt, prompt không lay được), full trị dứt + tự nhiên toàn diện.
+//     Đắt + chậm hơn mini chút. Lùi về mini: set REPLY_MODEL=gpt-5.4-mini.
 //   Classifier = gpt-5.4-mini (nâng từ 4o-mini: đo A/B thắng rõ ở objection "đắt thế e",
 //     refine ngày, corporate, tăng-cân-vs-tăng-cơ — xem scripts/classifierAB.ts. Sau khi
 //     đảo prompt classifier cho cache (head ~6.1k byte-identical), giá ~ngang 4o-mini).
@@ -32,7 +34,7 @@ export const openai = USE_OPENAI ? openaiClient : deepseekClient;
 //    tốc độ + ổn định → flash mặc định (pro ở đây chỉ tổ chậm ~30s vô ích).
 // Override bằng env REPLY_MODEL / CLASSIFIER_MODEL nếu cần đổi không phải sửa code.
 export const REPLY_MODEL =
-  process.env.REPLY_MODEL ?? (USE_OPENAI ? "gpt-5.4-mini" : "deepseek-v4-pro");
+  process.env.REPLY_MODEL ?? (USE_OPENAI ? "gpt-5.4" : "deepseek-v4-pro");
 export const CLASSIFIER_MODEL =
   process.env.CLASSIFIER_MODEL ?? (USE_OPENAI ? "gpt-5.4-mini" : "deepseek-v4-flash");
 
