@@ -121,6 +121,7 @@ export async function loadState(
       corporateHold: (m as any).corporateHold ?? false,
       lastTemplateId: (m as any).lastTemplateId ?? null,
       recentBotReplies: (m as any).recentBotReplies ?? [],
+      recentUserMessages: (m as any).recentUserMessages ?? [],
     };
 
     // MIGRATION: lead cũ đã chốt dưới code cũ (sheetsWritten=true) nhưng chưa có

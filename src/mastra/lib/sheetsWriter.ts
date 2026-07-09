@@ -69,7 +69,9 @@ async function ensureHeaders(sheets: any, spreadsheetId: string): Promise<void> 
 
 export function isLeadComplete(state: ConversationState): boolean {
   const { knownInfo } = state;
-  return !!(knownInfo.name && knownInfo.phone && knownInfo.preferredTime);
+  // Đủ để ghi đơn: tên + SĐT + MỐC ĐẾN. Mốc đến = giờ cụ thể (preferredTime) HOẶC ngày đã chốt
+  // (appointmentDate). Khách chốt "thứ 7" mà chưa nói giờ vẫn là đơn thật → ghi Sheets, không đòi giờ.
+  return !!(knownInfo.name && knownInfo.phone && (knownInfo.preferredTime || knownInfo.appointmentDate));
 }
 
 // Khởi tạo Sheets client từ service account (dùng chung cho write + update).

@@ -241,6 +241,9 @@ export interface ConversationState {
   /** 3 reply gần nhất của bot — cho anti-parrot: model nhỏ đôi khi nhại lại NGUYÊN VĂN câu cũ
    *  cách 1-2 lượt (HARD-LOOP không liền kề). cleanReply so similarity với cả list này. */
   recentBotReplies?: string[];
+  /** ~5 tin KHÁCH gần nhất — cho turnRouter thấy ngữ cảnh hội thoại (chọn đúng chiều
+   *  before-after / vùng mr-* khi tin hiện tại không nêu lại mục tiêu/vùng đau). */
+  recentUserMessages?: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -1702,4 +1705,5 @@ export const DEFAULT_STATE: ConversationState = {
   corporateHold: false,
   lastTemplateId: null,
   recentBotReplies: [],
+  recentUserMessages: [],
 };

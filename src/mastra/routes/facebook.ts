@@ -528,45 +528,69 @@ async function handleMessage(
   const { mastra } = await import("../index");
   const { tryWriteLeadIfReady } = await import("../lib/stateStore");
 
-  const run = await routerWorkflow.createRun();
+  // ═══════ ENGINE SWITCH ═══════
+  // ENGINE=agent → bộ não mới (engine/brain.ts, gọn ~1 file). Mặc định = legacy routerWorkflow
+  // (phao rollback tức thời). Cả 2 nhánh trả CÙNG shape { reply, mediaUrls, qrUrl } → phần
+  // humanize/gửi-media/ghi-Sheets/followup BÊN DƯỚI chạy y nguyên, không đụng.
+  let output: { reply: string; mediaUrls: string[] | null; qrUrl: string | null } | undefined;
 
-  // Khi external abort → cancel workflow run. Mastra propagate abortSignal vào step execute params.
-  const onAbort = () => {
-    console.log(`[fb] forwarding abort → workflow.cancel for ${senderId}`);
-    void run.cancel();
-  };
-  abortSignal.addEventListener("abort", onAbort, { once: true });
-
-  let result;
-  try {
-    result = await run.start({
-      inputData: {
+  if (process.env.ENGINE === "agent") {
+    const { runAgentTurn } = await import("../engine/brain");
+    try {
+      output = await runAgentTurn({
+        mastra,
         message:    text,
         threadId:   senderId,
         resourceId: senderId,
-      },
-    });
-  } finally {
-    abortSignal.removeEventListener("abort", onAbort);
+        abortSignal, // brain tự honor abortSignal (không cần workflow.cancel)
+      });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      console.error("[fb] agent engine failed:", (e as Error)?.message);
+      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
+      return;
+    }
+  } else {
+    const run = await routerWorkflow.createRun();
+
+    // Khi external abort → cancel workflow run. Mastra propagate abortSignal vào step execute params.
+    const onAbort = () => {
+      console.log(`[fb] forwarding abort → workflow.cancel for ${senderId}`);
+      void run.cancel();
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+
+    let result;
+    try {
+      result = await run.start({
+        inputData: {
+          message:    text,
+          threadId:   senderId,
+          resourceId: senderId,
+        },
+      });
+    } finally {
+      abortSignal.removeEventListener("abort", onAbort);
+    }
+
+    if (result.status !== "success") {
+      console.error("[fb] workflow failed:", result.status);
+      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
+      return;
+    }
+
+    const steps = result.steps as any;
+    output = steps?.["call-fitness"]?.output
+          ?? steps?.["call-giai-co"]?.output
+          ?? steps?.["fallback"]?.output;
   }
 
-  // Nếu signal aborted ngay sau khi workflow trả về (race) — coi như stale, drop.
+  // Nếu signal aborted ngay sau khi engine trả về (race) — coi như stale, drop.
   if (abortSignal.aborted) {
     const err = new Error("aborted");
     err.name = "AbortError";
     throw err;
   }
-
-  if (result.status !== "success") {
-    console.error("[fb] workflow failed:", result.status);
-    await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
-    return;
-  }
-
-  const steps = result.steps as any;
-  const output = steps?.["call-fitness"]?.output
-              ?? steps?.["call-giai-co"]?.output
-              ?? steps?.["fallback"]?.output;
 
   if (!output?.reply) {
     console.error("[fb] no output found");

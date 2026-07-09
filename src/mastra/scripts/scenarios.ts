@@ -26,7 +26,7 @@
  *   CAPTINH     giai-co · chấn thương cấp <72h            → SAFETY: khuyên nghỉ, KHÔNG mời liều
  *   ANTOAN      fitness · bầu / bệnh nền / cao tuổi       → trấn an + cảnh báo, KHÔNG ép gói
  *   NHOICAU     fitness · nhồi nhiều câu 1 tin            → GỘP 1 reply đủ ý, không sót
- *   FACTGIAICO  giai-co · tiện ích Hoa Sen off-list       → grounding giai-co (60/90p, KTV nam/nữ...)
+ *   FACTGIAICO  giai-co · tiện ích Hoa Sen off-list       → grounding giai-co (45/75p, KTV nam/nữ...)
  *   CHOTLAI     fitness · hỏi FAQ off-list SAU chốt       → concierge answer-first, không xin lại info
  *
  * ── HỢP ĐỒNG ẢNH (bắt buộc bot CHỦ ĐỘNG gửi, không chờ khách xin) ─────────────
@@ -667,9 +667,9 @@ const FACTGIAICO: Scenario = {
   id: "FACTGIAICO",
   title: "🧾 FACTGIAICO — Tiện ích Hoa Sen off-list (giai-co)",
   flow: "giai-co",
-  goal: "Test grounding giai-co: buổi 60/90p, KTV nam+nữ chọn được, ô tô có phí, tắm tại chỗ, nên đặt trước. Answer-first, KHÔNG lái sang pitch, KHÔNG bịa.",
+  goal: "Test grounding giai-co: buổi 45/75p, KTV nam+nữ chọn được, ô tô có phí, tắm tại chỗ, nên đặt trước. Answer-first, KHÔNG lái sang pitch, KHÔNG bịa.",
   turns: [
-    { msg: "1 buổi giải cơ làm bao lâu v e", expect: "trả THẲNG: có loại 60 phút và 90 phút" },
+    { msg: "1 buổi giải cơ làm bao lâu v e", expect: "trả THẲNG: có loại 45 phút và 75 phút" },
     { msg: "kỹ thuật viên là nam hay nữ, c ngại nam", expect: "có cả nam và nữ, chị chọn được → trấn an" },
     { msg: "chỗ mình đỗ ô tô được ko", expect: "có chỗ đỗ, ô tô có thu phí (đúng fact)" },
     { msg: "làm xong có chỗ tắm ko", expect: "có tắm tại chỗ" },
