@@ -355,6 +355,9 @@ input:checked + .slider:before{transform:translateX(20px)}
 .msg-who.user{background:var(--off-bg);color:var(--off-text)}
 .msg-who.bot{background:var(--on-bg);color:var(--on-text)}
 .note{color:var(--muted);font-size:13px;margin-top:16px;line-height:1.5}
+.pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px}
+.pager .btn:disabled{opacity:.45;cursor:default}
+.pager .pageinfo{color:var(--muted);font-size:13px}
 .hidden{display:none}
 .right{text-align:right}
 .tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border)}
@@ -437,6 +440,9 @@ input:checked + .slider:before{transform:translateX(20px)}
 
 <script>
 var USERS = [];
+var PAGE = 1;
+var PAGE_SIZE = 20;
+var LAST_Q = null;
 
 function show(id){ document.getElementById(id).classList.remove("hidden"); }
 function hide(id){ document.getElementById(id).classList.add("hidden"); }
@@ -496,15 +502,25 @@ async function boot(){
   }
 }
 
+function changePage(delta){ PAGE += delta; render(); }
+
 function render(){
   var q = (document.getElementById("q").value||"").trim().toLowerCase();
+  // Đổi từ khoá tìm → về trang 1 (khỏi kẹt ở trang trống của kết quả cũ).
+  if(q !== LAST_Q){ PAGE = 1; LAST_Q = q; }
   var rows = USERS.filter(function(u){
     if(!q) return true;
     return (u.name||"").toLowerCase().indexOf(q)>=0 || String(u.sender_id).indexOf(q)>=0;
   });
   if(rows.length===0){ document.getElementById("list").innerHTML = '<p class="muted">Chưa có người dùng nào.</p>'; return; }
+  var total = rows.length;
+  var pages = Math.ceil(total / PAGE_SIZE);
+  if(PAGE > pages) PAGE = pages;
+  if(PAGE < 1) PAGE = 1;
+  var start = (PAGE - 1) * PAGE_SIZE;
+  var pageRows = rows.slice(start, start + PAGE_SIZE);
   var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th><th class="right">Xoá</th></tr></thead><tbody>';
-  rows.forEach(function(u){
+  pageRows.forEach(function(u){
     var p = u.lastPair || {};
     var pairHtml = (!p.user && !p.bot)
       ? '<span class="muted">—</span>'
@@ -523,6 +539,14 @@ function render(){
       + '</tr>';
   });
   html += '</tbody></table></div>';
+  if(pages > 1){
+    var from = start + 1, to = start + pageRows.length;
+    html += '<div class="pager">'
+      + '<button class="btn" onclick="changePage(-1)"' + (PAGE<=1?" disabled":"") + '>‹ Trước</button>'
+      + '<span class="pageinfo">' + from + '–' + to + ' / ' + total + ' &nbsp;·&nbsp; Trang ' + PAGE + '/' + pages + '</span>'
+      + '<button class="btn" onclick="changePage(1)"' + (PAGE>=pages?" disabled":"") + '>Sau ›</button>'
+      + '</div>';
+  }
   document.getElementById("list").innerHTML = html;
 }
 

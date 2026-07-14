@@ -305,8 +305,19 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
  * theo đúng bước funnel + 1 chỉ thị "khách im, chủ động nhắc + tiến bước", rồi chạy chính
  * agent (có memory thread) → cleanReply. Trả null nếu đã chốt / LLM fail → followup bỏ qua lần đó.
  */
-async function generateFollowupReply(senderId: string, attempt: number): Promise<string | null> {
+export async function generateFollowupReply(senderId: string, attempt: number): Promise<string | null> {
   try {
+    // KH vừa nhắn lại / bot đang trả lời → KHÔNG nhắc nữa. cancelFollowup() chỉ clear TIMER,
+    // nó KHÔNG chặn được lần fire đã bắt đầu chạy → thiếu chốt này thì:
+    //   (1) bot nhắn "khách im lâu quá..." đúng lúc khách vừa nhắn — vô duyên;
+    //   (2) tin nhắc lưu memory với createdAt MỚI HƠN mốc mở turn → nếu turn đó abort,
+    //       deleteLastAssistantMessage tưởng là phantom và xoá mất tin KH đã đọc.
+    const live = senders.get(senderId);
+    if (live?.inflight || (live?.buffer.length ?? 0) > 0) {
+      console.log(`[followup] skip ${senderId} — KH vừa nhắn lại / turn đang chạy`);
+      return null;
+    }
+
     // Admin tắt user này giữa chừng → không tự nhắc nữa.
     if (!(await isBotEnabled(senderId))) return null;
 
@@ -342,20 +353,54 @@ async function generateFollowupReply(senderId: string, attempt: number): Promise
 
     // Prefix TRƯỚC (context/facts), chỉ thị FOLLOW-UP ĐẶT CUỐI để model đọc sau cùng →
     // ưu tiên cao hơn, không bị block pitch trong prefix "lấn" (bug: followup lặp mời-thử).
+    //
+    // ⚠ toolChoice="none": tin nhắc KHÔNG cần tool nào (media đã pre-fetch ở
+    // scheduleFollowupWithMedia, QR chỉ gửi khi đã có contact). Trước đây để tool mở với
+    // maxSteps=1 → memory bật workingMemory nên agent có tool updateWorkingMemory, model
+    // tiêu đúng bước duy nhất vào tool call → vòng đó KHÔNG sinh text → res.text="" →
+    // followup im lặng (log "generate trả rỗng"; repro: 8/8 lượt rỗng, vòng nào cũng
+    // tools=[updateWorkingMemory] textLen=0). Cấm tool = model buộc phải viết chữ ngay
+    // bước 1, và chỉ tốn 1 lượt LLM/lần nhắc. Cập nhật working memory ở đây cũng vô nghĩa —
+    // khách chưa nói gì mới.
+    // maxSteps=2 + gom text theo vòng (như brain.ts:runAgentTurn): lưới an toàn phòng khi
+    // provider/adapter lờ toolChoice — vẫn còn 1 bước để ra chữ thay vì im lặng.
+    let finalText = "";
     const res: any = await agent.generate(`${prefix}\n\n${followupInstruction}`, {
-      maxSteps: 1,
+      maxSteps: 2,
+      toolChoice: "none",
       modelSettings: { temperature: 0.7, topP: 0.95 },
       memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
+      onIterationComplete: ({ text }: { text: string }) => {
+        if (typeof text === "string" && text.trim()) finalText = text;
+      },
     });
 
+    // KH nhắn CHÈN trong lúc đang generate (generate mất ~5-15s) → vứt tin nhắc này, đừng gửi:
+    // khách vừa nói mà bot lại nhắc "im lâu quá" thì vô duyên, và turn thật sắp trả lời rồi.
+    // Vứt ở đây cũng khiến message vừa lưu thành phantom ĐÚNG NGHĨA (KH chưa hề đọc) → nếu
+    // turn đó abort, deleteLastAssistantMessage dọn nó là chính xác, không phải xoá nhầm.
+    const liveAfter = senders.get(senderId);
+    if (liveAfter?.inflight || (liveAfter?.buffer.length ?? 0) > 0) {
+      console.log(`[followup] huỷ ${senderId} — KH nhắn chèn trong lúc đang soạn tin nhắc`);
+      return null;
+    }
+
+    const raw = finalText || res?.text || "";
     const cleaned = cleanReply(
-      res?.text ?? "",
+      raw,
       false,
       state.lastBotReply ?? "",
       "",
       state.recentBotReplies ?? [],
     );
-    return cleaned && cleaned.trim().length >= 5 ? cleaned : null;
+    if (!(cleaned && cleaned.trim().length >= 5)) {
+      // Phân biệt rõ 2 ca để lần sau soi log biết ngay: model không nói gì, hay cleanReply nuốt.
+      console.warn(
+        `[followup] ${senderId} bỏ lượt — model trả ${raw.trim().length} ký tự, sau cleanReply còn ${(cleaned ?? "").trim().length}`,
+      );
+      return null;
+    }
+    return cleaned;
   } catch (e) {
     console.error("[followup] generateFollowupReply failed:", e);
     return null;
@@ -428,6 +473,9 @@ async function flush(senderId: string) {
   const ac = new AbortController();
   state.inflight = ac;
   state.committed = false;
+  // Mốc mở turn: mọi assistant msg CŨ HƠN mốc này là reply thật của turn trước (KH đã đọc)
+  // → deleteLastAssistantMessage không được đụng vào. Lấy TRƯỚC handleMessage.
+  const turnStartedAt = new Date();
 
   try {
     await handleMessage(senderId, combined, ac.signal, () => {
@@ -444,7 +492,8 @@ async function flush(senderId: string) {
         `[fb] turn aborted (pre-commit) for ${senderId} — re-queued ${consumed.length} msg (buffer=${state.buffer.length})`,
       );
       // Clean phantom assistant message nếu Mastra memory đã save ngầm trước khi abort.
-      await deleteLastAssistantMessage(senderId);
+      // Chỉ xoá message sinh TRONG turn này (>= turnStartedAt) — xem comment ở hàm.
+      await deleteLastAssistantMessage(senderId, turnStartedAt);
     } else if (ac.signal.aborted && state.committed) {
       // Abort sau commit (rare race): reply 1 đã/đang gửi → KHÔNG restore consumed,
       // tin mới đã có trong buffer sẽ được flush turn sau như follow-up bình thường.
@@ -475,9 +524,16 @@ async function flush(senderId: string) {
 /**
  * Sau khi abort, Mastra memory có thể đã save assistant msg ngầm trong agent.generate.
  * Xóa để turn replay không bị "nhớ" reply mà KH chưa thấy → tránh nhảy bước context.
+ *
+ * ⚠ CHỈ được xoá message SINH RA TRONG TURN BỊ ABORT. Trước đây hàm này xoá "assistant mới
+ * nhất" vô điều kiện → khi turn abort chưa kịp save gì (abort sớm, thường gặp lúc KH nhắn
+ * dồn), nạn nhân là REPLY THẬT của turn trước mà KH ĐÃ ĐỌC → memory thủng lỗ → bot quên
+ * mình vừa nói gì → lặp lại câu hỏi/lời mời (soi log 11-13/07: mất 6 reply ở 2 luồng khách
+ * nhắn dồn). turnStartedAt chặn đúng việc đó: message cũ hơn mốc này là của turn TRƯỚC → tha.
+ * createdAt do chính process này set (Mastra dùng new Date()) → cùng đồng hồ, so sánh an toàn.
  * Best-effort.
  */
-async function deleteLastAssistantMessage(senderId: string) {
+async function deleteLastAssistantMessage(senderId: string, turnStartedAt: Date) {
   try {
     const result = await memory.recall({
       threadId: senderId,
@@ -486,12 +542,29 @@ async function deleteLastAssistantMessage(senderId: string) {
       orderBy: { field: "createdAt", direction: "DESC" },
     });
     const lastAssistant = result.messages.find((m) => m.role === "assistant");
-    if (lastAssistant) {
-      await memory.deleteMessages([lastAssistant.id]);
-      console.log(
-        `[fb] deleted phantom assistant msg id=${lastAssistant.id} for ${senderId}`,
+    if (!lastAssistant) return;
+
+    const createdAt = (lastAssistant as { createdAt?: string | Date }).createdAt;
+    const createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+    // Không đọc được createdAt → KHÔNG xoá. Giữ nhầm 1 phantom (bot nhớ dư 1 câu) vô hại
+    // hơn nhiều so với xoá nhầm reply thật (bot quên câu KH đã đọc).
+    if (!Number.isFinite(createdMs)) {
+      console.warn(
+        `[fb] skip delete for ${senderId} — assistant msg id=${lastAssistant.id} thiếu createdAt, không xác định được của turn nào`,
       );
+      return;
     }
+    if (createdMs < turnStartedAt.getTime()) {
+      console.log(
+        `[fb] skip delete for ${senderId} — assistant msg id=${lastAssistant.id} là reply THẬT của turn trước (KH đã đọc), không phải phantom`,
+      );
+      return;
+    }
+
+    await memory.deleteMessages([lastAssistant.id]);
+    console.log(
+      `[fb] deleted phantom assistant msg id=${lastAssistant.id} for ${senderId}`,
+    );
   } catch (e) {
     console.warn(
       `[fb] deleteLastAssistantMessage failed for ${senderId} (best-effort, ignore):`,
