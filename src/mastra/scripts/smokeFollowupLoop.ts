@@ -46,10 +46,11 @@ async function main() {
   console.log("█ Bối cảnh: khách hỏi cho bé rồi im (giống ca lỗi) ".padEnd(76, "█"));
   await turn("cho hỏi bên mình có lớp cho bé 7 tuổi không ạ");
 
-  console.log("\n── ĐỢT NHẮC 1 (khách im) — được nhắc tối đa " + CAP + " lần ──");
-  const b1 = [await nudge(0, "đợt1·lần1"), await nudge(1, "đợt1·lần2")];
-  if (b1.some((s) => !s)) fails.push(`Đợt 1 phải nhắc đủ ${CAP} lần (có lần bị null)`);
-  if ((await count()) !== CAP) fails.push(`Sau đợt 1 followupCount phải = ${CAP}, đang = ${await count()}`);
+  console.log("\n── ĐỢT NHẮC 1 (khách im) — thử tối đa " + CAP + " lần (gửi HOẶC im đều hợp lệ) ──");
+  await nudge(0, "đợt1·lần1");
+  await nudge(1, "đợt1·lần2");
+  // IM (null) là hợp lệ — đó là feature chống filler. Bộ đếm tính CẢ lần im nên vẫn phải = CAP.
+  if ((await count()) !== CAP) fails.push(`Sau ${CAP} lần THỬ nhắc followupCount phải = ${CAP} (đếm cả lần im), đang = ${await count()}`);
 
   console.log('\n── Khách trả lời RỖNG NGHĨA "Vg" (KHÔNG tiến triển) ──');
   await turn("Vg");

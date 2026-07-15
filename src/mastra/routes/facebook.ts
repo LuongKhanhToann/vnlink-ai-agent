@@ -323,10 +323,11 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
 
     const { mastra } = await import("../index");
     const { loadState, saveState } = await import("../lib/stateStore");
-    const { buildPrefixWithMeta } = await import("../lib/prefixBuilder");
     const { cleanReply } = await import("../lib/cleanReply");
-    const { fitnessAgent } = await import("../agents/fitness");
-    const { giaiCoAgent } = await import("../agents/giaiCo");
+    // Dùng CHÍNH agent engine (brain) như lượt trả lời thật → giọng nhắc KHỚP giọng reply.
+    // Trước đây follow-up xài agent LEGACY (agents/fitness.ts) + prefix cũ ("[VIỆC CẦN LÀM — MỞ
+    // ĐẦU] chào ấm rồi hỏi...") → giọng lệch, ép model đẻ filler sáo. Bỏ hẳn cả hai.
+    const { fitnessBrainAgent, giaiCoBrainAgent } = await import("../engine/agents");
 
     const state = await loadState(mastra, senderId, senderId);
 
@@ -345,26 +346,34 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
       return null;
     }
 
-    const agent = state.flow === "giai-co" ? giaiCoAgent : fitnessAgent;
-    const { prefix } = buildPrefixWithMeta(state, "", state.lastBotReply);
+    const agent = state.flow === "giai-co" ? giaiCoBrainAgent : fitnessBrainAgent;
 
-    const nudgeTone =
-      attempt === 0
-        ? "nhắc hiện diện nhẹ, KHÔNG lặp lại câu hỏi/lời mời vừa gửi ở tin trước"
-        : "nhắc thêm 1 lần, gợi 1 lý do/giá trị để khách quay lại, vẫn nhẹ nhàng";
-    // Follow-up phải BIẾT lượt trước vừa làm gì — nếu đã gửi ảnh thì đừng re-announce/mời lại
-    // (bug: bot gửi ảnh gym xong, 2p sau follow-up "em gửi mình xem khu tập trước..." → rời rạc, thô).
+    // Điều đã biết về khách (gọn) — để tin nhắc MÓC vào cái cụ thể, không nói chung chung.
+    const kn = state.knownInfo;
+    const knownBits = [
+      kn.name && `tên ${kn.name}`,
+      kn.serviceType && `quan tâm ${kn.serviceType}`,
+      kn.fitnessGoal && `mục tiêu ${kn.fitnessGoal}`,
+      kn.painArea && `vùng đau ${kn.painArea}`,
+    ].filter(Boolean);
+    const knownLine = knownBits.length ? `Đã biết về khách: ${knownBits.join(", ")}.\n` : "";
     const mediaNote = state.mediaShown
-      ? `Em ĐÃ gửi ảnh ở lượt trước rồi, coi như khách đã xem: TUYỆT ĐỐI KHÔNG mời/nhắc/announce lại ảnh ("em gửi anh/chị xem..."), KHÔNG hỏi lại khu/loại ảnh nào, KHÔNG gọi tool gửi ảnh. Tiến thẳng bước kế của funnel. `
-      : `KHÔNG gọi tool gửi ảnh/QR. `;
-    const followupInstruction =
-      `[FOLLOW-UP — khách CHƯA trả lời tin trước của em (im 1 lúc). CHỦ ĐỘNG nhắn 1 tin NGẮN kéo khách tiếp tục: ${nudgeTone}. ` +
-      `⛔ QUAN TRỌNG: prefix/[VIỆC CẦN LÀM] bên dưới có thể bảo em HỎI 1 câu hoặc MỜI THỬ 1 buổi — nhưng nếu tin trước em ĐÃ hỏi đúng câu đó / ĐÃ mời thử mà khách chưa đáp, thì tin follow-up này TUYỆT ĐỐI KHÔNG hỏi lại, KHÔNG mời lại (kể cả đổi chữ diễn đạt) — lặp lại câu hỏi/lời mời nghe như bot, khách ngán. ` +
-      `Cách đúng: 1 câu nhắc hiện diện ẤM + thêm 1 lý do/giá trị ngắn để khách muốn quay lại trả lời; KHÔNG xin lỗi vì nhắn lại, KHÔNG spam, KHÔNG ép chốt. ${mediaNote}` +
-      `Kết "ạ".]`;
+      ? "Em đã gửi ảnh ở lượt trước — đừng nhắc/mời lại ảnh, đừng gọi tool gửi ảnh. "
+      : "Đừng gọi tool gửi ảnh/QR. ";
 
-    // Prefix TRƯỚC (context/facts), chỉ thị FOLLOW-UP ĐẶT CUỐI để model đọc sau cùng →
-    // ưu tiên cao hơn, không bị block pitch trong prefix "lấn" (bug: followup lặp mời-thử).
+    // Prompt nhắc GỌN cho gpt-5.4: nói NGUYÊN TẮC, KHÔNG kịch bản, KHÔNG liệt kê câu ví dụ (priming).
+    // Cho phép IM: model tự phán "có gì đáng nói thêm không"; không có → trả __IMLANG__ → bỏ gửi.
+    // Đây là cách bỏ filler sáo ("giữ mạch tư vấn"/"khung tập"...) TẬN GỐC: thà im hơn nhắn cho có.
+    const followupInstruction =
+      `${knownLine}` +
+      `[TIN NHẮC CHỦ ĐỘNG — khách im một lúc, chưa trả lời tin trước của em. ` +
+      `CHỈ nhắn nếu em thật sự có MỘT điều cụ thể, hữu ích để nói thêm dựa trên đúng cái đã biết ở trên và mạch trò chuyện. ` +
+      `Có thì: đúng 1 câu NGẮN, đời thường, ấm như nhân viên thật nhắn tin — không lặp lại câu hỏi/lời mời vừa gửi, không dùng từ ngữ marketing/nội bộ sáo rỗng, không xin lỗi vì nhắn lại, không giục chốt. ` +
+      `Nếu KHÔNG có gì đáng nói thêm (chỉ còn cách nói chung chung cho có) → trả về ĐÚNG một từ: __IMLANG__ (em sẽ không gửi gì). ` +
+      `${mediaNote}Kết "ạ".]`;
+
+    // Ngữ cảnh hội thoại đến từ memory (lastMessages) — brain agent tự đọc lịch sử, KHÔNG cần
+    // bơm prefix legacy nữa. Chỉ đưa "đã biết về khách" + chỉ thị nhắc gọn ở trên.
     //
     // ⚠ toolChoice="none": tin nhắc KHÔNG cần tool nào (media đã pre-fetch ở
     // scheduleFollowupWithMedia, QR chỉ gửi khi đã có contact). Trước đây để tool mở với
@@ -377,7 +386,7 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
     // maxSteps=2 + gom text theo vòng (như brain.ts:runAgentTurn): lưới an toàn phòng khi
     // provider/adapter lờ toolChoice — vẫn còn 1 bước để ra chữ thay vì im lặng.
     let finalText = "";
-    const res: any = await agent.generate(`${prefix}\n\n${followupInstruction}`, {
+    const res: any = await agent.generate(followupInstruction, {
       maxSteps: 2,
       toolChoice: "none",
       modelSettings: { temperature: 0.7, topP: 0.95 },
@@ -397,7 +406,26 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
       return null;
     }
 
-    const raw = finalText || res?.text || "";
+    // Tới đây = 1 QUYẾT ĐỊNH NHẮC đã hoàn tất (dù sắp gửi hay im). Tăng bộ đếm cap NGAY, tính cả
+    // lần "im": khách kẹt mà model liên tục thấy không có gì đáng nói → sau cap thì DỪNG THỬ, không
+    // gọi LLM vô hạn mỗi lần khách "Vg". Re-load FRESH rồi mới bump — nếu có turn thật chạy xen giữa
+    // (~5-15s generate), saveState với state cũ sẽ ĐÈ MẤT slot khách vừa cho. Đọc mới nhất = "no cache".
+    try {
+      const fresh = await loadState(mastra, senderId, senderId);
+      await saveState(mastra, senderId, senderId, {
+        ...fresh,
+        followupCount: (fresh.followupCount ?? 0) + 1,
+      });
+    } catch (e) {
+      console.warn(`[followup] không lưu được followupCount cho ${senderId}:`, (e as Error).message);
+    }
+
+    const raw = (finalText || res?.text || "").trim();
+    // Model tự quyết IM (không có gì đáng nhắc thêm) → __IMLANG__ → bỏ gửi, không filler sáo.
+    if (raw === "" || raw.includes("__IMLANG__")) {
+      console.log(`[followup] ${senderId} im lặng — model thấy không có gì đáng nhắc thêm`);
+      return null;
+    }
     const cleaned = cleanReply(
       raw,
       false,
@@ -411,19 +439,6 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
         `[followup] ${senderId} bỏ lượt — model trả ${raw.trim().length} ký tự, sau cleanReply còn ${(cleaned ?? "").trim().length}`,
       );
       return null;
-    }
-
-    // Nhắc này SẼ được gửi → tăng bộ đếm để cap chống-loop đếm đúng. Re-load FRESH rồi mới bump
-    // (không spread `state` cũ đã nạp trước generate ~5-15s) — nếu có turn thật chạy xen giữa,
-    // saveState với state cũ sẽ ĐÈ MẤT slot khách vừa cho. Đọc mới nhất = tuân "no cache".
-    try {
-      const fresh = await loadState(mastra, senderId, senderId);
-      await saveState(mastra, senderId, senderId, {
-        ...fresh,
-        followupCount: (fresh.followupCount ?? 0) + 1,
-      });
-    } catch (e) {
-      console.warn(`[followup] không lưu được followupCount cho ${senderId}:`, (e as Error).message);
     }
     return cleaned;
   } catch (e) {

@@ -226,7 +226,11 @@ export async function runAgentTurn(opts: {
   let finalText = "";
   const result: any = await agent.generate(fullMessage, {
     maxSteps: 4,
-    modelSettings: { temperature: 0.85, topP: 0.95 },
+    // temp 0.6 (hạ từ 0.85): gpt-5.4 full cho câu tự nhiên/đa dạng ngay ở temp thấp → hạ để CẮT
+    // câu văng-ngữ-pháp/cụt (vd "nếu anh chưa tập rồi" — cú dựng hỏng của "đã từng tập chưa"). Prompt
+    // dạy discovery ở dạng gợi ý cụt nên bước "model tự dựng câu" là chỗ hay lệch ở temp cao. VOICE
+    // đã có luật chống lặp opener nên hạ temp không làm câu khô/lặp như thời model mini.
+    modelSettings: { temperature: 0.6, topP: 0.95 },
     abortSignal,
     memory: { thread: { id: threadId }, resource: resourceId, options: { lastMessages: 8 } },
     onIterationComplete: ({ toolCalls: tc, text }: { toolCalls: Array<{ name: string; args: Record<string, unknown> }>; text: string }) => {
