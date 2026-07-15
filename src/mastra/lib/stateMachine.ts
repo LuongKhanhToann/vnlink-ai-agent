@@ -244,6 +244,12 @@ export interface ConversationState {
   /** ~5 tin KHÁCH gần nhất — cho turnRouter thấy ngữ cảnh hội thoại (chọn đúng chiều
    *  before-after / vùng mr-* khi tin hiện tại không nêu lại mục tiêu/vùng đau). */
   recentUserMessages?: string[];
+  /** Số tin NHẮC CHỦ ĐỘNG (follow-up) đã gửi KỂ TỪ lần khách TIẾN TRIỂN funnel gần nhất.
+   *  Reset về 0 khi khách tiến (điền thêm slot / đổi stage / đổi flow); tăng mỗi lần nhắc gửi đi.
+   *  Chặn vòng lặp "khách 'Vg'/'ok' rỗng nghĩa reset chuỗi nhắc → bot nhắc lại filler vô tận":
+   *  mỗi tin khách gửi lại vẫn restart timer (2/10/60p) nhưng chuỗi chỉ được nhắc tối đa 1 đợt
+   *  cho tới khi khách thật sự tiến. Xem generateFollowupReply (cap) + brain.ts (reset). */
+  followupCount?: number;
 }
 
 // ─────────────────────────────────────────────
@@ -1706,4 +1712,5 @@ export const DEFAULT_STATE: ConversationState = {
   lastTemplateId: null,
   recentBotReplies: [],
   recentUserMessages: [],
+  followupCount: 0,
 };

@@ -82,9 +82,10 @@ export const flowRouterAgent = new Agent({
   model: classifierModel,
   instructions: `Bạn đọc tin khách + ngữ cảnh, trả 2 quyết định: "flow" và "media".
 
-① flow — nhánh dịch vụ:
-- "fitness": tập gym / yoga / zumba / bơi / pilates, giảm cân / tăng cân / tăng cơ / giữ dáng / sức khoẻ / thể hình, hỏi giá gói tập, đặt lịch tập thử.
-- "giai-co": đau mỏi cơ-xương-khớp (cổ vai gáy, thắt lưng, đau lưng, mỏi chân...), muốn TRỊ LIỆU / massage / giải cơ / thư giãn cơ, spa chăm sóc.
+① flow — nhánh dịch vụ. Đây là page của trung tâm FITNESS → "fitness" là nhánh MẶC ĐỊNH.
+- "fitness": mọi nhu cầu TẬP (gym / yoga / zumba / bơi / pilates) và mọi MỤC TIÊU của việc tập — giảm cân, tăng cân, tăng cơ, giữ dáng, sức khoẻ, thể hình, và cả THƯ GIÃN / xả stress / thả lỏng người. Hỏi giá gói tập, đặt lịch tập thử.
+- "giai-co": khách ĐANG ĐAU MỎI cơ-xương-khớp và muốn TRỊ LIỆU cho hết đau (chứ không phải để tập), hoặc khách hỏi thẳng dịch vụ giải cơ / massage / bấm huyệt.
+⛔ giai-co là DOANH NGHIỆP KHÁC (spa) — đẩy khách sang đó khi họ không có nhu cầu trị liệu là SAI NGHIÊM TRỌNG. Chỉ chọn giai-co khi khách NÊU CƠN ĐAU hoặc HỎI THẲNG dịch vụ trị liệu. Muốn "thư giãn" mà KHÔNG kèm đau = mục tiêu của việc TẬP → "fitness". Mơ hồ / chưa đủ tín hiệu → "fitness".
 STICKY: khách ĐANG ở nhánh hiện tại — chỉ đổi khi khách RÕ RÀNG chuyển sang nhu cầu khác hẳn. Tin mơ hồ / nối tiếp / cung cấp tên-SĐT-giờ → GIỮ nhánh hiện tại. Người vừa than đau rồi hỏi giá/lịch vẫn là giai-co; người đang tư vấn gói tập rồi cho SĐT vẫn là fitness.
 
 ② media — bộ ảnh minh hoạ hệ thống nên GỬI KÈM lượt này, hoặc "none" nếu lượt này KHÔNG nên gửi.

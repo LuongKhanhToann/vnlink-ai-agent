@@ -251,6 +251,19 @@ export async function runAgentTurn(opts: {
     ? (next.sheetsWritten ? "retention" : "commitment")
     : next.stage;
 
+  // Reset bộ đếm nhắc-chủ-động khi khách THẬT SỰ tiến triển funnel (điền thêm slot / đổi stage /
+  // đổi intent / đổi flow). Tin rỗng nghĩa ("Vg", "ok", "vâng") KHÔNG thêm slot, KHÔNG đổi stage
+  // → bộ đếm GIỮ NGUYÊN → cap ở generateFollowupReply chặn nhắc lại filler vô tận. Tín hiệu TẤT
+  // ĐỊNH từ state-diff (KHÔNG keyword/regex): so số slot đã biết + stage/intent trước↔sau.
+  const infoCount = (k: KnownInfo) =>
+    Object.values(k).filter((v) => v !== null && v !== undefined && `${v}`.trim()).length;
+  const advanced =
+    flowChanged ||
+    next.stage !== state.stage ||
+    next.intent !== state.intent ||
+    infoCount(next.knownInfo) > infoCount(state.knownInfo);
+  next.followupCount = advanced ? 0 : (state.followupCount ?? 0);
+
   // ── media: turnRouter đã quyết THẲNG bộ ảnh (cổng deterministic) → fetch cưỡng chế 1 lần/cuộc ──
   // Không phó mặc reply-agent gọi tool (model nhỏ hay bỏ nhịp). guardKey gộp gain/loss thành 1
   // để không gửi cả 2 chiều before-after cho 1 người. flowChanged đã reset mediaShownKeys ở trên.

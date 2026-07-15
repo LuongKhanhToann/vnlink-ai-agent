@@ -12,7 +12,7 @@
 
 import { Hono } from "hono";
 import { routerWorkflow } from "../workflows/routerWorkflow";
-import { scheduleFollowup, cancelFollowup } from "../lib/followup";
+import { scheduleFollowup, cancelFollowup, FOLLOWUP_DELAYS_MS } from "../lib/followup";
 import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
 import { recordUserActivity, isBotEnabled } from "../lib/botControl";
 import { classifyAndUpdateState } from "../lib/silentClassify";
@@ -322,7 +322,7 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
     if (!(await isBotEnabled(senderId))) return null;
 
     const { mastra } = await import("../index");
-    const { loadState } = await import("../lib/stateStore");
+    const { loadState, saveState } = await import("../lib/stateStore");
     const { buildPrefixWithMeta } = await import("../lib/prefixBuilder");
     const { cleanReply } = await import("../lib/cleanReply");
     const { fitnessAgent } = await import("../agents/fitness");
@@ -332,6 +332,18 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
 
     // Đã chốt (tên+SĐT+giờ) → không nhắc nữa.
     if (state.knownInfo.name && state.knownInfo.phone && state.knownInfo.preferredTime) return null;
+
+    // CAP chống loop: chỉ nhắc TỐI ĐA 1 đợt (FOLLOWUP_DELAYS_MS.length lần) cho tới khi khách
+    // THẬT SỰ tiến triển. brain.ts reset followupCount=0 khi khách điền slot/đổi stage; tin rỗng
+    // nghĩa ("Vg"/"ok") KHÔNG reset → mỗi lần khách "Vg" tuy restart timer nhưng bộ đếm đã chạm
+    // trần → bỏ qua, không nhắc lại filler. (Bug live 13/07: khách im, "Vg" 2 lần → bot nhắc 6 tin
+    // y hệt "nhắn khi rảnh em tư vấn gọn" trong 2.5h.)
+    if ((state.followupCount ?? 0) >= FOLLOWUP_DELAYS_MS.length) {
+      console.log(
+        `[followup] skip ${senderId} — đã nhắc ${state.followupCount} lần từ lần khách tiến gần nhất, dừng tới khi khách tiến triển (chống loop)`,
+      );
+      return null;
+    }
 
     const agent = state.flow === "giai-co" ? giaiCoAgent : fitnessAgent;
     const { prefix } = buildPrefixWithMeta(state, "", state.lastBotReply);
@@ -399,6 +411,19 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
         `[followup] ${senderId} bỏ lượt — model trả ${raw.trim().length} ký tự, sau cleanReply còn ${(cleaned ?? "").trim().length}`,
       );
       return null;
+    }
+
+    // Nhắc này SẼ được gửi → tăng bộ đếm để cap chống-loop đếm đúng. Re-load FRESH rồi mới bump
+    // (không spread `state` cũ đã nạp trước generate ~5-15s) — nếu có turn thật chạy xen giữa,
+    // saveState với state cũ sẽ ĐÈ MẤT slot khách vừa cho. Đọc mới nhất = tuân "no cache".
+    try {
+      const fresh = await loadState(mastra, senderId, senderId);
+      await saveState(mastra, senderId, senderId, {
+        ...fresh,
+        followupCount: (fresh.followupCount ?? 0) + 1,
+      });
+    } catch (e) {
+      console.warn(`[followup] không lưu được followupCount cho ${senderId}:`, (e as Error).message);
     }
     return cleaned;
   } catch (e) {
@@ -501,12 +526,12 @@ async function flush(senderId: string) {
         `[fb] turn aborted (post-commit) for ${senderId} — keeping committed reply, msg2 buffered for next turn`,
       );
     } else {
-      console.error(`[fb] handleMessage error for ${senderId}:`, e);
-      // Lỗi không-abort → drop consumed (không retry vô hạn) + báo KH.
-      await sendText(
-        senderId,
-        "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!",
-      );
+      // Lỗi không-abort (điển hình: hết quota OpenAI) → drop consumed (không retry vô hạn) và
+      // IM LẶNG. TUYỆT ĐỐI KHÔNG gửi "em gặp sự cố": khi hết token lỗi ném cho MỌI tin khách →
+      // spam câu lỗi vào mặt khách (bug 15/07: 4 tin "em gặp sự cố" liền → khách "hỏi k có câu
+      // trả lời"). Thà im để nhân viên tiếp quản (nút "Chỉ định cho tôi") / khách nhắn lại khi
+      // bot khỏe, còn hơn phô ra là đang hỏng.
+      console.error(`[fb] handleMessage error for ${senderId} (im lặng, không báo khách):`, e);
     }
   } finally {
     state.inflight = null;
@@ -619,8 +644,8 @@ async function handleMessage(
       });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") throw e;
-      console.error("[fb] agent engine failed:", (e as Error)?.message);
-      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
+      // Hết quota / lỗi LLM → IM LẶNG, KHÔNG gửi "em gặp sự cố" (xem lý do ở flush catch).
+      console.error("[fb] agent engine failed (im lặng, không báo khách):", (e as Error)?.message);
       return;
     }
   } else {
@@ -647,8 +672,8 @@ async function handleMessage(
     }
 
     if (result.status !== "success") {
-      console.error("[fb] workflow failed:", result.status);
-      await sendText(senderId, "Xin lỗi anh/chị, em gặp sự cố. Anh/chị nhắn lại giúp em nha!");
+      // Lỗi workflow → IM LẶNG, KHÔNG gửi "em gặp sự cố" (xem lý do ở flush catch).
+      console.error("[fb] workflow failed (im lặng, không báo khách):", result.status);
       return;
     }
 

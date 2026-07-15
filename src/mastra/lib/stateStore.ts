@@ -122,6 +122,7 @@ export async function loadState(
       lastTemplateId: (m as any).lastTemplateId ?? null,
       recentBotReplies: (m as any).recentBotReplies ?? [],
       recentUserMessages: (m as any).recentUserMessages ?? [],
+      followupCount: (m as any).followupCount ?? 0,
     };
 
     // MIGRATION: lead cũ đã chốt dưới code cũ (sheetsWritten=true) nhưng chưa có
