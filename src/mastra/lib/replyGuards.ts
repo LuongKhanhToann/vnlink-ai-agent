@@ -109,8 +109,8 @@ export function forceStudentPricing(
 ): string {
   if (!shouldForce || hasPrice(text)) return text;
   const line =
-    `Dạ bên em có bảng giá riêng cho học sinh/sinh viên ạ: gói Full 12 tháng 4 triệu là đáng nhất, ` +
-    `nếu ${honorific} muốn nhẹ hơn thì 1 tháng 700 nghìn ạ.`;
+    `Dạ bên em có bảng giá riêng cho học sinh/sinh viên ạ: gói Full 12 tháng 3.6 triệu là đáng nhất, ` +
+    `nếu ${honorific} muốn nhẹ hơn thì 1 tháng 500 nghìn ạ.`;
   const body = dropLeadingDa(text);
   return body ? `${line} ${capFirst(body)}` : line;
 }

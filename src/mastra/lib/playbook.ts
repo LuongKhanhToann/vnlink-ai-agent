@@ -44,7 +44,7 @@ const FITNESS_PLAYBOOK: Record<string, string> = {
   negotiation_neutral:
     "Reframe value 3 mũi: cơ sở (gym 700m2, bể 4 mùa duy nhất), GV/HLV (Yoga & Zumba GV Ấn Độ, InBody miễn phí), social proof (hội viên gắn bó 2-3 năm). " +
     "Mời thử 1 buổi miễn phí. KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. " +
-    "Tháng lẻ: 'tháng lẻ 1.2tr, gói năm 7tr còn bảo lưu khi bận'.",
+    "Tháng lẻ: 'tháng lẻ 800k, gói năm 7tr còn bảo lưu khi bận'.",
 
   commitment_neutral:
     "TÁCH ngày khỏi tên/SĐT, đừng dồn dập 1 câu hỏi cả 3 thứ. " +

@@ -1297,15 +1297,15 @@ function buildFitnessPricing(info: KnownInfo): string {
   if (mt === "hoc-sinh") {
     // Viết tháng→giá ĐẦY ĐỦ (KHÔNG "1m=700k|3m=2tr" — model nhỏ hay ghép nhầm "3 tháng↔700k").
     // Đây là THẺ FULL dùng chung cả 4 dịch vụ, KHÔNG phải gym riêng.
-    lines.push("  FULL HS/SV (14-22 tuổi, 1 thẻ dùng cả Gym+Bơi+Yoga+Zumba): 1 tháng 700k · 3 tháng 2 triệu · 6 tháng 3 triệu · 12 tháng 4 triệu ← anchor chính (báo 1 gói hợp nhất trước, vd '3 tháng 2 triệu', rồi hé gói ngắn '1 tháng 700k')");
+    lines.push("  FULL HS/SV (14-22 tuổi, 1 thẻ dùng cả Gym+Bơi+Yoga+Zumba): 1 tháng 500k · 3 tháng 1.2 triệu · 6 tháng 2.1 triệu · 12 tháng 3.6 triệu ← anchor chính (báo 1 gói hợp nhất trước, vd '3 tháng 1.2 triệu', rồi hé gói ngắn '1 tháng 500k')");
     if (!svc || svc === "gym") {
       lines.push("  PT: 10b=3tr|20b(2m)=6tr (HLV 1-1)");
     }
     return `[PRICING:\n${lines.join("\n")}\n]`;
   }
   if (mt === "gia-dinh") {
-    lines.push("  FULL gia đình (4 dịch vụ): 2ng=12tr|3ng=17tr|4ng=20tr ← anchor chính");
-    lines.push("  FULL cá nhân: 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr");
+    lines.push("  FULL gia đình (4 dịch vụ, 12 tháng): 2ng=12tr|3ng=14tr (gói 3 người tặng thêm 1 người → tối đa 4 người vẫn 14tr) ← anchor chính");
+    lines.push("  FULL cá nhân: 1m=800k|3m=2.1tr|6m=3.8tr|12m=7tr");
     return `[PRICING:\n${lines.join("\n")}\n]`;
   }
 
@@ -1340,36 +1340,38 @@ function buildFitnessPricing(info: KnownInfo): string {
   const fullIsAnchor =
     goal === "giam-mo" || goal === "suc-khoe" || goal === "giu-dang" || goal === null;
   if (fullIsAnchor) {
-    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr ← anchor chính");
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=800k|3m=2.1tr|6m=3.8tr|12m=7tr ← anchor chính");
   }
   if (showGym) {
-    lines.push("  Gym: fulltime-12m=5tr | 3b/t-12m=4.5tr | 3b/t-6m=2tr (Gym KHÔNG bán lẻ theo tháng — khách hỏi 'gym 1 tháng' thì hướng sang Full 1.2tr/tháng hoặc gói gym dài, ĐỪNG bịa giá tháng)");
+    lines.push("  Gym: 1m=500k|3m=1.5tr|6m=2.5tr|12m=4.5tr (gói 3b/t nhân 0.6, 4b/t nhân 0.8 giá công bố)");
   }
   if (showPT) {
     lines.push("  PT: 10b=3tr|15b=4tr|20b(2m)=6tr|30b(2m)=8tr|40b(2m)=10tr | 50b(3m)=12tr");
   }
   if (showYogaZumba) {
-    lines.push("  Yoga/Zumba: fulltime-12m=5.8tr | 3b/t-12m=4.5tr (GV Ấn Độ, 4 ca/ngày)");
+    lines.push("  Yoga: 1m=650k|3m=1.8tr|6m=3.3tr|12m=5.8tr | Zumba: 1m=500k|3m=1.8tr|6m=3.3tr|12m=5.8tr (GV Ấn Độ, 4 ca/ngày)");
   }
   if (showBoi) {
-    lines.push("  Bơi NL: 1m=800k|3m=1.8tr|6m=3.5tr|12m(3b/t)=3tr|12m-full=5tr|24m=8.6tr");
+    lines.push("  Bơi NL: 1m=700k|3m=1.8tr|6m=2.5tr|12m=4.5tr");
     if (goal === "hoc-boi" || svc === "boi") {
-      lines.push("  Bơi TE: 1m=600k|3m=1.2tr|6m=2.2tr|12m(3b/t)=2tr|12m-full=3tr");
-      lines.push("  Học bơi: lớp(12b)=1.2tr+1m | TE-3m/NL-học+bơi=1.5tr | 1-1(12b)=3tr+3m | nhóm≥2=5tr/cặp+3m. Cam kết biết bơi.");
+      lines.push("  Bơi TE: 1m=600k|3m=1.5tr|6m=2tr|12m=3.6tr");
+      lines.push("  Vé bơi lẻ (theo chiều cao): <1m=20k/lượt | 1m-1m5=30k/lượt | >1m5=40k/lượt");
+      lines.push("  Học bơi (mọi gói tặng 1 tháng bơi + cam kết biết bơi): lớp(12b/20 ngày)=1.5tr | 1-1(12b)=3tr | nhóm≥2=5tr/cặp | 1-1 2 kiểu(20b/40 ngày)=5tr.");
     }
   }
   if (showPilates) {
     lines.push("  Pilates thảm(1:7): 10b=1.5tr|20b=2.4tr|30b=3tr");
     lines.push("  Pilates máy(1:6): 10b=1.9tr|20b=3.6tr|30b=5.1tr");
     lines.push("  Pilates nhóm(1:3): 10b=3tr|20b=5.8tr|30b=8.1tr | Cá nhân(1:1): 10b=4.5tr|20b=8.6tr");
+    lines.push("  Thuê HLV theo giờ: HLV Gym=50k/giờ | HLV Pilates thuê dạy=80k/giờ (tự tập máy=50k/giờ). Thuê phòng trọn gói: thoả thuận.");
   }
   // Anchor "FULL" cho thư giãn / non-anchor case khi user vẫn cần thấy combo.
   if (!fullIsAnchor && (!svc || svc === "full") && lines.length === 0) {
-    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr");
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=800k|3m=2.1tr|6m=3.8tr|12m=7tr");
   }
   if (lines.length === 0) {
     // Safety fallback — nếu filter quá khắt → show Full default
-    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=1.2tr|3m=3tr|6m=4.5tr|12m=7tr ← anchor chính");
+    lines.push("  FULL(Gym+Bơi+Yoga+Zumba): 1m=800k|3m=2.1tr|6m=3.8tr|12m=7tr ← anchor chính");
   }
   return `[PRICING:\n${lines.join("\n")}\n]`;
 }
@@ -1378,7 +1380,7 @@ function buildFitnessObjections(h: string): string {
   return `[OBJECTIONS:
   "Đắt quá" → Reframe bằng VALUE: "Full 7tr/12 tháng đi kèm phòng gym 700m2 máy chuẩn QT, bể bơi 4 mùa duy nhất Vĩnh Yên, Yoga & Zumba GV người Ấn Độ, lại có bãi đỗ xe rộng cả ô tô & xe máy đi tập thoải mái ${h}. Hội viên bên em hay gắn bó dài và rủ thêm bạn bè vào tập cùng — anh/chị qua thử 1 buổi cảm nhận thực tế nha". KHÔNG chia nhỏ giá/ngày, KHÔNG so sánh ly cà phê, KHÔNG giảm giá. Offer gói ngắn nếu vẫn từ chối.
   "Tập 1 môn" → "Thẻ Full chỉ hơn chút mà dùng cả 4 ${h} — tập 1 môn lâu chán, thêm Yoga/Bơi duy trì động lực"
-  "Tháng lẻ thôi" → "Tháng lẻ 1.2tr ${h}, mà gói năm 7tr lại bảo lưu được khi bận và chuyển nhượng được trong gia đình — đa số chọn năm để chủ động hơn"
+  "Tháng lẻ thôi" → "Tháng lẻ 800k ${h}, mà gói năm 7tr lại bảo lưu được khi bận và chuyển nhượng được trong gia đình — đa số chọn năm để chủ động hơn"
   "Chờ KM" → "Giá bên em xu hướng chỉ tăng ${h} — đợt này đang mức tốt nhất. Em giữ chỗ trước nha"
   "Chưa tin" → gọi get-media + "${h} qua tham quan — HLV đo Inbody miễn phí, xem số rồi chọn gói chuẩn luôn"
   "Xin thêm/quen sếp" → Trình bày đủ giá niêm yết, "đây là mức ưu đãi tốt nhất em áp dụng được" → chốt ngay]`;
@@ -2058,7 +2060,7 @@ function buildFitnessAnswerFirst(state: ConversationState): string {
   const sig = state.intentSignal;
   const domain = sig?.domain ?? null;
   const attr = sig?.attribute ? ` (${sig.attribute})` : "";
-  // HỌC SINH / SINH VIÊN: hệ thống CÓ bảng giá HS/SV thật (Full 1m=700k|3m=2tr|6m=3tr|12m=4tr,
+  // HỌC SINH / SINH VIÊN: hệ thống CÓ bảng giá HS/SV thật (Full 1m=500k|3m=1.2tr|6m=2.1tr|12m=3.6tr,
   // bơm qua PRICING khi memberType="hoc-sinh"). → BÁO ĐÚNG giá đó (theo lựa chọn user 2026-06-16),
   // KHÔNG né sang "xin SĐT". Doanh nghiệp thì KHÔNG có bảng → mới xin SĐT cho sale.
   if (

@@ -126,7 +126,7 @@ const TANGCAN: Scenario = {
     },
     {
       msg: "hơi cao, sinh viên có gói nào rẻ hơn ko",
-      expect: "báo THẲNG bảng HS/SV (Full HS/SV 1 tháng 700k…) — KHÔNG né 'xin SĐT'",
+      expect: "báo THẲNG bảng HS/SV (Full HS/SV 1 tháng 500k…) — KHÔNG né 'xin SĐT'",
     },
     {
       msg: "phòng tập ở đâu, có chỗ để xe ko",
@@ -560,7 +560,7 @@ const HOIGIA: Scenario = {
     },
     {
       msg: "sinh viên có ưu đãi riêng ko",
-      expect: "báo THẲNG bảng HS/SV (1 tháng 700k…) — ⛔ KHÔNG né 'xin SĐT để sale báo'",
+      expect: "báo THẲNG bảng HS/SV (1 tháng 500k…) — ⛔ KHÔNG né 'xin SĐT để sale báo'",
     },
     {
       msg: "thôi để anh tính đã",

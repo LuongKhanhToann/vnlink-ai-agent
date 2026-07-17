@@ -75,7 +75,7 @@ const FACT_KEY_PATTERNS: Array<[string, RegExp]> = [
   ["hoc_boi_1_1", /(học\s+bơi\s+1-?1|lớp\s+1-?1\s+12\s+buổi)/i],
   ["commit_warranty", /(cam\s+kết\s+biết\s+bơi|học\s+lại\s+miễn\s+phí)/i],
   ["pricing_yoga", /(yoga.{0,20}(\d+\.?\d*)\s*triệu|\d+\.?\d*\s*triệu.{0,15}yoga)/i],
-  ["pricing_zumba", /(zumba.{0,20}\d+\s*(k|triệu)|375k)/i],
+  ["pricing_zumba", /(zumba.{0,20}\d+\s*(k|triệu)|500k)/i],
 ];
 
 export function detectMentionedFacts(reply: string): string[] {
