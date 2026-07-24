@@ -122,34 +122,9 @@ export function verifyWeekdayInTime(s: string | null): string | null {
 
 // ─────────────────────────────────────────────
 // CHỐT NGÀY — đề xuất 2 NGÀY cụ thể (đòn bán hàng "chọn 1 trong 2")
-//
-// Sale cần ngày chuẩn để biết khách đến lúc nào / gọi xác nhận. Khi khách nói
-// mơ hồ ("đầu tuần sau", "đầu tháng", "tầm chiều") → tính ra cửa sổ ngày dựa
-// vào hôm nay rồi đưa khách 2 lựa chọn ngày cụ thể. Bị buộc chọn → khách dễ chốt.
-// ─────────────────────────────────────────────
-
-/** preferredTime đã có ngày cụ thể (DD/MM) chưa. */
-export function hasConcreteDate(s: string | null | undefined): boolean {
-  return !!s && /\d{1,2}\/\d{1,2}/.test(s);
-}
-
-/**
- * preferredTime đã có CỬA SỔ ngày (tuần/tháng/hôm tương đối) chưa — để phân biệt
- * với trường hợp khách MỚI chỉ nói buổi ("sáng"/"chiều") hoặc chưa nói gì về ngày.
- *
- * Quy trình chốt lịch 2 bước (theo phản hồi sale):
- *   1. Khách chưa nói ngày (null / chỉ buổi)  → HỎI MỞ "qua hôm nào" trước.
- *   2. Khách nói cửa sổ mơ hồ ("đầu tháng sau", "tuần sau", "cuối tuần", "mai"...)
- *      → MỚI ÉP CHỌN 1-trong-2 ngày cụ thể trong cửa sổ đó (dùng suggestDatePair).
- *
- * hasConcreteDate (DD/MM) → đã chốt, không cần bước nào nữa.
- */
-export function hasDateWindow(s: string | null | undefined): boolean {
-  if (!s) return false;
-  return /(đầu\s*tuần|giữa\s*tuần|cuối\s*tuần|tuần\s*(sau|tới|này)|đầu\s*tháng|giữa\s*tháng|cuối\s*tháng|tháng\s*(sau|tới|này)|(vài|mấy)\s*hôm|hôm\s*nào|ngày\s*kia|\bmai\b|\bmốt\b|thứ\s*[2-7]|chủ\s*nhật|\bcn\b)/i.test(
-    s,
-  );
-}
+// 22/07 — DỌN LEGACY: gỡ hasConcreteDate / hasDateWindow / DatePair / suggestDatePair.
+// Cả 4 chỉ phục vụ prefixBuilder + routerWorkflow (đã xoá) — engine mới để LLM tự chốt ngày
+// từ khối NGÀY do brain.ts dựng, không cần bộ đề-xuất-2-ngày bằng regex nữa.
 
 function addDays(base: Date, n: number): Date {
   const d = new Date(base);
@@ -157,125 +132,8 @@ function addDays(base: Date, n: number): Date {
   return d;
 }
 
-/** Ngày kế tiếp có thứ = targetDow (0=CN..6=T7), luôn ở TƯƠNG LAI (>= mai). */
-function upcomingDow(from: Date, targetDow: number): Date {
-  let diff = (targetDow - from.getDay() + 7) % 7;
-  if (diff === 0) diff = 7;
-  return addDays(from, diff);
-}
-
 /** Thứ 2 của TUẦN SAU (tuần kế tiếp tuần hiện tại). */
 function nextWeekMonday(from: Date): Date {
   const dayMon = from.getDay() === 0 ? 7 : from.getDay(); // T2=1..CN=7
   return addDays(from, 8 - dayMon);
-}
-
-/** Tên thứ viết thường: "thứ 2" / "chủ nhật". */
-function weekdayLower(d: Date): string {
-  return DAY_NAMES[d.getDay()].toLowerCase();
-}
-
-/**
- * Format 1 lựa chọn ngày.
- *   - withDate=false (cửa sổ GẦN — trong/đầu/giữa/cuối tuần) → chỉ thứ: "thứ 2".
- *     Tuần gần khách hiểu ngay, kèm "(8/7)" là thừa.
- *   - withDate=true  (cửa sổ XA — theo tháng) → kèm ngày: "thứ 2 (8/7)".
- */
-function fmtDayOption(d: Date, withDate: boolean): string {
-  const dow = weekdayLower(d);
-  return withDate ? `${dow} (${d.getDate()}/${d.getMonth() + 1})` : dow;
-}
-
-export interface DatePair {
-  /** 2 chuỗi hiển thị (proximity-aware): gần → "thứ 2"; xa → "thứ 2 (8/7)". */
-  options: [string, string];
-  /** 2 tên thứ thuần (luôn không kèm ngày) — tiện cho mustInclude/validator. */
-  weekdays: [string, string];
-}
-
-/**
- * Từ cụm thời gian (mơ hồ hoặc null) của khách → đề xuất 2 NGÀY cụ thể để khách
- * chọn 1-trong-2. Mốc là getNowVN(). KHÔNG bao giờ trả null — nếu không nhận
- * diện được cụm thì fallback "ngày mai" & "ngày kia".
- *
- * Quy ước cửa sổ: đầu tuần=T2&T3, giữa tuần=T4&T5, cuối tuần=T7&CN,
- *   đầu tháng=ngày 1-5, giữa tháng=13-17, cuối tháng=25-28.
- *   Có "sau"/"tới" → dịch sang tuần kế tiếp.
- *
- * Định dạng hiển thị theo độ XA: cửa sổ theo TUẦN → chỉ nói thứ ("thứ 2 hay thứ 3");
- *   cửa sổ theo THÁNG → kèm ngày cụ thể ("thứ 2 (1/7) hay thứ 3 (2/7)").
- */
-export function suggestDatePair(phrase: string | null | undefined): DatePair {
-  const now = getNowVN();
-  const p = (phrase ?? "").toLowerCase();
-
-  // 2 ngày gần nhất chưa qua trong khoảng ngày-trong-tháng [lo, hi];
-  // ưu tiên tháng này, hết thì sang tháng sau.
-  const monthPick = (lo: number, hi: number): [Date, Date] => {
-    const picks: Date[] = [];
-    for (let mOff = 0; mOff <= 1 && picks.length < 2; mOff++) {
-      for (let day = lo; day <= hi && picks.length < 2; day++) {
-        const d = new Date(now.getFullYear(), now.getMonth() + mOff, day);
-        if (d.getTime() > now.getTime()) picks.push(d);
-      }
-    }
-    return picks.length >= 2 ? [picks[0], picks[1]] : [addDays(now, 1), addDays(now, 2)];
-  };
-
-  const nextWeek = /tuần\s*(sau|tới)/.test(p);
-
-  let a: Date;
-  let b: Date;
-  let withDate: boolean;
-
-  // ── Cửa sổ theo TUẦN (gần → chỉ nói thứ) ──
-  if (/cuối\s*tuần/.test(p)) {
-    a = nextWeek ? addDays(nextWeekMonday(now), 5) : upcomingDow(now, 6);
-    b = addDays(a, 1); // T7 & CN
-    withDate = false;
-  } else if (/giữa\s*tuần/.test(p)) {
-    a = nextWeek ? addDays(nextWeekMonday(now), 2) : upcomingDow(now, 3);
-    b = addDays(a, 1); // T4 & T5
-    withDate = false;
-  } else if (/đầu\s*tuần/.test(p)) {
-    a = nextWeek ? nextWeekMonday(now) : upcomingDow(now, 1);
-    b = addDays(a, 1); // T2 & T3
-    withDate = false;
-  } else if (nextWeek) {
-    a = nextWeekMonday(now);
-    b = addDays(a, 2); // T2 & T4
-    withDate = false;
-
-  // ── Cửa sổ theo THÁNG (xa → kèm ngày cụ thể) ──
-  } else if (/tháng\s*(sau|tới)/.test(p)) {
-    a = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    b = new Date(now.getFullYear(), now.getMonth() + 1, 2);
-    withDate = true;
-  } else if (/đầu\s*tháng/.test(p)) {
-    [a, b] = monthPick(1, 5);
-    withDate = true;
-  } else if (/giữa\s*tháng/.test(p)) {
-    [a, b] = monthPick(13, 17);
-    withDate = true;
-  } else if (/cuối\s*tháng/.test(p)) {
-    [a, b] = monthPick(25, 28);
-    withDate = true;
-
-  // ── "vài hôm nữa" / "mấy hôm nữa" / "hôm nào đó" (gần) ──
-  } else if (/(vài|mấy)\s*hôm|hôm\s*nào/.test(p)) {
-    a = addDays(now, 2);
-    b = addDays(now, 3);
-    withDate = false;
-
-  // ── Mặc định: ngày mai & ngày kia (gần) ──
-  } else {
-    a = addDays(now, 1);
-    b = addDays(now, 2);
-    withDate = false;
-  }
-
-  return {
-    options: [fmtDayOption(a, withDate), fmtDayOption(b, withDate)],
-    weekdays: [weekdayLower(a), weekdayLower(b)],
-  };
 }

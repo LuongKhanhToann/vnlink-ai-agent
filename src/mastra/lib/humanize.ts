@@ -11,10 +11,14 @@
  *
  * NGUYÊN TẮC AN TOÀN:
  *   - CHỈ tách, KHÔNG đổi 1 ký tự nội dung → không vỡ mustInclude / không bịa.
- *   - KHÔNG đụng câu kết "ạ" / dấu "?" (đã khoá ở cleanReply).
+ *   - KHÔNG đụng câu kết "ạ" (đã khoá ở cleanReply).
  *   - List nhiều dòng (\n) → GIỮ nguyên 1 bóng (tách dòng đã đủ "người", cắt rời nhìn vỡ).
- *   - Tách câu hỏi cuối thành bóng riêng (câu hỏi "ping" riêng = rất giống người thật).
  *   - Tối đa 3 bóng; gộp mảnh quá ngắn để không có bóng "Dạ" trơ.
+ *
+ * ⚠ KHÔNG tách bóng "câu hỏi cuối" nữa (22/07): cleanReply bước 7 strip HẾT dấu "?" và chạy TRƯỚC
+ *   module này, nên nhánh isQuestionSentence() cũ không bao giờ đúng — là code chết, đã gỡ. Muốn
+ *   khôi phục thì phải có tín hiệu KHÁC dấu "?" (KHÔNG được đoán câu hỏi tiếng Việt bằng keyword —
+ *   vi phạm luật no-regex-cho-nghiệp-vụ). Hiện tách bóng THUẦN theo độ dài.
  */
 
 // Số bóng tối đa 1 reply — quá nhiều bóng nhỏ lại thành spam, kém tự nhiên.
@@ -35,10 +39,6 @@ function splitSentences(s: string): string[] {
     .filter(Boolean);
 }
 
-function isQuestionSentence(s: string): boolean {
-  return /[?]\s*$/.test(s.trim());
-}
-
 /**
  * Tách reply thành các bong bóng chat. Deterministic — cùng input cho cùng output.
  * Trả [] nếu rỗng. Luôn trả ít nhất 1 phần tử khi có nội dung.
@@ -56,18 +56,10 @@ export function splitIntoBubbles(reply: string): string[] {
   const sentences = splitSentences(text);
   if (sentences.length <= 1) return [text];
 
-  // Tách câu hỏi CUỐI ra (nếu câu cuối là câu hỏi) → bóng riêng.
-  let question: string | null = null;
-  let statements = sentences;
-  if (isQuestionSentence(sentences[sentences.length - 1])) {
-    question = sentences[sentences.length - 1];
-    statements = sentences.slice(0, -1);
-  }
-
-  // Gom các câu kể thành bóng (greedy, mỗi bóng tới SOFT_BUBBLE_CHARS).
+  // Gom câu thành bóng (greedy, mỗi bóng tới SOFT_BUBBLE_CHARS).
   const bubbles: string[] = [];
   let cur = "";
-  for (const sent of statements) {
+  for (const sent of sentences) {
     const next = cur ? `${cur} ${sent}` : sent;
     if (cur && next.length > SOFT_BUBBLE_CHARS) {
       bubbles.push(cur);
@@ -77,24 +69,18 @@ export function splitIntoBubbles(reply: string): string[] {
     }
   }
   if (cur) bubbles.push(cur);
-  if (question) bubbles.push(question);
 
   // Gộp mảnh quá ngắn (vd "Dạ vâng anh." trơ) vào bóng kế tiếp/trước đó.
   const merged: string[] = [];
   for (const b of bubbles) {
-    if (
-      merged.length > 0 &&
-      b.length < MIN_BUBBLE_CHARS &&
-      !isQuestionSentence(b)
-    ) {
-      // mảnh ngắn không phải câu hỏi → gộp vào bóng trước
+    if (merged.length > 0 && b.length < MIN_BUBBLE_CHARS) {
+      // mảnh ngắn → gộp vào bóng trước
       merged[merged.length - 1] = `${merged[merged.length - 1]} ${b}`;
       continue;
     }
     if (
       merged.length > 0 &&
-      merged[merged.length - 1].length < MIN_BUBBLE_CHARS &&
-      !isQuestionSentence(merged[merged.length - 1])
+      merged[merged.length - 1].length < MIN_BUBBLE_CHARS
     ) {
       // bóng TRƯỚC quá ngắn → kéo bóng hiện tại ghép vào
       merged[merged.length - 1] = `${merged[merged.length - 1]} ${b}`;
@@ -103,7 +89,7 @@ export function splitIntoBubbles(reply: string): string[] {
     merged.push(b);
   }
 
-  // Cap MAX_BUBBLES: nếu dư, gộp các bóng KỂ (đầu danh sách) lại, giữ câu hỏi cuối.
+  // Cap MAX_BUBBLES: nếu dư, gộp các bóng ĐẦU danh sách lại (giữ bóng cuối — thường là câu chốt/hỏi).
   while (merged.length > MAX_BUBBLES) {
     // gộp 2 bóng đầu (luôn là câu kể) để bảo toàn câu hỏi cuối nếu có.
     const a = merged.shift()!;

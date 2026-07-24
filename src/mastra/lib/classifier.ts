@@ -796,7 +796,7 @@ const VALID_TOPICS: readonly string[] = INTENT_TOPICS;
 
 // sanitizeName đã chuyển xuống stateMachine.ts (layer thấp hơn) để dùng chung cho cả inline/standalone
 // extractor trong buildNextState (path đó trước KHÔNG sanitize → "Là Trung" leak). Re-export giữ API cũ.
-export { sanitizeName };
+// 22/07 — gỡ re-export sanitizeName: mọi consumer import thẳng từ stateMachine.
 
 function mapToClassification(
   parsed: any,

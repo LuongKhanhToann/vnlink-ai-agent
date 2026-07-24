@@ -11,7 +11,6 @@
  */
 
 import { Hono } from "hono";
-import { routerWorkflow } from "../workflows/routerWorkflow";
 import { scheduleFollowup, cancelFollowup, FOLLOWUP_DELAYS_MS } from "../lib/followup";
 import { splitIntoBubbles, typingDelayMs } from "../lib/humanize";
 import { recordUserActivity, isBotEnabled } from "../lib/botControl";
@@ -239,6 +238,21 @@ const SERVICE_TO_MEDIA_KEY: Record<string, string> = {
   boi: "fitness-pool",
 };
 
+// Slug vùng đau (do LLM sinh ở recordLead.painArea) → bộ video giải cơ. Tra bảng đúng khoá,
+// KHÔNG dò chữ tự do; slug lạ → caller tự về "mr-general".
+const PAIN_TO_MEDIA_KEY: Record<string, string> = {
+  "vai-gay": "mr-neck-shoulder",
+  "co-vai-gay": "mr-neck-shoulder",
+  co: "mr-neck-shoulder",
+  chan: "mr-sport",
+  "bap-chan": "mr-sport",
+  goi: "mr-sport",
+  "the-thao": "mr-sport",
+  lung: "mr-general",
+  "that-lung": "mr-general",
+  "toan-than": "mr-general",
+};
+
 async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
   try {
     const { mastra } = await import("../index");
@@ -247,14 +261,14 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
 
     const state = await loadState(mastra, senderId, senderId);
 
-    // Skip followup khi lead đã chốt — đủ tên + SĐT + giờ. Followup khi đã đặt lịch xong
-    // làm khách bối rối ("đã chốt rồi mà bot vẫn nhắn check lại").
-    const leadDone =
-      state.knownInfo.name !== null &&
-      state.knownInfo.phone !== null &&
-      state.knownInfo.preferredTime !== null;
-    if (leadDone) {
-      console.log(`[followup] skip ${senderId} — lead đã chốt (tên+SĐT+giờ đủ)`);
+    // Skip followup khi lead đã chốt. Followup khi đã đặt lịch xong làm khách bối rối
+    // ("đã chốt rồi mà bot vẫn nhắn check lại").
+    // ⚠ 22/07: điều kiện cũ đòi ĐÚNG preferredTime → khách chốt "thứ 7" hoặc "mai" (chỉ có
+    // NGÀY, chưa có giờ) vẫn bị coi là chưa chốt ⇒ bot nhắc lại người đã đặt lịch. Dùng chung
+    // isLeadComplete với sheetsWriter (mốc đến = giờ HOẶC ngày) để 1 định nghĩa "đã chốt" duy nhất.
+    const { isLeadComplete } = await import("../lib/sheetsWriter");
+    if (isLeadComplete(state)) {
+      console.log(`[followup] skip ${senderId} — lead đã chốt (tên+SĐT+mốc đến)`);
       return;
     }
 
@@ -265,10 +279,11 @@ async function scheduleFollowupWithMedia(senderId: string): Promise<void> {
       if (state.flow === "fitness" && state.knownInfo.serviceType) {
         mediaKey = SERVICE_TO_MEDIA_KEY[state.knownInfo.serviceType] ?? null;
       } else if (state.flow === "giai-co" && state.knownInfo.painArea) {
-        const pain = state.knownInfo.painArea.toLowerCase();
-        if (/vai|gáy|gay|cổ|co\b/.test(pain)) mediaKey = "mr-neck-shoulder";
-        else if (/chân|chan|gối|goi/.test(pain)) mediaKey = "mr-sport";
-        else mediaKey = "mr-general";
+        // 22/07: bỏ regex dò chữ trên painArea (`/vai|gáy|cổ|co\b/`…) — đó là quyết định NGHIỆP VỤ
+        // bằng regex, đúng thứ dự án cấm, lại còn `co\b` khớp bừa nhiều slug khác → gửi video sai
+        // vùng (đau lưng nhận clip cổ-vai-gáy). painArea là SLUG do LLM sinh → tra bảng đúng khoá,
+        // không khớp thì về "mr-general" (an toàn, không đoán).
+        mediaKey = PAIN_TO_MEDIA_KEY[state.knownInfo.painArea.trim().toLowerCase()] ?? "mr-general";
       }
     }
 
@@ -331,8 +346,11 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
 
     const state = await loadState(mastra, senderId, senderId);
 
-    // Đã chốt (tên+SĐT+giờ) → không nhắc nữa.
-    if (state.knownInfo.name && state.knownInfo.phone && state.knownInfo.preferredTime) return null;
+    // Đã chốt (tên+SĐT+mốc đến: giờ HOẶC ngày) → không nhắc nữa. Dùng chung isLeadComplete
+    // với sheetsWriter + scheduleFollowupWithMedia (22/07: trước đây đòi đúng preferredTime →
+    // khách chốt mỗi NGÀY vẫn bị nhắc).
+    const { isLeadComplete } = await import("../lib/sheetsWriter");
+    if (isLeadComplete(state)) return null;
 
     // CAP chống loop: chỉ nhắc TỐI ĐA 1 đợt (FOLLOWUP_DELAYS_MS.length lần) cho tới khi khách
     // THẬT SỰ tiến triển. brain.ts reset followupCount=0 khi khách điền slot/đổi stage; tin rỗng
@@ -642,12 +660,34 @@ async function handleMessage(
   const { tryWriteLeadIfReady } = await import("../lib/stateStore");
 
   // ═══════ ENGINE SWITCH ═══════
-  // ENGINE=agent → bộ não mới (engine/brain.ts, gọn ~1 file). Mặc định = legacy routerWorkflow
-  // (phao rollback tức thời). Cả 2 nhánh trả CÙNG shape { reply, mediaUrls, qrUrl } → phần
-  // humanize/gửi-media/ghi-Sheets/followup BÊN DƯỚI chạy y nguyên, không đụng.
+  // CÒN ĐÚNG 2 BỘ NÃO (22/07 dọn legacy routerWorkflow + FSM cũ):
+  //   • ENGINE=gemma → gemma4:12b self-host (engine/gemmaBrain.ts).
+  //   • còn lại      → engine/brain.ts (gpt-5.4) — MẶC ĐỊNH, đang golive.
+  // Gemma fail (box GPU chết / tunnel đứt) → rơi xuống brain gpt-5.4 để khách LUÔN có reply
+  // (memory gemma lưu thread riêng nên tin fallback đó có thể hơi thiếu ngữ cảnh — chấp nhận
+  // cho failure-mode, hơn là im lặng). Cả 2 nhánh trả CÙNG shape { reply, mediaUrls, qrUrl }
+  // → phần humanize/gửi-media/ghi-Sheets/followup BÊN DƯỚI chạy y nguyên, không đụng.
   let output: { reply: string; mediaUrls: string[] | null; qrUrl: string | null } | undefined;
 
-  if (process.env.ENGINE === "agent") {
+  if (process.env.ENGINE === "gemma") {
+    const { runGemmaTurn } = await import("../engine/gemmaBrain");
+    try {
+      output = await runGemmaTurn({
+        mastra,
+        message:    text,
+        threadId:   senderId,
+        resourceId: senderId,
+        abortSignal,
+      });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      // GPU box down / tunnel đứt / lỗi LLM → KHÔNG im lặng: rơi xuống brain gpt-5.4 bên dưới
+      // (output còn undefined) để khách vẫn luôn có reply.
+      console.error("[fb] gemma engine failed → fallback brain gpt-5.4:", (e as Error)?.message);
+    }
+  }
+
+  if (!output) {
     const { runAgentTurn } = await import("../engine/brain");
     try {
       output = await runAgentTurn({
@@ -663,39 +703,6 @@ async function handleMessage(
       console.error("[fb] agent engine failed (im lặng, không báo khách):", (e as Error)?.message);
       return;
     }
-  } else {
-    const run = await routerWorkflow.createRun();
-
-    // Khi external abort → cancel workflow run. Mastra propagate abortSignal vào step execute params.
-    const onAbort = () => {
-      console.log(`[fb] forwarding abort → workflow.cancel for ${senderId}`);
-      void run.cancel();
-    };
-    abortSignal.addEventListener("abort", onAbort, { once: true });
-
-    let result;
-    try {
-      result = await run.start({
-        inputData: {
-          message:    text,
-          threadId:   senderId,
-          resourceId: senderId,
-        },
-      });
-    } finally {
-      abortSignal.removeEventListener("abort", onAbort);
-    }
-
-    if (result.status !== "success") {
-      // Lỗi workflow → IM LẶNG, KHÔNG gửi "em gặp sự cố" (xem lý do ở flush catch).
-      console.error("[fb] workflow failed (im lặng, không báo khách):", result.status);
-      return;
-    }
-
-    const steps = result.steps as any;
-    output = steps?.["call-fitness"]?.output
-          ?? steps?.["call-giai-co"]?.output
-          ?? steps?.["fallback"]?.output;
   }
 
   // Nếu signal aborted ngay sau khi engine trả về (race) — coi như stale, drop.

@@ -333,27 +333,4 @@ export async function deleteConversationData(
   return { deleted, errors };
 }
 
-export async function debugStorageApi(mastra: any): Promise<void> {
-  try {
-    const storage = mastra?.getStorage?.();
-    console.log("[DEBUG] storage type:", typeof storage);
-    console.log(
-      "[DEBUG] storage keys:",
-      storage ? Object.keys(storage) : "null",
-    );
-
-    if (storage?.getStore) {
-      const store = await storage.getStore("memory");
-      console.log("[DEBUG] store type:", typeof store);
-      console.log("[DEBUG] store keys:", store ? Object.keys(store) : "null");
-    } else {
-      console.log("[DEBUG] storage.getStore not found");
-      console.log(
-        "[DEBUG] prototype methods:",
-        Object.getOwnPropertyNames(Object.getPrototypeOf(storage)),
-      );
-    }
-  } catch (e) {
-    console.error("[DEBUG] error:", e);
-  }
-}
+// 22/07 — gỡ debugStorageApi: helper debug thời chuyển storage, 0 importer.

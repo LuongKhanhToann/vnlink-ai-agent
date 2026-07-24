@@ -182,9 +182,7 @@ export const VALID_DOMAINS: readonly Domain[] = [
   "commitment", "media_request", "edge", "chitchat",
 ] as const;
 
-export const VALID_SERVICES: readonly (Service)[] = [
-  "gym", "yoga", "zumba", "boi", "pilates", "full", null,
-] as const;
+// 22/07 — gỡ VALID_SERVICES: 0 importer.
 
 export function isValidDomain(s: string): s is Domain {
   return (VALID_DOMAINS as readonly string[]).includes(s);

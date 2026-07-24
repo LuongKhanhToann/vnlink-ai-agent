@@ -23,9 +23,13 @@ import { FITNESS_PROMPT, GIAI_CO_PROMPT } from "./prompts";
 const recordLeadTool = createTool({
   id: "recordLead",
   description:
-    "Lưu thông tin đặt lịch khi vừa biết thêm từ khách. Gọi mỗi khi khách cho thông tin mới " +
-    "liên quan đặt lịch (tên, số điện thoại, giờ/ngày muốn đến, bộ môn / vùng đau, mục tiêu). " +
-    "Đủ tên + SĐT + ngày-giờ cụ thể → hệ thống tự chốt đơn. CHỈ lưu đúng cái khách NÓI, không bịa.",
+    "SỔ TAY GHI DẦN về khách — KHÔNG phải tool chốt đơn. Gọi NGAY ở lượt đầu tiên khách hé ra " +
+    "BẤT KỲ chi tiết nào, kể cả lúc mới đang hỏi thăm: bộ môn quan tâm, mục tiêu (giảm cân/tăng " +
+    "cân/thư giãn...), chiều cao - cân nặng, vùng đau, đối tượng (học sinh/sinh viên/giáo viên), " +
+    "rồi sau đó mới tới tên, số điện thoại, ngày giờ muốn đến. Gọi LẶP LẠI mỗi lượt có chi tiết " +
+    "mới — ghi thiếu thì lượt sau em phải hỏi lại khách, rất mất điểm. Chốt đơn là việc hệ thống " +
+    "tự làm khi đã đủ tên + SĐT + ngày-giờ, em không cần chờ đủ mới gọi. " +
+    "CHỈ lưu đúng cái khách NÓI, không bịa.",
   inputSchema: z.object({
     name: z.string().nullish().describe("Tên riêng của khách, đã bỏ động từ/kính ngữ (vd 'Trung' không phải 'là Trung'). Khi khách đưa liên hệ dạng '<Tên> <SĐT>' thì cụm chữ LÀ TÊN — kể cả khi trùng âm với từ thời gian (vd 'Mai 090...' → tên='Mai', KHÔNG phải 'ngày mai'). MỘT KÍNH NGỮ đứng trơ (anh/chị/em/cô/chú/bạn) KHÔNG phải tên — nếu khách chưa cho tên riêng thì để null, ĐỪNG lấy kính ngữ làm tên."),
     phone: z.string().nullish().describe("Số điện thoại"),
@@ -33,7 +37,11 @@ const recordLeadTool = createTool({
     appointmentDate: z.string().nullish().describe("Ngày hẹn tuyệt đối DD/MM/YYYY nếu xác định được từ tin khách; null nếu khách chưa nêu ngày cụ thể. Một tên riêng (vd 'Mai') đứng cạnh SĐT KHÔNG phải ngày — đừng suy 'Mai' thành 'ngày mai'."),
     service: z.string().nullish().describe("Bộ môn fitness: gym/yoga/zumba/boi/pilates/full"),
     goal: z.string().nullish().describe("Mục tiêu fitness: giam-mo/tang-co/tang-can/thu-gian/hoc-boi/suc-khoe/giu-dang"),
-    painArea: z.string().nullish().describe("Vùng đau (giải cơ): vai-gay/lung/chan/toan-than/..."),
+    painArea: z.string().nullish().describe("Vùng đau (giải cơ), dạng slug không dấu: vai-gay/co-vai-gay/lung/that-lung/chan/bap-chan/goi/toan-than"),
+    painSpread: z.string().nullish().describe("Tính chất cơn đau khách vừa tả, nguyên văn (vd 'đau lan xuống cánh tay', 'nhói 1 điểm khi quay cổ', 'ê ẩm cả mảng')."),
+    painDuration: z.string().nullish().describe("Đau bao lâu rồi, nguyên văn (vd '2 hôm nay', 'mấy tháng rồi', 'cả năm'). QUAN TRỌNG cho an toàn: mới bị dưới 3 ngày là chấn thương CẤP, chưa làm giải cơ được."),
+    bodyStats: z.string().nullish().describe("Chiều cao / cân nặng khách vừa nói, nguyên văn (vd '1m70 55kg', 'nặng 78kg'). Ghi ngay khi khách nêu để lượt sau không hỏi lại."),
+    memberType: z.string().nullish().describe("Đối tượng để áp đúng bảng giá: hoc-sinh-sinh-vien / giao-vien / gia-dinh / doanh-nghiep / ca-nhan. Chỉ điền khi khách tự nói."),
   }),
   outputSchema: z.object({ ok: z.boolean() }),
   execute: async () => ({ ok: true }),
@@ -80,7 +88,8 @@ export const flowRouterAgent = new Agent({
   name: "TurnRouter",
   id: "turn-router",
   model: classifierModel,
-  instructions: `Bạn đọc tin khách + ngữ cảnh, trả 2 quyết định: "flow" và "media".
+  instructions: `Bạn đọc tin khách + ngữ cảnh, trả 4 quyết định: "flow", "media", "ready", "honorific".
+CẢ 4 đều quan trọng như nhau — đừng dồn hết chú ý vào flow/media rồi trả bừa 2 cái sau.
 
 ① flow — nhánh dịch vụ. Đây là page của trung tâm FITNESS → "fitness" là nhánh MẶC ĐỊNH.
 - "fitness": mọi nhu cầu TẬP (gym / yoga / zumba / bơi / pilates) và mọi MỤC TIÊU của việc tập — giảm cân, tăng cân, tăng cơ, giữ dáng, sức khoẻ, thể hình, và cả THƯ GIÃN / xả stress / thả lỏng người. Hỏi giá gói tập, đặt lịch tập thử.
@@ -103,5 +112,12 @@ Dựa vào "bối cảnh đã biết" (mục tiêu / bộ môn / vùng đau) + c
 
 ③ ready — khách đã tỏ ý MUỐN ĐẾN/thử/đặt lịch chưa (true/false):
 - true khi: đồng ý thử 1 buổi, hỏi lịch/cách đặt, tự nêu ngày-giờ muốn đến, hoặc đưa tên/SĐT để đặt.
-- false khi: mới hỏi thông tin / than đau / phân vân / nói "để xem đã", "để tính đã", "chưa chắc" (đang chần chừ, CHƯA quyết đến).`,
+- false khi: mới hỏi thông tin / than đau / phân vân / nói "để xem đã", "để tính đã", "chưa chắc" (đang chần chừ, CHƯA quyết đến).
+
+④ honorific — khách là NAM hay NỮ, để bên em gọi đúng "anh"/"chị":
+- "anh" khi khách là nam, "chị" khi khách là nữ, "unknown" khi CHƯA đủ căn cứ.
+- Căn cứ: khách tự xưng ("anh hỏi chút", "chị muốn tập"), tên riêng khách vừa cho, hoặc cách khách
+  tự mô tả (vd "sau sinh", "vợ em", "chồng em"). ⛔ ĐỪNG đoán từ bộ môn (yoga không có nghĩa là nữ,
+  gym không có nghĩa là nam) — đoán sai giới là lỗi rất nặng. Không chắc → "unknown".
+- Khách tự xưng "mình"/"em" TRUNG TÍNH, không suy ra được giới → "unknown".`,
 });

@@ -8,7 +8,9 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "test:kichban": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/runKichBan.ts"
+    "test:engine": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokeEngine.ts",
+    "test:engine2": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokeEngine2.ts",
+    "test:price": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokePriceCheck.ts"
   },
   "keywords": [],
   "author": "",

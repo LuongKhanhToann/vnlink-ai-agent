@@ -369,15 +369,7 @@ export function mergeSlots(
  *   +1 = có thứ trong tuần (thứ 2..7, chủ nhật, CN)
  * Value càng cụ thể → điểm càng cao.
  */
-export function preferredTimeScore(s: string | null): number {
-  if (s === null) return -1;
-  let score = 0;
-  if (/\d{1,2}\/\d{1,2}/.test(s)) score += 2;
-  if (/\d{1,2}h/i.test(s)) score += 2;
-  if (/(sáng|chiều|tối|trưa)/i.test(s)) score += 1;
-  if (/(thứ\s?[2-7]|chủ\s?nhật|\bcn\b)/i.test(s)) score += 1;
-  return score;
-}
+// 22/07 — gỡ preferredTimeScore: 0 ref (cả trong lẫn ngoài file).
 
 /**
  * Kiểm tra preferredTime đã đủ cụ thể chưa (có ngày hoặc thứ).
@@ -793,32 +785,9 @@ export function needsFlowClassification(
 // HONORIFIC DETECTION
 // ─────────────────────────────────────────────
 
-export function detectHonorific(
-  message: string,
-  previous: "anh" | "chị" | "anh/chị"
-): "anh" | "chị" | "anh/chị" {
-  const msg = message.toLowerCase();
+// 22/07 — gỡ detectHonorific: xưng hô giờ do TurnRouter (LLM) quyết, không dò keyword.
 
-  // Khách viết "anh/chị" → khách dùng dạng generic, giữ nguyên previous
-  if (/anh\s*\/\s*ch(ị|i)/.test(msg)) return previous;
-
-  // Boundary an toàn cho Unicode tiếng Việt: dùng start/end, whitespace hoặc dấu câu.
-  // KHÔNG match "a" lẻ — quá nhiều false-positive ("a ơi", "a a a", filler).
-  const boundary = "(^|[\\s,.!?:;()\\-/])";
-  const tail     = "([\\s,.!?:;()\\-/]|$)";
-
-  const isChi = new RegExp(`${boundary}(chị|chj)${tail}`).test(msg);
-  if (isChi) return "chị";
-
-  const isAnh = new RegExp(`${boundary}anh${tail}`).test(msg);
-  if (isAnh) return "anh";
-
-  return previous;
-}
-
-export function resolveHonorific(h: "anh" | "chị" | "anh/chị"): string {
-  return h === "anh/chị" ? "anh/chị" : h;
-}
+// 22/07 — gỡ resolveHonorific: 0 ref.
 
 // ─────────────────────────────────────────────
 // HELPERS — đánh giá độ chín của slot

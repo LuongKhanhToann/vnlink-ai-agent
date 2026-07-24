@@ -24,18 +24,26 @@ const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
 // Strip cum đánh giá khỏi ACK clause; giữ phần nhắc lại + dấu câu kết thúc.
 const PRAISE_CUM =
   "(?:rất\\s+tốt|tốt\\s+quá|tốt\\s+rồi|tốt\\s+lắm|ổn\\s+lắm|ổn\\s+rồi|hợp\\s+lý|lý\\s+tưởng|phù\\s+hợp(?:\\s+lắm)?|rất\\s+hợp|hợp\\s+(?:luôn|quá|lắm)|chuẩn\\s+rồi|vậy\\s+là\\s+chuẩn|lựa\\s+chọn\\s+(?:đúng|tốt|hợp\\s+lý))";
+// ⚠ 22/07 — VÁ LỖI CỤT NGỮ PHÁP: các net dưới trước đây strip cụm khen ở GIỮA câu, để lại
+// phần bổ ngữ đứng chơ vơ → câu sai ngữ pháp khách đọc thấy ngay:
+//   "gói 12 tháng là hợp lý nhất cho chị ạ"      → "gói 12 tháng nhất cho chị ạ"
+//   "3 buổi một tuần là phù hợp với người mới"   → "3 buổi một tuần với người mới"
+// Sửa: CHỈ strip khi cụm khen nằm CUỐI MỆNH ĐỀ (theo sau là tiểu từ/dấu câu/hết chuỗi) — lúc đó
+// nó đúng là cái đuôi đánh-giá thừa, bỏ đi vẫn tròn câu. Khen kèm bổ ngữ ("… hợp lý NHẤT CHO
+// chị") là câu tư vấn hợp lệ, để nguyên; phần chống nịnh còn lại giao cho VOICE trong prompt.
+const CLAUSE_END = `(?:\\s+(?:nhất|hơn|lắm|rồi|quá))*(?=\\s*(?:ạ|nha|nhé)?\\s*(?:[.,!]|$))`;
 const SYCOPHANTIC_ACK_PATTERNS: Array<[RegExp, string]> = [
   // "... là/thì [tần suất|mục tiêu|lựa chọn|cách]? <praise>" → strip từ "là/thì" tới hết praise
   [
     new RegExp(
-      `\\s+(?:là|thì)(?:\\s+(?:tần\\s+suất|mục\\s+tiêu|lựa\\s+chọn|cách|cũng))?\\s+${PRAISE_CUM}`,
+      `\\s+(?:là|thì)(?:\\s+(?:tần\\s+suất|mục\\s+tiêu|lựa\\s+chọn|cách|cũng))?\\s+${PRAISE_CUM}${CLAUSE_END}`,
       "gi",
     ),
     "",
   ],
   // "... tần suất <praise>" (không có "là") → strip cụm "tần suất <praise>"
   [
-    new RegExp(`\\s+tần\\s+suất\\s+${PRAISE_CUM}`, "gi"),
+    new RegExp(`\\s+tần\\s+suất\\s+${PRAISE_CUM}${CLAUSE_END}`, "gi"),
     "",
   ],
   // Bare "tần suất ổn" (không có "lắm/rồi") — vẫn là khen mềm, strip
@@ -89,9 +97,13 @@ const QUESTION_NHA_PATTERNS: Array<[RegExp, string]> = [
   [/\s+nhé\s*\?/gi, "?"],
 ];
 
-// Filler sáo rỗng — cắt cụm
+// Filler sáo rỗng — cắt cụm.
+// ⚠ 22/07: net cũ nhận cả "em tư vấn thêm" TRẦN → nuốt luôn CTA hợp lệ
+// "Chị cần em tư vấn thêm gì không ạ." (câu mời khách hỏi tiếp, không phải filler) → reply kết
+// cụt lửng. Siết: chỉ cắt khi là LỜI HỨA suông của bot ("em SẼ / em CÓ THỂ tư vấn thêm"), và
+// không tính khi đứng sau "cần" (khách cần em… = đang mời khách).
 const FILLER_PATTERNS: RegExp[] = [
-  /[^.?!]*\b(em\s+(có\s+thể\s+)?(sẽ\s+)?tư\s+vấn\s+thêm|nếu\s+cần\s+em\s+sẽ\s+tư\s+vấn|em\s+rất\s+mong\s+được\s+hỗ\s+trợ)[^.?!]*[.?!]/gi,
+  /[^.?!]*\b((?<!cần\s)em\s+(?:có\s+thể\s+|sẽ\s+)tư\s+vấn\s+thêm|nếu\s+cần\s+em\s+sẽ\s+tư\s+vấn|em\s+rất\s+mong\s+được\s+hỗ\s+trợ)[^.?!]*[.?!]/gi,
 ];
 
 // Markdown bold/italic
@@ -442,6 +454,10 @@ export function cleanReply(
   //     Áp dụng cho TỪNG câu trong reply, không chỉ câu cuối — bot hay nhồi "nha" mỗi câu.
   //     Chỉ replace khi đứng cuối câu (trước . ! hoặc end-of-string). Giữ "nha" nội bộ
   //     ("nha em" / "nha anh" — vocative, không phải particle kết câu).
+  //     ⚠ 22/07: thêm lookbehind (?<!ạ) — câu "…một buổi ạ nha." vốn ĐÃ có "ạ", thay tiếp
+  //     "nha"→"ạ" cho ra "…một buổi ạ ạ." (nhân đôi tiểu từ). Có "ạ" đứng ngay trước thì
+  //     chỉ việc XOÁ "nha/nhé" thừa, không thay.
+  r = r.replace(/\s+ạ\s+(?:nha|nhé)(?=\s*[.!]|\s*$)/gi, " ạ");
   r = r.replace(/\s+(nha|nhé)(?=\s*[.!]|\s*$)/gi, " ạ");
 
   // 8d. Câu cuối thiếu particle kết — bot hay paraphrase rồi drop luôn "ạ"/"nha".

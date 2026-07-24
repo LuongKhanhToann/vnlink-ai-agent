@@ -1,7 +1,7 @@
 /**
  * smokeEngine.ts — smoke REPLY THẬT qua engine mới (engine/brain.ts:runAgentTurn).
  *
- * KHÁC runKichBan: gọi thẳng runAgentTurn (không qua routerWorkflow legacy) để đọc câu chữ
+ * Gọi thẳng runAgentTurn (bỏ qua tầng humanize/followup của facebook.ts) để đọc câu chữ
  * bot engine mới THỰC SỰ trả. Đặt STORAGE_BACKEND=libsql → không đụng prod. Mỗi kịch bản 1
  * threadId riêng (fresh state). In reply + slot + media/qr từng turn để soi nghiệp vụ.
  *

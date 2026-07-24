@@ -22,12 +22,13 @@ import {
   lockHonorific,
   stripQrMention,
   stripStaleGreeting,
-  softenGiaiCoPrematureClose,
+  softenPrematureClose,
 } from "../lib/replyGuards";
 import { fetchMedia } from "../tools/media";
 import { fitnessBrainAgent, giaiCoBrainAgent, flowRouterAgent } from "./agents";
 
 type Flow = "fitness" | "giai-co";
+type Honorific = "anh" | "chị";
 
 /** 9 bộ ảnh + "none" — turnRouter chọn THẲNG (cổng deterministic, thay cho reply-agent gọi tool). */
 const MEDIA_KEYS = [
@@ -83,9 +84,11 @@ function buildKnownSummary(info: KnownInfo): string {
   add("SĐT", info.phone);
   add("bộ môn", info.serviceType);
   add("mục tiêu", info.fitnessGoal);
+  add("thể trạng", info.bodyStats);
   add("đối tượng", info.memberType);
   add("vùng đau", info.painArea);
   add("tính chất đau", info.painSpread);
+  add("đau bao lâu", info.painDuration);
   add("giờ hẹn", info.preferredTime);
   add("ngày hẹn", info.appointmentDate);
   return bits.length ? `[ĐÃ BIẾT: ${bits.join(" · ")} — KHÔNG hỏi lại các mục này]` : "";
@@ -118,7 +121,7 @@ function buildRouterContext(info: KnownInfo): string {
 async function classifyTurn(
   state: ConversationState,
   message: string,
-): Promise<{ flow: Flow; media: MediaKey | null; ready: boolean }> {
+): Promise<{ flow: Flow; media: MediaKey | null; ready: boolean; honorific: Honorific | null }> {
   const fresh = (state.turnCount ?? 0) === 0;
   const current: Flow = state.flow;
   const currentLabel = fresh ? "chưa xác định (tin đầu)" : current;
@@ -137,6 +140,7 @@ async function classifyTurn(
             flow: z.enum(["fitness", "giai-co"]).catch(current),
             media: z.enum([...MEDIA_KEYS, "none"]).catch("none"),
             ready: z.boolean().catch(false),
+            honorific: z.enum(["anh", "chị", "unknown"]).catch("unknown"),
           }),
           jsonPromptInjection: true,
         },
@@ -153,11 +157,15 @@ async function classifyTurn(
       media = null;
     }
     const ready = res?.object?.ready === true;
-    console.log(`[brain] router: flow=${flow} media=${media ?? "none"} ready=${ready}`);
-    return { flow, media, ready };
+    const pickedH = res?.object?.honorific;
+    const honorific: Honorific | null = pickedH === "anh" || pickedH === "chị" ? pickedH : null;
+    console.log(
+      `[brain] router: flow=${flow} media=${media ?? "none"} ready=${ready} honorific=${honorific ?? "unknown"}`,
+    );
+    return { flow, media, ready, honorific };
   } catch (e) {
     console.error("[brain] classifyTurn failed → giữ nhánh cũ, media none:", (e as Error).message);
-    return { flow: current, media: null, ready: false };
+    return { flow: current, media: null, ready: false, honorific: null };
   }
 }
 
@@ -170,16 +178,34 @@ function mergeLead(info: KnownInfo, args: any): void {
   if (!info.name) set("name", args.name);
   if (!info.phone) set("phone", args.phone);
   // Bảo toàn LỊCH ĐÃ CHỐT ở bước đưa liên hệ: khi tin này mang SĐT (chốt contact) mà đã có
-  // ngày hẹn → KHÔNG cho model ghi đè ngày/giờ. Chống case tên trùng âm thời gian ("Mai" → "mai
+  // ngày hẹn → KHÔNG cho model GHI ĐÈ ngày/giờ. Chống case tên trùng âm thời gian ("Mai" → "mai
   // 10/07") phá ngày đã chốt. Reschedule thật đến ở tin riêng (không kèm SĐT) nên vẫn cập nhật được.
-  const freezeSchedule = typeof args.phone === "string" && !!args.phone.trim() && !!info.appointmentDate;
-  if (!freezeSchedule) {
-    set("preferredTime", args.preferredTime);
-    set("appointmentDate", args.appointmentDate);
-  }
+  //
+  // ⚠ 22/07 — VÁ: freeze cũ chặn CẢ LẦN GHI ĐẦU của preferredTime. Luồng rất thường gặp:
+  //   T1 "mai qua được không"                → appointmentDate=23/07  (chưa có giờ)
+  //   T2 "tên Hà, sđt 09…, mai 9h sáng nhé"  → có phone + đã có date ⇒ freeze ⇒ "9h sáng" BỊ VỨT
+  // Bot vẫn đọc đúng ("em giữ chỗ 9h sáng mai 23/07") nhưng slot rỗng → (1) ô "Thời gian đến"
+  // trên Sheets mất giờ; (2) facebook.ts dùng preferredTime để TẮT nhắc ⇒ khách đã chốt mà bot
+  // vẫn nhắn nhắc. Freeze giờ CHỈ bảo vệ slot ĐÃ CÓ giá trị, không bao giờ chặn lần ghi đầu.
+  // Phạm vi freeze: CHỈ appointmentDate — đó mới là thứ token tên "Mai" phá được (và là định
+  // danh chốt đơn: 1 người + 1 NGÀY = 1 dòng Sheets). preferredTime thì LUÔN cho cập nhật:
+  // khoá nó gây mất giờ thật ở luồng rất thường gặp — T1 "mai qua được không" đã điền
+  // preferredTime="mai", T2 "mai 9h sáng nhé" bị freeze ⇒ giờ hẹn kẹt ở "mai", Sheets mất "9h
+  // sáng". Nhầm tên riêng thành GIỜ gần như không xảy ra (schema tả rõ preferredTime là mốc
+  // thời điểm đến, và có dặn thẳng: tên đứng cạnh SĐT không phải giờ).
+  const contactTurn = typeof args.phone === "string" && !!args.phone.trim() && !!info.appointmentDate;
+  set("preferredTime", args.preferredTime);
+  if (!contactTurn) set("appointmentDate", args.appointmentDate);
   set("serviceType", args.service);
   set("fitnessGoal", args.goal);
   set("painArea", args.painArea);
+  // 22/07: painSpread/painDuration trước đây KHÔNG có trong schema recordLead → buildKnownSummary
+  // đọc info.painSpread mà chẳng ai ghi ⇒ nhánh giải cơ quên tính chất/thời lượng đau ngay khi
+  // trôi khỏi cửa sổ 8 tin, dễ hỏi lại và không đủ căn cứ chốt an toàn cấp/mãn.
+  set("painSpread", args.painSpread);
+  set("painDuration", args.painDuration);
+  set("bodyStats", args.bodyStats);
+  set("memberType", args.memberType);
 }
 
 export async function runAgentTurn(opts: {
@@ -192,12 +218,26 @@ export async function runAgentTurn(opts: {
   const { mastra, message, threadId, resourceId, abortSignal } = opts;
   const state = await loadState(mastra, threadId, resourceId);
 
-  const { flow, media: mediaDecision, ready: routerReady } = await classifyTurn(state, message);
+  const {
+    flow,
+    media: mediaDecision,
+    ready: routerReady,
+    honorific: routerHonorific,
+  } = await classifyTurn(state, message);
   const flowChanged = flow !== state.flow && (state.turnCount ?? 0) > 0;
   const agent = flow === "giai-co" ? giaiCoBrainAgent : fitnessBrainAgent;
 
   // ── build next state khung ──
   const next: ConversationState = { ...state, flow };
+  // Xưng hô STICKY: chốt được "anh"/"chị" rồi thì GIỮ, không cho lượt sau lật (router chỉ thấy
+  // 1 tin, dễ mất căn cứ → "unknown"). Chưa rõ thì để nguyên "anh/chị" trung tính.
+  // ⚠ Trước đây engine agent KHÔNG hề ghi field này (chỉ đọc) → kẹt vĩnh viễn ở "anh/chị" →
+  //   lockHonorific no-op, ensureMediaCaption lẫn xưng hô, guard giục-chốt luôn rơi vào "anh"
+  //   (gọi khách nữ là "anh"). Đây là chỗ vá.
+  if (state.honorific !== "anh" && state.honorific !== "chị" && routerHonorific) {
+    next.honorific = routerHonorific;
+    console.log(`[brain] chốt xưng hô: ${routerHonorific}`);
+  }
   next.turnCount = (state.turnCount ?? 0) + 1;
   next.flowTurnCount = flowChanged ? 1 : (state.flowTurnCount ?? 0) + 1;
   next.lastUserMessage = message;
@@ -217,13 +257,26 @@ export async function runAgentTurn(opts: {
   }
 
   // ── generate reply + thu toolCalls ──
+  // Header ĐỘNG (ngày + slot đã biết) nối THẲNG vào tin khách — CỐ Ý, đừng "dọn" lại.
+  //
+  // ⚠ 22/07 — ĐÃ THỬ TÁCH RA VÀ ĐÃ TRẢ GIÁ, ghi lại để khỏi làm lại:
+  // Mastra lưu nguyên chuỗi ghép này vào thread như LỜI KHÁCH (dump memory xác nhận), nên các
+  // lượt sau model đọc lại vài khối "NGÀY: …" cũ + snapshot "[ĐÃ BIẾT: …]" lỗi thời. Nhìn thì
+  // bẩn, nên đã thử chuyển header sang message vai `system` (lịch sử sạch hẳn, 0 rò).
+  // A/B trên ĐÚNG lượt chốt đơn ("ok mai mình qua thử, mình tên Sơn sđt 09…"), 4 lần mỗi bên:
+  //     header INLINE  → 4/4 ghi được appointmentDate
+  //     header SYSTEM  → 0/4  (model vẫn ĐỌC đúng ngày, còn nói "mai là 23/07" trong reply,
+  //                            nhưng KHÔNG truyền ngày vào args recordLead nữa)
+  // Rời khối NGÀY ra xa câu khách là mất luôn liên kết "mai" → ngày tuyệt đối ở bước gọi tool.
+  // Mà appointmentDate là ĐỊNH DANH chốt đơn (1 người + 1 ngày = 1 dòng Sheets) → mất là mất đơn.
+  // Kết luận: giữ INLINE. Lịch sử hơi rác là cái giá RẺ HƠN nhiều so với rớt ngày hẹn.
   const header = buildHeader(next);
-  const fullMessage = [header, message].filter(Boolean).join("\n");
   const toolCalls: { name: string; args: any }[] = [];
   // finalText = text của ITERATION CUỐI (câu trả lời thật). KHÔNG dùng result.text vì khi tool
   // fire (recordLead / updateWorkingMemory của working-memory) thì result.text GỘP text các vòng
   // → nhân đôi câu. Mỗi vòng model re-emit reply → lấy vòng cuối là đúng, đơn.
   let finalText = "";
+  const fullMessage = [header, message].filter(Boolean).join("\n");
   const result: any = await agent.generate(fullMessage, {
     maxSteps: 4,
     // temp 0.6 (hạ từ 0.85): gpt-5.4 full cho câu tự nhiên/đa dạng ngay ở temp thấp → hạ để CẮT
@@ -321,15 +374,13 @@ export async function runAgentTurn(opts: {
   if (hasMedia) reply = ensureMediaCaption(reply, sentMediaKey, next.honorific);
   if (!qrUrl) reply = stripQrMention(reply);
   reply = lockHonorific(reply, next.honorific);
-  if (flow === "giai-co") {
-    reply = softenGiaiCoPrematureClose(reply, {
-      flow,
-      intent: next.intent,
-      preferredTime: next.knownInfo.preferredTime,
-      hasContact,
-      honorific: next.honorific,
-    });
-  }
+  reply = softenPrematureClose(reply, {
+    flow,
+    intent: next.intent,
+    preferredTime: next.knownInfo.preferredTime,
+    hasContact,
+    honorific: next.honorific,
+  });
 
   // ── ghi state snapshot (followup + dedup ở facebook.ts đọc field này) ──
   next.lastBotReply = reply;
