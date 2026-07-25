@@ -35,7 +35,76 @@ function extractJson(text: string): string {
   return first >= 0 && last > first ? t.slice(first, last + 1) : t;
 }
 
-/** Dự phòng CLASSIFY: 5.4-mini + CÙNG CLS_SCHEMA (bơm vào prompt) → JSON.parse. */
+/**
+ * Biến CLS_SCHEMA thành dạng `strict` của OpenAI structured output: strict BẮT BUỘC mọi field
+ * nằm trong `required`, nên field vốn optional được cho phép thêm giá trị `null` (= "không có tin
+ * mới"), rồi `stripNulls` xoá đi để FSM nhận ĐÚNG shape lean của gemma (vắng field = giữ giá trị cũ).
+ */
+function strictify(schema: any): any {
+  const props = schema?.properties ?? {};
+  const req: string[] = schema?.required ?? [];
+  const out: any = { type: "object", properties: {}, required: Object.keys(props), additionalProperties: false };
+  for (const [k, v] of Object.entries<any>(props)) {
+    if (req.includes(k)) {
+      out.properties[k] = v;
+      continue;
+    }
+    const types = Array.isArray(v.type) ? v.type : [v.type];
+    const nv: any = { ...v, type: [...types, "null"] };
+    if (Array.isArray(v.enum)) nv.enum = [...v.enum, null];
+    out.properties[k] = nv;
+  }
+  return out;
+}
+
+/** Field `null` (do strict ép phải có mặt) = không có tin mới → BỎ, đúng luật sticky của updateState. */
+function stripNulls(o: any): any {
+  if (!o || typeof o !== "object") return o;
+  for (const k of Object.keys(o)) if (o[k] === null) delete o[k];
+  return o;
+}
+
+/**
+ * Đường CHÍNH của classify dự phòng: gọi thẳng /chat/completions với `response_format:
+ * json_schema strict` — model bị RÀNG BUỘC theo schema y như grammar của ollama, không còn cửa
+ * tự chế field/giá trị ngoài enum như lối bơm-schema-vào-prompt.
+ * Model mặc định là gpt-5.4 FULL (không phải mini): đo 15 lượt trên tin "tư vấn khóa học bơi",
+ * mini trượt 2 (1 lần ra flow=giai-co → bot báo giá giải cơ 200k cho khách hỏi bơi — ca live
+ * 25/07 convo 27782205061437941), full 0/10. Fallback hiếm khi chạy nên chênh giá không đáng kể.
+ * Override: FALLBACK_CLS_MODEL.
+ */
+async function strictClassify(
+  instructions: string,
+  rest: ChatMsg[],
+  schema: unknown,
+  abortSignal?: AbortSignal,
+): Promise<any> {
+  const useOpenai = (process.env.LLM_PROVIDER ?? "openai").toLowerCase() === "openai";
+  const key = useOpenai ? process.env.OPENAI_API_KEY : process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error("thiếu API key cho classify strict");
+  const base = useOpenai ? "https://api.openai.com/v1" : "https://api.deepseek.com";
+  const model = process.env.FALLBACK_CLS_MODEL || (useOpenai ? "gpt-5.4" : "deepseek-v4-pro");
+  const res = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      temperature: 0,
+      messages: [{ role: "system", content: instructions }, ...rest],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "classification", strict: true, schema: strictify(schema) },
+      },
+    }),
+    signal: abortSignal,
+  });
+  if (!res.ok) throw new Error(`classify strict HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const body = (await res.json()) as any;
+  const text = body?.choices?.[0]?.message?.content ?? "";
+  return stripNulls(JSON.parse(extractJson(text)));
+}
+
+/** Dự phòng CLASSIFY: schema-strict (đường chính) → nếu lỗi thì lối cũ bơm-schema-vào-prompt. */
 export async function fallbackJson<T>(
   messages: ChatMsg[],
   schema: unknown,
@@ -43,6 +112,13 @@ export async function fallbackJson<T>(
 ): Promise<{ value: T; seconds: number }> {
   const t0 = Date.now();
   const { instructions, rest } = splitSystem(messages);
+  try {
+    const value = (await strictClassify(instructions, rest, schema, abortSignal)) as T;
+    return { value, seconds: (Date.now() - t0) / 1000 };
+  } catch (e) {
+    if (abortSignal?.aborted) throw e;
+    console.warn(`[gemma] classify strict lỗi (${(e as Error)?.message}) → lối cũ prompt-schema`);
+  }
   const agent = new Agent({
     name: "gemma-fallback-cls",
     id: "gemma-fallback-cls",
