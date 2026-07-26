@@ -122,6 +122,22 @@ function isPhoneComplete(v: string): boolean {
 }
 
 /**
+ * Chốt cửa TÊN KHÁCH: một ĐẠI TỪ/kính ngữ đứng trơ không phải tên người.
+ *
+ * Đây là soát HỢP LỆ của giá trị (như `COMMON_NON_NAME_WORDS` bên lib/stateMachine.ts của nhánh
+ * 5.4), KHÔNG phải phân loại ý khách — việc "khách có cho tên chưa" vẫn do classifier quyết.
+ * Cần vì đường FALLBACK 5.4 bốc "tôi" trong "Tư vấn cho tôi khoá học bơi" thành ten_khach (đo
+ * 26/07, cả sau khi đã dặn thẳng trong prompt) → tên đó chảy vào phiếu khách + Sheets và bot gọi
+ * khách là "anh tôi". Chỉ chặn 1 TỪ đứng trơ; tên thật ghép với đại từ ("Mình Hà") vẫn qua.
+ */
+const DAI_TU_KHONG_PHAI_TEN = new Set([
+  "tôi", "toi", "mình", "minh", "tớ", "to", "em", "anh", "chị", "chi", "cô", "co",
+  "chú", "chu", "bác", "bac", "cháu", "chau", "con", "ông", "ong", "bà", "ba", "bạn", "ban",
+]);
+const laDaiTu = (ten: string): boolean =>
+  !ten.includes(" ") && DAI_TU_KHONG_PHAI_TEN.has(ten.toLowerCase());
+
+/**
  * Cập nhật state từ kết quả classifier — thuần code, không suy diễn thêm.
  * resolvedDayLabel: nhãn ngày CHÍNH XÁC do caller tính từ ngay_hen_chuan bằng Date thật
  * (vd "thứ Bảy 25/07"), "" nếu lượt này khách không chốt ngày cụ thể.
@@ -132,7 +148,7 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
   if (c.flow && c.flow !== "chua-ro") s.flow = c.flow;
   if (c.khach_xung && c.khach_xung !== "chua-ro") s.xung = c.khach_xung;
   const ten = c.ten_khach?.trim();
-  if (ten) s.ten = ten;
+  if (ten && !laDaiTu(ten)) s.ten = ten;
   // ⚠ SĐT thiếu số thì KHÔNG ghi — và bật cờ để tin này hỏi lại khách cho đủ.
   s.sdtThieuSo = false;
   const sdt = c.sdt?.trim();

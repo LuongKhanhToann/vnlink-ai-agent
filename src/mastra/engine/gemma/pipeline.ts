@@ -31,7 +31,7 @@ import { reviewDraft } from "./draftRules";
 import { callChat, callJson, resolveLlmConfig, type ChatMsg, type LlmConfig } from "./llm";
 import { decideMedia } from "./mediaGate";
 import { buildSystemPrompt, type GemmaFlow } from "./prompt";
-import type { PriceBucket } from "./pricing";
+import { resolvePriceBucket, type PriceBucket } from "./pricing";
 import { buildTurnContext, updateState, type ConvState } from "./state";
 import { extractQuestions, norm, stripMediaLine } from "./text";
 
@@ -131,13 +131,21 @@ export async function runGemmaTurn(opts: {
   const finalize = (draft: string): string =>
     polish(draft, { conv, message, history, flow, mediaKey: media.mediaKey, prevBotReply, notes });
 
+  // Nhóm giá: classifier quyết, code chỉ soát NHẤT QUÁN với slot bơi (xem resolvePriceBucket).
+  const rawBucket = (cls?.gia_hoi_ve ?? "") as PriceBucket;
+  const priceBucket = resolvePriceBucket(conv, rawBucket);
+  // Chỉ ghi note khi lượt này THẬT SỰ dùng bảng giá — nếu không log đầy note vô nghĩa.
+  if (conv.hoiGiaTurn && priceBucket !== rawBucket) {
+    notes.push(`vá nhóm giá ${rawBucket || "(trống)"} → ${priceBucket}`);
+  }
+
   const draftRun = await draftReply({
     conv,
     history,
     message,
     flow,
     mediaKey: media.mediaKey,
-    priceBucket: (cls?.gia_hoi_ve ?? "") as PriceBucket,
+    priceBucket,
     dayOptions: dayOptionsFor(conv, cls),
     cfg,
     notes,

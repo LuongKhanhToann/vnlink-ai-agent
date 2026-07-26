@@ -130,10 +130,34 @@ const LUAT_MOT_MOC =
   `⚠ NGOẠI LỆ (khách xin RÕ xem NHIỀU mốc): khi khách nói thẳng muốn xem danh sách — "cho xem các gói", "xem gói dài hơn", "có mấy loại", "liệt kê các mức", "các gói thế nào" — thì được nêu 2-3 mốc CỦA CÙNG MỘT LOẠI gói khách đang hỏi, MỖI MỐC 1 DÒNG (vd 3 tháng / 6 tháng / 12 tháng), rồi hỏi 1 câu chốt nhu cầu. VẪN cấm trộn nhiều LOẠI gói khác nhau hay đổ cả bảng nhiều bộ môn trong 1 tin.`;
 
 /**
+ * Vá NHÓM GIÁ khi classifier rơi về mặc định "the-tap" nhưng CHÍNH SLOT của nó đã chốt rằng đây
+ * là mạch KHOÁ HỌC BƠI → sản phẩm đúng là khoá học, không phải thẻ bơi theo tháng.
+ *
+ * Vì sao cần: luật của classifier nói "không chắc thì chọn the-tap", nên câu hỏi giá CHUNG CHUNG
+ * ("chi phí tập ntn ạ") vẫn ra the-tap dù state đã có biết-bơi=chua-biet. Bảng the-tap không có
+ * dòng khoá học nào → bot báo thẻ bơi người lớn 1 tháng 700 nghìn cho người CHƯA BIẾT BƠI (ca
+ * live 26/07 convo 28415816001377936; cùng họ với ca thẻ trẻ em 3.6 triệu).
+ *
+ * ⚠ Đây KHÔNG phải heuristic trên chữ của khách: chỉ đọc slot do classifier LLM quyết
+ * (bo_mon / biet_boi / muc_tieu) — tức giữ nguyên "phân loại là việc của model", code chỉ lo
+ * tính NHẤT QUÁN giữa các slot với bảng giá được bơm.
+ */
+export function resolvePriceBucket(s: ConvState, bucket: PriceBucket): PriceBucket {
+  if (s.flow === "giai-co") return bucket;
+  // Mặc định/để trống mới vá; bucket classifier chọn CÓ CHỦ Ý (ve-boi-le, pt-1-1, pilates…) thì tôn trọng.
+  if (bucket !== "" && bucket !== "the-tap") return bucket;
+  const mchBoi = s.boMon === "boi" || s.mucTieu === "hoc-boi";
+  const hocBoi = s.mucTieu === "hoc-boi" || s.bietBoi === "chua-biet";
+  return mchBoi && hocBoi ? "hoc-boi" : bucket;
+}
+
+/**
  * Dòng chỉ dẫn BÁO GIÁ bơm vào khối bối cảnh — gồm luật + đúng vài dòng bảng cần tra.
  * Trả "" khi lượt này khách không hỏi giá.
  */
-export function buildPriceDirective(s: ConvState, bucket: PriceBucket): string {
+export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): string {
+  // Gọi lại resolve ở đây (idempotent) để directive vẫn đúng dù caller quên vá.
+  const bucket = resolvePriceBucket(s, rawBucket);
   // ⚠ Head KHÔNG được chứa con số tiền nào: 12B hay bốc luôn số trong ví dụ ra báo cho khách.
   const head = `- Khách ĐANG hỏi giá → answer-first: nêu con số NGAY trong 1-2 câu ĐẦU của tin (cuối tin có thể bị cắt), cả tin gọn trong 3 câu. ⛔ CẤM né bằng "mình qua trung tâm em tư vấn kỹ hơn" — né giá là mất khách. Giá đọc bằng chữ đầy đủ ("nghìn"/"triệu"), CẤM viết tắt kiểu "k", "tr", "triệu rưỡi"; gọi ĐÚNG tên gói trong bảng.`;
   const table = (luat: string, body: string) => `${head}\n  ${luat}\n  BẢNG TRA (chép nguyên số, CẤM tự tính hay chế thêm dòng):\n${body
@@ -196,6 +220,11 @@ export function buildPriceDirective(s: ConvState, bucket: PriceBucket): string {
       rows.push(
         `─ (Tham chiếu THẺ BƠI THÁNG — bơi tự do, KHÔNG phải giá HỌC BƠI; CHỈ nêu khi khách hỏi RIÊNG vé/thẻ bơi theo tháng):\n${theBoiThang}`,
       );
+    }
+    if (bucket !== rawBucket) {
+      // Ca VÁ (khách hỏi giá chung chung trong mạch chưa-biết-bơi): vẫn ưu tiên khoá học, nhưng
+      // để ngỏ đúng 1 cửa cho ca ngược — khách chưa biết bơi mà hỏi ĐÍCH DANH thẻ bơi tự do.
+      luat = `⚠ Lượt này khách hỏi giá CHUNG CHUNG trong mạch CHƯA BIẾT BƠI → mặc định là giá KHOÁ HỌC; chỉ khi khách nói RÕ muốn vé/thẻ bơi TỰ DO theo tháng thì mới lấy số ở bảng THAM CHIẾU. ${luat}`;
     }
     luat = `⚠ Khách hỏi HỌC BƠI (học cho tới khi BIẾT bơi) → con số trả lời phải lấy từ bảng KHOÁ HỌC BƠI (lớp nhóm 12 buổi 1.5 triệu / 1 kèm 1 giá 3 triệu...). ⛔ KHÔNG lấy giá THẺ BƠI theo tháng làm câu trả lời chính — dù khách hỏi cho BÉ/CHÁU, dù khách nói "gói trẻ em" / "gói cho bé" / "khoá trẻ em" thì con số VẪN là KHOÁ HỌC (lớp nhóm 1.5 triệu, 1 kèm 1 3 triệu), TUYỆT ĐỐI KHÔNG báo thẻ bơi trẻ em 12 tháng 3.6 triệu, KHÔNG báo thẻ bơi người lớn 4.5 triệu — mấy con số 3.6/4.5 triệu ở bảng THAM CHIẾU bên dưới CHỈ dùng khi khách hỏi RIÊNG thẻ bơi tự do theo tháng, KHÔNG phải câu trả lời cho người đang hỏi HỌC bơi. ${luat}`;
   } else if (bucket && bucket !== "the-tap") {
