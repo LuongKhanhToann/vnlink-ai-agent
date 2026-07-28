@@ -68,7 +68,7 @@ const BANG_KHAC: Record<Exclude<PriceBucket, "" | "the-tap" | "lieu-trinh">, str
   "pt-1-1":
     "PT 1 kèm 1 | 10 buổi = 3 triệu\nPT 1 kèm 1 | 15 buổi = 4 triệu\nPT 1 kèm 1 | 20 buổi = 6 triệu\nPT 1 kèm 1 | 30 buổi = 8 triệu\nPT 1 kèm 1 | 40 buổi = 10 triệu\nPT 1 kèm 1 | 50 buổi = 12 triệu\nPT cho học sinh - sinh viên | 10 buổi = 3 triệu · 20 buổi = 6 triệu",
   "hoc-boi":
-    "Học bơi lớp nhóm | 12 buổi = 1.5 triệu\nHọc bơi 1 kèm 1 | 12 buổi = 3 triệu\nHọc bơi 1 kèm 1 nhóm từ 2 người | 5 triệu mỗi cặp\nHọc bơi 1 kèm 1 hai kiểu bơi | 20 buổi = 5 triệu\n(mọi gói học bơi đều tặng 1 tháng bơi tự do + cam kết biết bơi)\n➤ ÁP DỤNG CHUNG CẢ NGƯỜI LỚN VÀ TRẺ EM/BÉ: khách hỏi \"gói/khoá trẻ em\", \"học bơi cho bé\", \"gói cho cháu\" thì VẪN dùng đúng các mức khoá học trên (lớp nhóm 1.5 triệu / 1 kèm 1 3 triệu), KHÔNG có bảng khoá học riêng đắt hơn cho trẻ em.",
+    "Học bơi lớp nhóm | 12 buổi = 1.5 triệu MỖI NGƯỜI  ← MẶC ĐỊNH báo mức này\nHọc bơi 1 kèm 1 | 12 buổi = 3 triệu mỗi người\nHọc bơi 1 kèm 1 cho CẶP 2 người (2 khách học cùng 1 HLV) | 5 triệu cả cặp\nHọc bơi 1 kèm 1 HAI KIỂU BƠI | 20 buổi = 5 triệu mỗi người\n(mọi gói học bơi đều tặng 1 tháng bơi tự do + cam kết biết bơi)\n➤ ÁP DỤNG CHUNG CẢ NGƯỜI LỚN VÀ TRẺ EM/BÉ: khách hỏi \"gói/khoá trẻ em\", \"học bơi cho bé\", \"gói cho cháu\" thì VẪN dùng đúng các mức khoá học trên (lớp nhóm 1.5 triệu / 1 kèm 1 3 triệu), KHÔNG có bảng khoá học riêng đắt hơn cho trẻ em.\n➤ NHIỀU NGƯỜI CÙNG HỌC (hai mẹ con, hai bà cháu, 2-3 người nhà): mặc định vẫn là LỚP NHÓM 1.5 triệu MỖI NGƯỜI → 2 người = 3 triệu, 3 người = 4.5 triệu (nhân lên, nói rõ \"mỗi người 1.5 triệu\"). ⛔ CHỈ nêu mức 1 kèm 1 (3 triệu/người, hoặc 5 triệu cho cặp 2 người) khi khách HỎI ĐÍCH DANH hình thức kèm riêng — khách chưa chọn hình thức mà báo luôn mức đắt nhất là ép giá, mất khách.\n➤ Khách TỰ NHẨM ra một con số tổng (\"hai bà cháu là 2.400 nghìn đúng không\"): đối chiếu bảng rồi nói RÕ số đúng, không gật bừa theo và cũng không lờ đi. Mẫu: \"Dạ lớp nhóm 1.5 triệu mỗi người nên hai bà cháu là 3 triệu ạ\".",
   "ve-boi-le":
     "Vé bơi lẻ - cao dưới 1m | 20 nghìn mỗi lượt\nVé bơi lẻ - cao 1m đến 1m5 | 30 nghìn mỗi lượt\nVé bơi lẻ - cao trên 1m5 | 40 nghìn mỗi lượt",
   pilates:
@@ -159,7 +159,8 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
   // Gọi lại resolve ở đây (idempotent) để directive vẫn đúng dù caller quên vá.
   const bucket = resolvePriceBucket(s, rawBucket);
   // ⚠ Head KHÔNG được chứa con số tiền nào: 12B hay bốc luôn số trong ví dụ ra báo cho khách.
-  const head = `- Khách ĐANG hỏi giá → answer-first: nêu con số NGAY trong 1-2 câu ĐẦU của tin (cuối tin có thể bị cắt), cả tin gọn trong 3 câu. ⛔ CẤM né bằng "mình qua trung tâm em tư vấn kỹ hơn" — né giá là mất khách. Giá đọc bằng chữ đầy đủ ("nghìn"/"triệu"), CẤM viết tắt kiểu "k", "tr", "triệu rưỡi"; gọi ĐÚNG tên gói trong bảng.`;
+  const head = `- Khách ĐANG hỏi giá → answer-first: nêu con số NGAY trong 1-2 câu ĐẦU của tin (cuối tin có thể bị cắt), cả tin gọn trong 3 câu. ⛔ CẤM né bằng "mình qua trung tâm em tư vấn kỹ hơn" — né giá là mất khách. Giá đọc bằng chữ đầy đủ ("nghìn"/"triệu"), CẤM viết tắt kiểu "k", "tr", "triệu rưỡi"; gọi ĐÚNG tên gói trong bảng.
+  ⛔ KHÁCH TỰ NÊU MỘT CON SỐ họ thấy ở đâu đó ("mình thấy ghi …", "bên kia báo …"): chỉ được gọi tên gói cho con số đó khi nó XUẤT HIỆN ĐÚNG như vậy trong BẢNG TRA dưới đây. Không tìm thấy trong bảng → TUYỆT ĐỐI đừng bịa xem nó là gói nào (đã bắt ca bot gán bừa con số khách nêu thành "gói bơi tự do của bé 3 tháng" trong khi bảng ghi mức khác) — nói mức ĐÚNG của sản phẩm đang bàn, rồi thêm 1 vế "còn mức mình thấy thì để em xác nhận lại giúp mình ạ".`;
   const table = (luat: string, body: string) => `${head}\n  ${luat}\n  BẢNG TRA (chép nguyên số, CẤM tự tính hay chế thêm dòng):\n${body
     .split("\n")
     .map((l) => `  ${l}`)
@@ -218,7 +219,7 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     rows.push(BANG_KHAC["hoc-boi"]);
     if (theBoiThang) {
       rows.push(
-        `─ (Tham chiếu THẺ BƠI THÁNG — bơi tự do, KHÔNG phải giá HỌC BƠI; CHỈ nêu khi khách hỏi RIÊNG vé/thẻ bơi theo tháng):\n${theBoiThang}`,
+        `─ (Tham chiếu THẺ/GÓI THEO THÁNG — bơi tự do hoặc thẻ hội viên, KHÔNG phải giá HỌC BƠI; CHỈ nêu khi khách hỏi RIÊNG vé/thẻ theo tháng):\n${theBoiThang}`,
       );
     }
     if (bucket !== rawBucket) {

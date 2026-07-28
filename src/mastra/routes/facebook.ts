@@ -156,6 +156,68 @@ async function logMessageToMemory(
   }
 }
 
+/**
+ * Nhân viên vừa trả lời tay qua FB inbox (echo, không app_id) → nạp tin này vào ĐÚNG bộ nhớ mà
+ * engine LIVE (gemma) thực sự đọc, không chỉ Mastra memory (chỉ agent 5.4 dùng — xem
+ * logMessageToMemory). Thiếu bước này thì gemma không bao giờ biết nhân viên đã nói gì:
+ *   (1) history riêng của gemma (`<senderId>-gemma-state`)  → gemma đọc thẳng lượt sau.
+ *   (2) lastBotReply/recentBotReplies trên ConversationState → guard chống lặp (cleanReply) và
+ *       vài regex ở stateMachine.ts (vd botAskedName) coi tin nhân viên y như bot tự trả lời.
+ * lastReplySource="staff" chỉ để hiển thị/theo dõi nguồn — không đụng nội dung raw dùng so khớp.
+ * Xếp hàng theo senderId (xem staffReplyChains): 2 tin nhân viên gõ liền nhau → echo tới gần
+ * nhau → nếu không xếp hàng, lượt 2 load state CŨ (chưa thấy lượt 1 ghi) rồi save đè mất lượt 1.
+ * Best-effort — lỗi không được chặn webhook.
+ */
+const staffReplyChains = new Map<string, Promise<void>>();
+
+async function recordStaffReply(senderId: string, text: string): Promise<void> {
+  const prev = staffReplyChains.get(senderId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {})
+    .then(async () => {
+      const { mastra } = await import("../index");
+      const { appendGemmaHistory } = await import("../engine/gemmaBrain");
+      const { loadState, saveState } = await import("../lib/stateStore");
+
+      await appendGemmaHistory(mastra, senderId, senderId, [
+        { role: "assistant", content: text, source: "staff" },
+      ]);
+
+      const state = await loadState(mastra, senderId, senderId);
+      await saveState(mastra, senderId, senderId, {
+        ...state,
+        lastBotReply: text,
+        recentBotReplies: [...(state.recentBotReplies ?? []), text].slice(-4),
+        lastReplySource: "staff",
+      });
+      console.log(`[fb] recordStaffReply: gemma history + state cập nhật cho ${senderId}`);
+    })
+    .catch((e) => {
+      console.error(`[fb] recordStaffReply failed for ${senderId}:`, e);
+    });
+  staffReplyChains.set(senderId, next);
+  void next.finally(() => {
+    if (staffReplyChains.get(senderId) === next) staffReplyChains.delete(senderId);
+  });
+  return next;
+}
+
+/**
+ * Khách nhắn lúc AI đang tắt → nạp vào history riêng của gemma (role=user) — cùng lý do với
+ * recordStaffReply: silentClassify.ts chỉ cập nhật slot/stage trên ConversationState, KHÔNG
+ * đụng history của gemma. Thiếu bước này thì bật AI lại, gemma không thấy khách đã nói gì lúc tắt.
+ * Best-effort — lỗi không được chặn webhook.
+ */
+async function recordCustomerMsgWhileOff(senderId: string, text: string): Promise<void> {
+  try {
+    const { mastra } = await import("../index");
+    const { appendGemmaHistory } = await import("../engine/gemmaBrain");
+    await appendGemmaHistory(mastra, senderId, senderId, [{ role: "user", content: text }]);
+  } catch (e) {
+    console.error(`[fb] recordCustomerMsgWhileOff failed for ${senderId}:`, e);
+  }
+}
+
 export const facebookWebhook = new Hono();
 
 facebookWebhook.get("/webhook", (c) => {
@@ -191,6 +253,7 @@ facebookWebhook.post("/webhook", async (c) => {
           if (customerId) {
             console.log(`[fb] human echo → log memory for ${customerId}: "${msg.text}"`);
             void logMessageToMemory(customerId, "assistant", msg.text as string);
+            void recordStaffReply(customerId, msg.text as string);
           }
         }
         continue;
@@ -214,6 +277,7 @@ facebookWebhook.post("/webhook", async (c) => {
         console.log(`[fb] AI disabled for ${senderId} — lưu memory + silent classify, không trả lời`);
         void logMessageToMemory(senderId, "user", text);
         void classifyAndUpdateState(senderId, senderId, text);
+        void recordCustomerMsgWhileOff(senderId, text);
         continue;
       }
 
@@ -403,16 +467,35 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
     // khách chưa nói gì mới.
     // maxSteps=2 + gom text theo vòng (như brain.ts:runAgentTurn): lưới an toàn phòng khi
     // provider/adapter lờ toolChoice — vẫn còn 1 bước để ra chữ thay vì im lặng.
+    // ⚠ ENGINE=gemma thì tin nhắc PHẢI do chính gemma viết. Trước đây nhánh nào cũng dùng agent
+    // 5.4 → khách được gemma tư vấn nhưng nhận tin nhắc của một model khác, đọc bảng kiến thức
+    // khác (đo LIVE 26/07 convo 27608560335468856: tin nhắc nói bể mở "6h đến 20h", giờ thật
+    // 20h30 — số cũ còn sót trong prompts.ts của 5.4). Gemma lỗi thì rơi xuống 5.4 như cũ.
     let finalText = "";
-    const res: any = await agent.generate(followupInstruction, {
-      maxSteps: 2,
-      toolChoice: "none",
-      modelSettings: { temperature: 0.7, topP: 0.95 },
-      memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
-      onIterationComplete: ({ text }: { text: string }) => {
-        if (typeof text === "string" && text.trim()) finalText = text;
-      },
-    });
+    // gemma tự quyết IM (trả null) là một quyết định HỢP LỆ — không được vì thế mà chạy tiếp
+    // sang 5.4 để cố nặn ra tin nhắn; vẫn đi tiếp xuống dưới để bump followupCount (chống loop).
+    let gemmaImLang = false;
+    if (process.env.ENGINE === "gemma") {
+      try {
+        const { runGemmaFollowup } = await import("../engine/gemmaBrain");
+        const t = await runGemmaFollowup({ mastra, threadId: senderId, knownLine, attempt });
+        if (t) finalText = t;
+        else gemmaImLang = true;
+      } catch (e) {
+        console.error("[followup] gemma lỗi → dùng agent 5.4:", (e as Error)?.message);
+      }
+    }
+    const res: any = finalText || gemmaImLang
+      ? { text: finalText }
+      : await agent.generate(followupInstruction, {
+          maxSteps: 2,
+          toolChoice: "none",
+          modelSettings: { temperature: 0.7, topP: 0.95 },
+          memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
+          onIterationComplete: ({ text }: { text: string }) => {
+            if (typeof text === "string" && text.trim()) finalText = text;
+          },
+        });
 
     // KH nhắn CHÈN trong lúc đang generate (generate mất ~5-15s) → vứt tin nhắc này, đừng gửi:
     // khách vừa nói mà bot lại nhắc "im lâu quá" thì vô duyên, và turn thật sắp trả lời rồi.

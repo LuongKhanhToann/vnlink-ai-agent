@@ -10,11 +10,24 @@
  * mỗi lần sinh lại tốn ~10s trên GPU tự host).
  */
 
+import { coSoHotline, HOTLINE_CO_ZALO, HOTLINE } from "../contact";
 import { isGiaiCoDiscoveryGate, type ConvState } from "./state";
-import { countMoneyMentions, extractQuestions, findRepeatedQuestion, isRepeatedReply } from "./text";
+import {
+  chiLaLoiChao,
+  coVeAnToan,
+  countMoneyMentions,
+  dropSentenceContaining,
+  extractQuestions,
+  findNgayKhangDinh,
+  findPlaceholderSlot,
+  findRepeatedQuestion,
+  isRepeatedReply,
+} from "./text";
 
 export interface DraftContext {
   conv: ConvState;
+  /** 2 ngày cụ thể mà hệ thống YÊU CẦU tin này đưa ra (bước chốt lịch) — rỗng nếu lượt này không. */
+  dayOptions?: string[];
   /**
    * Bản nháp đã gỡ dòng "MEDIA:", CHƯA qua cleanReply — CÒN dấu "?" nên dùng cho các luật
    * soi CÂU HỎI (cleanReply strip hết dấu hỏi, soi sau đó thì không thấy câu nào).
@@ -33,7 +46,18 @@ export interface DraftContext {
   prevReplyNorms: string[];
 }
 
+/**
+ * Vế dặn an toàn CHUẨN. Export vì pipeline phải nối lại được sau khi cleanReply chạy: guard
+ * chống-lặp của cleanReply CẮT câu này khi lượt trước đã dặn (cho một tình trạng KHÁC) — đo ở
+ * ANTOAN#3 (lượt 1 dặn cho "bầu", lượt 3 hỏi cho mẹ 63 tuổi huyết áp thì vế dặn bị nuốt sạch).
+ * An toàn là nội dung BẮT BUỘC, không được để luật văn phong xoá.
+ */
+export const VE_AN_TOAN =
+  "Mình nhớ tham khảo ý kiến bác sĩ hoặc mang theo giấy khám sức khỏe trước khi tập để bên em hỗ trợ an toàn nhất ạ.";
+
 export interface DraftVerdict {
+  /** id của luật đã bắt — pipeline dùng để biết có phải vá an toàn hay không. */
+  id: string;
   /** Ghi vào notes để đọc transcript biết vì sao phải sinh lại. */
   note: string;
   /** Câu chỉ thị nối thêm vào khối bối cảnh khi sinh lại. */
@@ -56,6 +80,137 @@ interface DraftRule {
 const MAX_MONEY_MENTIONS = 2;
 
 const RULES: DraftRule[] = [
+  {
+    // ⛔ Ưu tiên CAO NHẤT: chỗ trống để điền lọt ra ngoài là lỗi khách thấy ngay lập tức, tệ hơn
+    // mọi lỗi văn phong khác. LIVE 26/07 (convo 38412582635006991): khách xin số điện thoại →
+    // "Số điện thoại của em là [Số điện thoại của bạn]" gửi thật 2 lần.
+    id: "cho-trong-de-dien",
+    detect: (c) => findPlaceholderSlot(c.final) ?? findPlaceholderSlot(c.draft),
+    verdict: (slot, ctx) => ({
+      note: `vá chỗ trống để điền: ${slot}`,
+      directive:
+        `- BẢN NHÁP BỊ LOẠI vì còn CHỖ TRỐNG ĐỂ ĐIỀN "${slot}" — khách nhận đúng chữ đó là lộ ngay bot. ` +
+        `Viết lại KHÔNG có bất kỳ cụm nào trong ngoặc vuông. ` +
+        `Nếu khách đang xin SỐ ĐIỆN THOẠI / zalo của bên em: số của trung tâm là ${HOTLINE} — viết ĐÚNG dãy này, chép nguyên văn, ⛔ CẤM để trống, CẤM đổi chữ số nào. ` +
+        `Thông tin nào chưa biết thì nói thẳng "để em xác nhận lại rồi báo mình ạ".`,
+      repair: (draft) => {
+        const still = findPlaceholderSlot(draft);
+        if (!still) return null;
+        const cut = dropSentenceContaining(draft, still);
+        if (cut.length >= 15) return { text: cut, note: "cắt câu chứa chỗ trống để điền" };
+        // Đã có số thật → vá bằng chính số đó (khách vừa hỏi số mà nhận lại câu xin số của họ là né
+        // câu hỏi).
+        const xung = ctx.conv.xung === "chi" ? "chị" : ctx.conv.xung === "anh" ? "anh" : "anh/chị";
+        return {
+          text: `Dạ số của trung tâm em là ${HOTLINE}, ${xung} gọi trực tiếp giúp em ạ.`,
+          note: "thay bằng câu đưa hotline (bản nháp chỉ còn chỗ trống)",
+        };
+      },
+    }),
+  },
+  {
+    // Khách XIN SỐ mà tin gửi đi lại KHÔNG có số — lỗi chỉ lộ ở lượt khách hỏi LẠI lần 2 ("Sdt nào
+    // ạ"): luật chống-lặp của văn phong đẩy 12B sang cách nói khác rồi bỏ luôn dãy số, quay sang
+    // xin số của khách (đo 1/3 lần chạy smoke 27/07). Số điện thoại là nội dung BẮT BUỘC của lượt
+    // này, không được để luật văn phong nuốt.
+    // Kèm luôn ca bịa tiện ích: khẳng định số này nhắn được Zalo trong khi chưa ai xác nhận.
+    id: "hotline-sai",
+    detect: (c) => {
+      // ⚠ Vế Zalo KHÔNG gác theo cờ "khách đòi người thật": ở lượt khách hỏi lại cụt lủn ("Sdt nào
+      // ạ") classifier không phải lúc nào cũng bật cờ đó, mà đúng lượt ấy 12B lại hay tự thêm
+      // "hoặc nhắn qua Zalo" (đo 2/4 lần chạy). Bịa tiện ích thì lượt nào cũng là bịa.
+      if (!HOTLINE_CO_ZALO && /zalo|viber/i.test(c.final)) return "khẳng định số này có Zalo/Viber (chưa xác nhận)";
+      if (c.conv.doiNguoiThatTurn && !coSoHotline(c.final)) return "tin thiếu số hotline dù khách đang hỏi số";
+      return null;
+    },
+    verdict: (detail, ctx) => ({
+      note: `vá hotline: ${detail}`,
+      directive:
+        `- BẢN NHÁP BỊ LOẠI: ${detail}. ` +
+        (HOTLINE_CO_ZALO ? "" : `⛔ CẤM nói số của bên em nhắn được Zalo/Viber — chưa ai xác nhận, đó là bịa tiện ích. Chỉ nói đây là số để GỌI. `) +
+        `Khách đang hỏi SỐ ĐIỆN THOẠI của bên em → tin này BẮT BUỘC có đúng dãy ${HOTLINE}, chép nguyên văn, kể cả khi tin trước đã nói rồi (khách hỏi lại thì NHẮC LẠI, không được né vì sợ lặp). ⛔ CẤM thay bằng câu xin số của khách, CẤM đọc ra số khác.`,
+      repair: (draft) => {
+        let t = draft;
+        const ghiChu: string[] = [];
+        if (!HOTLINE_CO_ZALO) {
+          for (const tu of ["Zalo", "zalo", "Viber", "viber"]) {
+            const cut = dropSentenceContaining(t, tu);
+            if (cut !== t) {
+              t = cut;
+              ghiChu.push("bỏ câu khẳng định Zalo");
+            }
+          }
+        }
+        if (ctx.conv.doiNguoiThatTurn && !coSoHotline(t)) {
+          const xung = ctx.conv.xung === "chi" ? "chị" : ctx.conv.xung === "anh" ? "anh" : "anh/chị";
+          const cau = `Dạ số của trung tâm em là ${HOTLINE}, ${xung} gọi trực tiếp giúp em ạ.`;
+          t = t.trim().length >= 15 ? `${t.trim().replace(/[.\s]*$/, ".")} ${cau}` : cau;
+          ghiChu.push("nối lại số hotline");
+        }
+        return ghiChu.length ? { text: t, note: ghiChu.join(" + ") } : null;
+      },
+    }),
+  },
+  {
+    // Lượt PHẢI dặn an toàn (tình trạng MỚI, chưa dặn lần nào) mà tin lại thiếu vế bác sĩ/giấy
+    // khám → ép sinh lại. 12B rơi vế này khoảng 1/3 số lượt dù chỉ thị nằm ngay đầu khối (đo
+    // ANTOAN#3 cả bản cũ lẫn bản mới: chỉ nói "cần giám sát kỹ lưỡng"). Vá cơ học = nối thẳng
+    // câu chuẩn vào cuối tin, vì thiếu cảnh báo an toàn là rủi ro thật chứ không phải văn phong.
+    id: "thieu-ve-an-toan",
+    detect: (c) =>
+      c.conv.anToan !== "khong" &&
+      c.conv.anToan !== "cap-tinh" &&
+      c.conv.anToanDaDan !== c.conv.anToan &&
+      // Lượt khách hỏi chuyện NGOÀI phạm vi (bán thuốc, giao đồ ăn…) thì nhét lời dặn "trước khi
+      // tập" vào là lạc đề — chờ lượt nào thật sự nói chuyện tập luyện (YTE#3).
+      !c.conv.ngoaiPhamViTurn &&
+      !coVeAnToan(c.final)
+        ? `tình trạng ${c.conv.anToan} chưa từng được dặn`
+        : null,
+    verdict: (detail) => ({
+      note: `vá tin thiếu vế an toàn (${detail})`,
+      directive: `- BẢN NHÁP BỊ LOẠI vì lượt này khách có tình trạng sức khoẻ cần lưu ý mà tin lại KHÔNG có vế khuyên hỏi bác sĩ. Viết lại NGẮN: câu đầu trả lời đúng điều khách vừa hỏi, rồi 1 câu chép gần nguyên văn "anh/chị nhớ tham khảo ý kiến bác sĩ hoặc mang theo giấy khám sức khỏe trước khi tập để bên em hỗ trợ an toàn nhất ạ". KHÔNG hứa chữa khỏi bệnh, KHÔNG giục chốt lịch.`,
+      repair: (draft) => {
+        if (coVeAnToan(draft)) return null;
+        // ⚠ Phải CẮT BỚT bản nháp trước khi nối: cleanReply cắt đuôi tin quá dài (cap 320 ký tự)
+        // — nối vào tin đã dài thì chính vế an toàn vừa thêm bị nuốt mất.
+        const cau = draft.trim().split(/(?<=[.!?])\s+/);
+        let dau = "";
+        for (const c of cau) {
+          if ((dau + " " + c).trim().length + VE_AN_TOAN.length + 1 > 300) break;
+          dau = (dau + " " + c).trim();
+        }
+        if (!dau) dau = cau[0] ?? "";
+        return {
+          text: `${dau.replace(/[.\s]*$/, ".")} ${VE_AN_TOAN}`,
+          note: "nối thêm vế an toàn còn thiếu",
+        };
+      },
+    }),
+  },
+  {
+    // Tự CHỐT NGÀY hộ khách: state chưa có ngày hẹn nào, hệ thống cũng KHÔNG yêu cầu đưa 2 ngày,
+    // vậy mà tin lại nói "ngày mai/thứ Bảy…" → đó là hẹn một ngày khách chưa hề chọn (đo LIVE
+    // 26/07 convo 38412582635006991: khách "hôm sau mình sẽ ghé qua" → bot "vậy ngày mai…").
+    id: "tu-chot-ngay",
+    detect: (c) =>
+      !c.conv.ngayChot && !(c.dayOptions?.length ?? 0) ? findNgayKhangDinh(c.final) : null,
+    verdict: (tu) => ({
+      note: `vá tự chốt ngày hộ khách ("${tu}")`,
+      directive: `- BẢN NHÁP BỊ LOẠI vì tin nhắc tới "${tu}" trong khi khách CHƯA chọn ngày nào cả — nói vậy là tự đặt lịch hộ khách. Viết lại KHÔNG có bất kỳ mốc ngày cụ thể nào (không "ngày mai", không thứ mấy, không "hôm nay"): khách nói mốc mơ hồ thì giữ nguyên kiểu mơ hồ ("khi nào mình qua"/"hôm nào mình tiện"), muốn tiến bước thì HỎI khách tiện hôm nào.`,
+    }),
+  },
+  {
+    // Tin CHỈ có lời chào, không trả lời gì — hỏng nặng nhất ở LƯỢT ĐẦU (ấn tượng đầu tiên).
+    // Đo ở replay LIVE convo 28112002548394082: khách hỏi "Học bơi trong bao lâu?" mà nhận lại
+    // đúng một câu chào. Ngẫu nhiên (chạy lại thì đúng) → phải có lưới chặn tất định.
+    id: "chi-co-loi-chao",
+    detect: (c) => (chiLaLoiChao(c.final) ? "tin chỉ có lời chào" : null),
+    verdict: () => ({
+      note: "vá tin chỉ có lời chào",
+      directive: `- BẢN NHÁP BỊ LOẠI vì cả tin chỉ có lời chào/cảm ơn, KHÔNG trả lời gì cho khách. Viết lại: chào đúng 1 câu NGẮN rồi TRẢ LỜI THẲNG điều khách vừa hỏi (có số liệu/giá nếu khách hỏi giá), xong mới hỏi lại 1 câu.`,
+    }),
+  },
   {
     id: "lap-cau-hoi",
     detect: (c) => findRepeatedQuestion(c.draft, c.askedNorms),
@@ -146,7 +301,7 @@ const RULES: DraftRule[] = [
 export function reviewDraft(ctx: DraftContext): DraftVerdict | null {
   for (const rule of RULES) {
     const detail = rule.detect(ctx);
-    if (detail) return rule.verdict(detail, ctx);
+    if (detail) return { ...rule.verdict(detail, ctx), id: rule.id };
   }
   return null;
 }

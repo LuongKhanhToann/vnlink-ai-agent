@@ -18,6 +18,7 @@
  */
 
 import { cleanReply } from "../../lib/cleanReply";
+import { coSoHotline, HOTLINE } from "../contact";
 import {
   ensureMediaCaption,
   lockHonorific,
@@ -27,19 +28,25 @@ import {
 } from "../../lib/replyGuards";
 import { CLS_SCHEMA, buildClassifierMessages, type Classification } from "./classifier";
 import { buildDateBlock, resolveDayLabel, resolveDayOptions } from "./dates";
-import { reviewDraft } from "./draftRules";
+import { reviewDraft, VE_AN_TOAN } from "./draftRules";
 import { callChat, callJson, resolveLlmConfig, type ChatMsg, type LlmConfig } from "./llm";
 import { decideMedia } from "./mediaGate";
 import { buildSystemPrompt, type GemmaFlow } from "./prompt";
 import { resolvePriceBucket, type PriceBucket } from "./pricing";
 import { buildTurnContext, updateState, type ConvState } from "./state";
-import { extractQuestions, norm, stripMediaLine } from "./text";
+import { coVeAnToan, extractQuestions, norm, stripMediaLine } from "./text";
 
 // gemmaBrain.ts cần toGuardKey để ghi sổ ảnh vào state prod — re-export cho nó khỏi phải biết
 // bố cục module bên trong. Các hàm khác của nhánh gemma thì import thẳng từ module gốc.
 export { toGuardKey } from "./mediaGate";
 
-export type Msg = { role: "user" | "assistant"; content: string };
+// source: ai THẬT SỰ đã viết tin này — "staff" = nhân viên gõ tay qua FB inbox lúc AI tắt/xen
+// ngang (facebook.ts:recordStaffReply). Không set (undefined) HOẶC "bot" = gemma tự sinh.
+// ⚠ CHỈ dùng để build ChatMsg gửi LLM (đánh dấu cho model thấy) — KHÔNG được lẫn vào .content
+// lưu trữ, vì .content nguyên văn còn bị đọc trực tiếp để so khớp chống-lặp (prevBotReply,
+// prevReplyNorms, polish's recentBotReplies) — gắn tiền tố vào đó sẽ làm lệch Jaccard/char-overlap
+// và hỏng guard chống lặp của cleanReply.ts.
+export type Msg = { role: "user" | "assistant"; content: string; source?: "bot" | "staff" };
 
 const TEMP = 0.3;
 /** Nhiệt cao hơn khi sinh lại: bản nháp cũ đã hỏng, cần model đi hướng khác hẳn. */
@@ -120,7 +127,10 @@ export async function runGemmaTurn(opts: {
       `Dạ số của mình hình như còn thiếu vài số, ${xung} gửi lại giúp em số đầy đủ với ạ.` +
       (conv.ten ? "" : ` ${Xung} cho em xin thêm tên để em giữ chỗ luôn ạ.`);
     notes.push("tin do code viết (SĐT thiếu số)");
-    history.push({ role: "user", content: message }, { role: "assistant", content: reply });
+    history.push(
+      { role: "user", content: message },
+      { role: "assistant", content: reply, source: "bot" },
+    );
     return { reply, mediaKey: null, cls, notes: [...new Set(notes)], clsSeconds, genSeconds: 0 };
   }
 
@@ -164,7 +174,17 @@ export async function runGemmaTurn(opts: {
   }
   if (!conv.closed && conv.ngayChot && conv.ten && conv.sdt) conv.closed = true;
 
-  history.push({ role: "user", content: message }, { role: "assistant", content: reply });
+  // Ghi sổ "đã dặn an toàn" để lượt sau KHỎI lặp lại lời dặn (xem buildTurnContext). Chỉ ghi khi
+  // tin thật sự CÓ vế dặn — soi đúng chuỗi mình vừa viết ra, không đoán ý khách; model lỡ bỏ vế
+  // đó thì lượt sau vẫn phải dặn, không được im luôn.
+  if (conv.anToan !== "khong" && conv.anToanDaDan !== conv.anToan) {
+    if (coVeAnToan(reply)) conv.anToanDaDan = conv.anToan;
+  }
+
+  history.push(
+    { role: "user", content: message },
+    { role: "assistant", content: reply, source: "bot" },
+  );
 
   // polish chạy vài lần trong vòng soát nên ghi chú của nó có thể lặp — gộp lại cho dễ đọc log.
   return {
@@ -223,9 +243,16 @@ async function draftReply(p: {
     dayOptions: p.dayOptions,
     priceBucket: p.priceBucket,
   });
+  // Tag "staff" chỉ đánh dấu ở ĐÂY (khi build mảng gửi LLM), KHÔNG sửa p.history gốc — mọi nơi
+  // khác đọc .content của history (prevBotReply, prevReplyNorms, polish's recentBotReplies) vẫn
+  // thấy nguyên văn, không lệch so khớp chống-lặp (xem comment ở type Msg).
+  const asChatMsg = (m: Msg): ChatMsg =>
+    m.source === "staff"
+      ? { role: m.role, content: `[Nhân viên đã nhắn thật cho khách]: ${m.content}` }
+      : { role: m.role, content: m.content };
   const messages = (extraDirective?: string): ChatMsg[] => [
     { role: "system", content: system },
-    ...p.history.slice(-HISTORY_MSGS),
+    ...p.history.slice(-HISTORY_MSGS).map(asChatMsg),
     {
       role: "user",
       content: `${context}${extraDirective ? `\n${extraDirective}` : ""}\n\n[TIN KHÁCH]\n${p.message}`,
@@ -235,7 +262,7 @@ async function draftReply(p: {
   const askedNorms = p.conv.askedQuestions.map((q) => q.norm);
   const prevReplyNorms = p.history.filter((m) => m.role === "assistant").map((m) => norm(m.content));
   const review = (draft: string, final: string) =>
-    reviewDraft({ conv: p.conv, draft, final, askedNorms, prevReplyNorms });
+    reviewDraft({ conv: p.conv, draft, final, askedNorms, prevReplyNorms, dayOptions: p.dayOptions });
 
   let r = await callChat(messages(), { temperature: TEMP, maxTokens: MAX_REPLY_TOKENS }, p.cfg);
   let draft = stripMediaLine(r.text);
@@ -263,6 +290,21 @@ async function draftReply(p: {
     p.notes.push(repaired.note);
   }
   reply = p.finalize(draft);
+  // ⚠ LƯỚI CUỐI cho AN TOÀN: cleanReply có guard chống-lặp, nó CẮT câu dặn an toàn khi lượt
+  // trước đã dặn (dù là cho một tình trạng KHÁC) — đo ở ANTOAN#3: lượt 1 dặn cho "bầu", lượt 3
+  // hỏi cho mẹ 63 tuổi huyết áp thì vế dặn biến mất khỏi tin gửi khách. Cảnh báo an toàn là nội
+  // dung BẮT BUỘC nên nối lại SAU mọi guard văn phong, chấp nhận trùng chữ với tin cũ.
+  if (verdict.id === "thieu-ve-an-toan" && !coVeAnToan(reply)) {
+    reply = `${reply.trim().replace(/[.\s]*$/, ".")} ${VE_AN_TOAN}`;
+    p.notes.push("nối lại vế an toàn (guard chống lặp đã cắt)");
+  }
+  // ⚠ LƯỚI CUỐI cho SỐ ĐIỆN THOẠI: cùng lý do — khách hỏi lại số lần 2 thì câu chứa số gần trùng
+  // tin trước, guard chống-lặp cắt mất, khách hỏi số mà nhận lại tin không có số nào.
+  if (verdict.id === "hotline-sai" && p.conv.doiNguoiThatTurn && !coSoHotline(reply)) {
+    const xung = p.conv.xung === "chi" ? "chị" : p.conv.xung === "anh" ? "anh" : "anh/chị";
+    reply = `${reply.trim().replace(/[.\s]*$/, ".")} Dạ số của trung tâm em là ${HOTLINE}, ${xung} gọi trực tiếp giúp em ạ.`;
+    p.notes.push("nối lại số hotline (guard chống lặp đã cắt)");
+  }
   return { draft, reply, seconds };
 }
 

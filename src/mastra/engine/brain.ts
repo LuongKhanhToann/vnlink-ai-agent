@@ -384,6 +384,7 @@ export async function runAgentTurn(opts: {
 
   // ── ghi state snapshot (followup + dedup ở facebook.ts đọc field này) ──
   next.lastBotReply = reply;
+  next.lastReplySource = "bot";
   next.recentBotReplies = [...(state.recentBotReplies ?? []), reply].slice(-4);
   next.recentUserMessages = [...(state.recentUserMessages ?? []), message].slice(-5);
   await saveState(mastra, threadId, resourceId, next);

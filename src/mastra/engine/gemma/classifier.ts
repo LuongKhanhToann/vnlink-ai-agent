@@ -81,6 +81,12 @@ export interface Classification {
   an_toan: "khong" | "bau" | "sau-sinh" | "benh-nen" | "cap-tinh";
   media: MediaKey | "none";
   bot_truoc_moi_thu?: boolean;
+  /** Tuổi bé khách vừa nói ("6"). Code KHÔNG tự suy — chỉ nhận số khách nêu. */
+  tuoi_be?: string;
+  /** Năm sinh / tháng-năm sinh của bé, nguyên văn số ("2019", "8/2019") — code tự tính ra tuổi. */
+  nam_sinh_be?: string;
+  /** Bé đang học lớp mấy ("2") — code tự quy ra khoảng tuổi. */
+  lop_be?: string;
 }
 
 export const CLS_SCHEMA = {
@@ -123,6 +129,9 @@ export const CLS_SCHEMA = {
     an_toan: { type: "string", enum: ["khong", "bau", "sau-sinh", "benh-nen", "cap-tinh"] },
     media: { type: "string", enum: [...MEDIA_KEYS, "none"] },
     bot_truoc_moi_thu: { type: "boolean" },
+    tuoi_be: { type: "string" },
+    nam_sinh_be: { type: "string" },
+    lop_be: { type: "string" },
   },
   // ⚠ Required TỐI THIỂU (buộc model quyết mỗi lượt) → JSON ngắn, decode nhanh. Các trường khác model
   // chỉ xuất khi CÓ giá trị (luật "omit khi trống" ở CLS_SYSTEM); vắng = giữ cũ / reset false.
@@ -146,6 +155,7 @@ const CLS_SYSTEM = `Bạn là bộ PHÂN LOẠI cho chatbot tư vấn 2 trung t�
 
 Cách điền từng trường:
 - flow: khách đang cần gì Ở THỜI ĐIỂM NÀY. "fitness" = mọi nhu cầu TẬP (gym/yoga/zumba/bơi/pilates) và mọi MỤC TIÊU của việc tập — giảm cân, tăng cân, tăng cơ, giữ dáng, sức khoẻ, và cả THƯ GIÃN / xả stress. "giai-co" = khách ĐANG ĐAU MỎI cơ-xương-khớp và muốn TRỊ LIỆU cho hết đau (không phải để tập), hoặc hỏi thẳng dịch vụ giải cơ/massage/bấm huyệt. STICKY: tin mới không đổi chủ đề (tin mơ hồ, nối tiếp, cho tên-SĐT-giờ) → GIỮ giá trị trong trạng thái đã biết. Muốn "thư giãn" mà KHÔNG kèm đau = fitness. Không xác định được và trạng thái cũng chưa rõ → "chua-ro".
+  ⛔ MỌI tin nhắc tới BƠI / HỌC BƠI / bể bơi / gym / tạ / yoga / zumba / pilates / thẻ tập LUÔN LUÔN là "fitness" — kể cả tin đầu cuộc, kể cả khi khách hỏi giá, kể cả tin cụt ("Có lớp học bơi cho người lớn không?", "Tư vấn cho tôi khóa học bơi"). Bên giải cơ (Hoa Sen) KHÔNG có mấy bộ môn này, gán "giai-co" cho các tin đó là bot báo giá giải cơ 200 nghìn cho người hỏi học bơi (đo LIVE 25/07). Chỉ chọn "giai-co" khi khách ĐANG ĐAU MỎI và muốn trị liệu, hoặc hỏi thẳng giải cơ/massage/bấm huyệt.
 - khach_xung: XÉT BẰNG CHỨNG TRONG TIN KHÁCH MỚI TRƯỚC TIÊN — bằng chứng mới LUÔN THẮNG trạng thái cũ. Khách tự xưng "a"/"anh"/"mình là nam" → "anh" (kể cả trạng thái đang là chi). Tự xưng "c"/"chị"/"em là nữ"/tự kể mình bầu-sau sinh → "chi". Tin mới KHÔNG có bằng chứng giới → trả đúng giá trị trong trạng thái đã biết. Câu chào chung ("em ơi", "hi", "alo shop") KHÔNG phải bằng chứng; ⛔ CẤM đoán từ TÊN hay từ BỘ MÔN (yoga không có nghĩa là nữ, gym không có nghĩa là nam) — đoán sai giới là lỗi rất nặng.
   Khách tự xưng "e"/"em"/"mình" là xưng TRUNG TÍNH (cả nam lẫn nữ đều dùng) → KHÔNG phải bằng chứng giới → giữ giá trị trạng thái cũ.
   ⚠ VIẾT TẮT TRONG CHAT VIỆT là bằng chứng RẤT HAY GẶP, đừng bỏ sót: "a" = anh, "c" = chị, "e" = em (trung tính). Chỉ cần chữ cái đó đứng ở vị trí CHỦ NGỮ tự xưng của khách là đủ căn cứ.
@@ -179,6 +189,7 @@ Cách điền từng trường:
 - ngay_hen: nguyên văn mốc NGÀY khách chốt sẽ đến ("thứ 7", "sáng chủ nhật", "mai"). Chưa chốt hoặc mơ hồ → "".
 - ngay_hen_chuan: quy chuẩn của ngay_hen: "thứ 7"/"sáng thứ bảy" → "thu-7"; "chủ nhật" → "chu-nhat"; "mai" → "ngay-mai"; thứ 2..6 → "thu-2".."thu-6". "hom-nay" CHỈ khi khách nói RÕ muốn đến ngay hôm nay/bây giờ. Câu tương lai có điều kiện KHÔNG phải chốt ngày: "để đỡ sưng rồi a qua" → "", "hôm nào rảnh a ghé" → "". MƠ HỒ cũng để "": "cuối tuần" → "", "đầu tuần sau" → "", "tuần sau" → "".
 - khach_doi_nguoi_that: khách muốn THOÁT khỏi chat để nói chuyện với người thật → true ("cho tôi nói chuyện với người thật đi", "gọi cho tôi đi", "có ai thật không", "chán nói chuyện với máy", "cho xin số hotline"). Khách chỉ chê cách tư vấn ("tư vấn như máy ấy") mà KHÔNG đòi gặp người → false.
+  ⚠ Khách XIN SỐ ĐIỆN THOẠI / ZALO CỦA BÊN EM cũng là ca này → true: "cho mình sdt của bạn", "cho xin số điện thoại bên em", "số zalo của em là gì", "cho xin số để mình gọi", "mình sẽ chủ động gọi", và cả câu hỏi lại RẤT NGẮN sau đó ("sdt nào ạ", "số nào ạ", "số đâu ạ", "gọi số nào") — khách muốn liên hệ ngoài chat. (Hệ thống sẽ bơm SỐ HOTLINE thật vào chỉ thị lượt này để bot đưa cho khách — cờ này chính là thứ kích hoạt việc đó, thiếu nó thì khách hỏi số mà không được đưa số.) ⛔ Khách ĐƯA số của CHÍNH HỌ ("Đt: 0976572833") thì KHÔNG phải ca này → false, đó là trường sdt.
 - khach_hoi_ngoai_pham_vi: khách hỏi một dịch vụ HOÀN TOÀN NGOÀI lĩnh vực tập luyện & giải cơ (suất ăn eat-clean, giao đồ ăn, spa làm đẹp, gội đầu, thực phẩm chức năng...) → true. Các tiện ích/chính sách QUEN THUỘC của phòng tập — xông hơi, boxing, các lớp tập, trả góp, hoàn tiền, bán nước/đồ tập, trông trẻ, đỗ xe, tắm, điều hòa, HLV... → false (đã có đáp án trong kiến thức nền).
 - an_toan: MẶC ĐỊNH LUÔN là "khong". CHỈ đổi sang giá trị khác khi TIN KHÁCH NÓI RÕ RÀNG về tình trạng sức khoẻ đó — tin cụt/mơ hồ/chào hỏi/không nhắc gì tới sức khoẻ ("A học", "alo", "tập gym cho khoẻ", "giá bao nhiêu") thì BẮT BUỘC "khong", ⛔ TUYỆT ĐỐI không suy diễn bầu/sau sinh/bệnh nền/chấn thương từ tin không hề đề cập. Cụ thể: khách (hoặc người sẽ tập) đang mang bầu → "bau"; sau sinh → "sau-sinh" (CHỈ khi khách NÓI RÕ mình mới sinh/đang cho con bú — việc CÓ con nhỏ, nhờ trông con KHÔNG phải sau sinh → "khong"); cao tuổi/bệnh nền → "benh-nen" (mọi BỆNH LÝ ĐÃ CÓ CHẨN ĐOÁN đều tính: huyết áp, tim mạch, tiểu đường, thoát vị đĩa đệm, thoái hoá cột sống, sau phẫu thuật — kể cả khi khách hỏi giọng bình thường); chấn thương MỚI dưới 72h đang sưng nóng → "cap-tinh" (lật cổ chân / bong gân hôm qua; "hôm qua với tay bê đồ giờ đau nhói, sưng lên"; ngã xe sáng nay — dấu hiệu nhận biết: mốc thời gian rất gần + có SƯNG hoặc đau nhói mới xuất hiện); không có → "khong".
 - media: bộ ảnh hệ thống nên GỬI KÈM lượt này, hoặc "none". Ảnh là ĐÒN MỘT LẦN cho mỗi nhóm, bắn sớm 1 nhịp là mất luôn lúc cần nhất → khi lưỡng lự thì chọn "none". Chỉ chọn khác "none" khi tin khách rơi ĐÚNG 1 trong 2 ca:
@@ -192,7 +203,12 @@ Cách điền từng trường:
     · Khách hỏi CÔNG DỤNG / cách hoạt động của bộ môn ("tập yoga có giảm cân không", "zumba có giảm mỡ không", "giải cơ là làm cái gì") → hỏi thông tin → "none".
     · Chào hỏi, tin đầu, hỏi giá/địa chỉ/giờ/chính sách, chốt lịch, hỏi mang gì → "none".
   Chọn đúng bộ khi đã chắc: fitness + hoài nghi → LẤY THEO "mục tiêu" trong TRẠNG THÁI ĐÃ BIẾT (tăng cân/tăng cơ → "fitness-before-after-gain"; giảm cân/giảm mỡ → "fitness-before-after-loss") — CẤM chọn ngược chiều mục tiêu. fitness + tò mò cơ sở → "fitness-gym" / "fitness-pool" / "fitness-yoga" / "fitness-zumba" đúng môn khách đang hỏi. giai-co + hoài nghi → theo VÙNG ĐAU đã biết: cổ/vai/gáy → "mr-neck-shoulder"; chân/bắp chân/đầu gối/chấn thương thể thao → "mr-sport"; lưng/thắt lưng/toàn thân/chưa rõ → "mr-general".
-- bot_truoc_moi_thu: TIN BOT TRƯỚC ĐÓ có lời mời trải nghiệm/tập thử/qua thử miễn phí không.`;
+- bot_truoc_moi_thu: TIN BOT TRƯỚC ĐÓ có lời mời trải nghiệm/tập thử/qua thử miễn phí không.
+- tuoi_be / nam_sinh_be / lop_be: 3 trường về ĐỨA BÉ mà khách định cho học (mốc nhận lớp bơi là 6 tuổi nên hệ thống cần con số chính xác). Chỉ CHÉP LẠI SỐ khách vừa nói, TUYỆT ĐỐI KHÔNG tự quy đổi/không tự tính tuổi — code sẽ tính:
+  · tuoi_be: khách nói THẲNG tuổi → chỉ chữ số ("bé nhà em 6 tuổi" → "6"; "cháu gần 5 tuổi" → "5").
+  · nam_sinh_be: khách cho NĂM SINH hoặc THÁNG/NĂM SINH → chép nguyên phần số ("cháu sinh tháng 8/2019" → "8/2019"; "bé sinh năm 2020" → "2020").
+  · lop_be: khách nói bé đang học LỚP mấy → chỉ số lớp ("cháu năm nay học lớp 2" → "2").
+  Khách không nhắc gì tới bé, hoặc người đi học là chính khách → BỎ TRỐNG cả 3.`;
 
 export function buildClassifierMessages(s: ConvState, prevBot: string, userMsg: string): ChatMsg[] {
   const known = [

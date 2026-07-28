@@ -66,8 +66,11 @@ async function callOnce(body: Record<string, unknown>, cfg: LlmConfig): Promise<
       "Content-Type": "application/json",
       ...(apiKey() ? { Authorization: `Bearer ${apiKey()}` } : {}),
     },
-    // keep_alive dài: giữ model resident trên GPU, tránh cold-load 20-60s giữa các khách
-    body: JSON.stringify({ model: cfg.model, stream: false, think: false, keep_alive: "24h", ...body }),
+    // keep_alive=-1: GHIM model resident VĨNH VIỄN trên GPU, không bao giờ unload. Lý do (27/07):
+    // lane /chatplus từng tự unload rồi nạp lại đúng lúc GPU0 hết VRAM → ollama đẩy nguyên model
+    // xuống CPU và kẹt lì (mỗi lượt ~59s → timeout → fallback 5.4). Ghim -1 = không unload = không
+    // có "lần nạp lại" nào để lỡ rơi xuống CPU. (Trước để "24h": im >24h là unload, gặp lại rủi ro.)
+    body: JSON.stringify({ model: cfg.model, stream: false, think: false, keep_alive: -1, ...body }),
     signal: combineSignals(cfg.abortSignal, cfg.timeoutMs),
   });
   if (!res.ok) {

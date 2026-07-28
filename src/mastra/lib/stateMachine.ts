@@ -212,6 +212,11 @@ export interface ConversationState {
    *  UPDATE đúng dòng Sheets thay vì append dòng mới. buildNextState set lại mỗi turn (null nếu không đổi). */
   rescheduleFromTime?: string | null;
   lastBotReply?: string;
+  /** Ai THẬT SỰ viết `lastBotReply`: "bot" = engine tự sinh, "staff" = nhân viên trả tay qua
+   *  FB inbox (facebook.ts:recordStaffReply). Dùng để hiển thị/theo dõi nguồn — các guard
+   *  chống-lặp (cleanReply) vẫn so khớp trên `lastBotReply`/`recentBotReplies` NGUYÊN VĂN,
+   *  không đọc field này. */
+  lastReplySource?: "bot" | "staff";
   /** Tin nhắn user của turn TRƯỚC. Dùng cho guard cross-turn (vd "bé 10 tuổi" ở turn 2 → tránh
    *  hỏi lại tuổi ở turn 3). KHÁC `message` đang xử lý (current turn). */
   lastUserMessage?: string;
@@ -1616,6 +1621,7 @@ export function buildNextState(
     servicesInterested,
     rescheduleFromTime,
     lastBotReply: previous.lastBotReply,
+    lastReplySource: previous.lastReplySource,
     // Track user message của turn TRƯỚC (≠ current `message`). Khi turn N+1 gọi, sẽ trở thành "previous" user message.
     // Workflow set lastUserMessage = current message ở step lưu state, sau khi buildNextState chạy xong.
     lastUserMessage: previous.lastUserMessage,

@@ -11,7 +11,9 @@
  * vừa nói kể cả khi tin cũ đã trôi khỏi cửa sổ lịch sử.
  */
 
+import { HOTLINE } from "../contact";
 import type { Classification } from "./classifier";
+import { tinhTuoiBe } from "./dates";
 import { buildPriceDirective, type PriceBucket } from "./pricing";
 
 export interface AskedQuestion {
@@ -40,6 +42,18 @@ export interface ConvState {
   ngayChot: string;
   closed: boolean;
   anToan: "khong" | "bau" | "sau-sinh" | "benh-nen" | "cap-tinh";
+  /**
+   * Tình trạng an toàn ĐÃ DẶN khách ở một lượt trước (rỗng = chưa dặn gì). Dùng để nói lời dặn
+   * ĐÚNG MỘT LẦN cho mỗi tình trạng: ca live 26/07 (bà 70 tuổi) bị lặp vế "HLV kiểm tra thể
+   * trạng" 4 lượt liền, lượt nào cũng đá mất câu trả lời thật của khách. Tình trạng MỚI khác
+   * giá trị này thì vẫn phải dặn (luật cũ: mỗi tình trạng một cảnh báo riêng).
+   */
+  anToanDaDan: string;
+  /**
+   * Tuổi bé do CODE tính từ slot khách cho (tuổi thẳng / năm sinh / lớp) — xem dates.tinhTuoiBe.
+   * Rỗng = chưa biết. Giữ dạng chuỗi để bơm thẳng vào chỉ thị, kèm nguồn cho minh bạch.
+   */
+  tuoiBe: string;
   mediaSent: string[];
   askedQuestions: AskedQuestion[];
   turnCount: number;
@@ -80,6 +94,8 @@ export function newState(): ConvState {
     ngayChot: "",
     closed: false,
     anToan: "khong",
+    anToanDaDan: "",
+    tuoiBe: "",
     mediaSent: [],
     askedQuestions: [],
     turnCount: 0,
@@ -145,7 +161,21 @@ const laDaiTu = (ten: string): boolean =>
 export function updateState(s: ConvState, c: Classification, resolvedDayLabel: string): void {
   // ⚠ Classifier "lean": trường VẮNG (undefined) = không có tin mới → GIỮ giá trị cũ. Mọi phép đọc
   // dưới đây phải null-safe (?. / !! / kiểm truthy) — không được crash hay ghi undefined vào state.
-  if (c.flow && c.flow !== "chua-ro") s.flow = c.flow;
+  // ⛔ NHẤT QUÁN SLOT (không phải phân loại lại): classifier đôi khi trả flow="giai-co" cho một
+  // tin thuần BỘ MÔN TẬP (đo LIVE 25/07 convo 27782205061437941: "Có lớp học bơi cho người lớn
+  // không? Tư vấn cho tôi khóa học bơi" → giai-co → bot báo giải cơ 200 nghìn và nói khoá bơi
+  // "để bên Fami tư vấn" như thể khác công ty). Bơi/gym/yoga/zumba/pilates KHÔNG tồn tại bên
+  // Hoa Sen, nên flow đó mâu thuẫn với chính slot bo_mon do model trả. Chỉ chặn khi lượt này
+  // KHÔNG có dấu hiệu đau (khách vừa kể đau / có vùng đau) — mạch đau vẫn được sang giai-co.
+  const BO_MON_TAP = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+  const flowLech =
+    c.flow === "giai-co" &&
+    BO_MON_TAP.includes((c.bo_mon || s.boMon || "").trim()) &&
+    !c.khach_ke_dau &&
+    !c.vung_dau?.trim() &&
+    !s.vungDau;
+  const flowMoi = flowLech ? "fitness" : c.flow;
+  if (flowMoi && flowMoi !== "chua-ro") s.flow = flowMoi;
   if (c.khach_xung && c.khach_xung !== "chua-ro") s.xung = c.khach_xung;
   const ten = c.ten_khach?.trim();
   if (ten && !laDaiTu(ten)) s.ten = ten;
@@ -186,6 +216,21 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
     s.triHoan = true;
   }
   if (c.an_toan && c.an_toan !== "khong") s.anToan = c.an_toan;
+  // TUỔI BÉ: model chỉ chép số khách nói, CODE làm phép trừ (12B tính sai rồi chối nhầm khách
+  // đủ tuổi — xem dates.tinhTuoiBe). Khách nói thẳng tuổi thì tin luôn, không cần tính.
+  const tuoiThang = (c.tuoi_be ?? "").trim();
+  if (/^\d{1,2}$/.test(tuoiThang)) {
+    const n = Number(tuoiThang);
+    s.tuoiBe = `${n} tuổi (khách nói)${n >= 6 ? " — đủ 6 tuổi" : " — CHƯA đủ 6 tuổi"}`;
+  } else if ((c.nam_sinh_be ?? "").trim() || (c.lop_be ?? "").trim()) {
+    const t = tinhTuoiBe({ namSinh: c.nam_sinh_be, lop: c.lop_be });
+    if (t) {
+      const khoang = t.min === t.max ? `${t.min} tuổi` : `khoảng ${t.min}-${t.max} tuổi`;
+      const ket =
+        t.min >= 6 ? " — đủ 6 tuổi" : t.max < 6 ? " — CHƯA đủ 6 tuổi" : " — CHƯA CHẮC đủ 6 tuổi";
+      s.tuoiBe = `${khoang} (${t.nguon})${ket}`;
+    }
+  }
   // ⚠ Chốt ngày là dữ liệu ĐI VÀO ĐƠN → đòi 2 trường KHỚP NHAU mới nhận: nguyên văn khách nói
   // (ngay_hen) VÀ mã quy chuẩn (ngay_hen_chuan). Bắt được ca 12B tự bịa ngày: khách chỉ nói
   // "ừ qua thử" (không nêu ngày) mà classifier trả ngay_hen_chuan="ngay-mai" → bot xác nhận
@@ -318,8 +363,11 @@ export function buildTurnContext(
   // vòng — bot vẫn mở bằng đúng câu bị cấm "em vẫn đang trực tiếp nhắn tin"). Đưa thành chỉ thị
   // theo LƯỢT, đặt đầu khối, kèm câu mẫu để chép.
   if (s.doiNguoiThatTurn && !s.closed) {
+    // Từ 27/07 ĐÃ CÓ số hotline thật (dùng chung cả 2 cơ sở) → khách xin số thì ĐƯA, không còn lái
+    // sang xin số của khách nữa (trước đây bot bí quá nên bịa ra "[Số điện thoại của bạn]"). Số phải
+    // do CODE ghép vào chỉ thị, không để 12B tự nhớ — nó nhớ số là sai số.
     L.push(
-      `- ⛔⛔ TIN NÀY: khách ĐÒI GẶP NGƯỜI THẬT → đồng ý NGAY và bàn giao. TUYỆT ĐỐI CẤM mở đầu bằng "em vẫn đang trực tiếp nhắn tin/hỗ trợ mình đây", CẤM giữ khách lại trong chat. Chép gần nguyên văn: "Dạ được ạ, ${s.sdt ? "em xin phép gọi lại cho mình trong ít phút nữa nhé ạ" : "anh/chị cho em xin số điện thoại để bên em gọi lại tư vấn trực tiếp cho mình ạ"}".`,
+      `- ⛔⛔ TIN NÀY: khách ĐÒI GẶP NGƯỜI THẬT / XIN SỐ ĐIỆN THOẠI BÊN EM → đồng ý NGAY. Đưa ĐÚNG số: ${HOTLINE} — chép NGUYÊN VĂN, đúng cách nhóm số, ⛔ CẤM đổi bất kỳ chữ số nào, CẤM đưa số khác, CẤM viết chỗ trống. Chép gần nguyên văn: "Dạ số của trung tâm em là ${HOTLINE}, anh/chị gọi trực tiếp giúp em ạ${s.sdt ? ", hoặc em xin phép gọi lại cho mình trong ít phút nữa ạ" : ""}". TUYỆT ĐỐI CẤM mở đầu bằng "em vẫn đang trực tiếp nhắn tin/hỗ trợ mình đây", CẤM giữ khách lại trong chat. ⛔ CẤM nói số này dùng được Zalo/Viber (chưa ai xác nhận) — chỉ nói là số để GỌI.`,
     );
   }
 
@@ -329,9 +377,35 @@ export function buildTurnContext(
     L.push(
       `- ⚠⚠ AN TOÀN: ${AN_TOAN_LABEL[s.anToan]} → tin này KHUYÊN khách NGHỈ 3-5 ngày, chườm đá, hạn chế đi lại, đi khám nếu sưng nặng hơn hoặc tê bì; nói rõ hết sưng mới nên qua để KTV đánh giá. ⛔ TUYỆT ĐỐI KHÔNG mời làm giải cơ lúc này, KHÔNG nói "KTV sẽ điều chỉnh kỹ thuật cho vùng đang viêm" (nghe như làm được ngay), KHÔNG pitch gói, KHÔNG hỏi ngày giờ.`,
     );
+  } else if (s.anToan !== "khong" && s.anToanDaDan === s.anToan) {
+    // ĐÃ dặn tình trạng này ở lượt trước → tuyệt đối không lặp lại lời dặn nữa. Ca live 26/07
+    // (bà 70 tuổi, convo 27851452844465770): 4 lượt liền bot mở bằng "HLV sẽ kiểm tra kỹ thể
+    // trạng…" và bỏ luôn câu khách vừa hỏi — khách đọc như bot không nghe mình nói gì.
+    L.push(
+      `- AN TOÀN: ${AN_TOAN_LABEL[s.anToan]} — lời dặn an toàn (hỏi ý bác sĩ / giấy khám / HLV điều chỉnh) em ĐÃ NÓI ở lượt trước rồi → tin này TUYỆT ĐỐI KHÔNG lặp lại nữa, kể cả diễn đạt khác. Cứ trả lời THẲNG đúng điều khách vừa hỏi như bình thường. ⛔ Vẫn CẤM hứa chữa khỏi bệnh, CẤM nói "tập được bình thường" trống không. Chỉ dặn lại khi khách nêu THÊM một tình trạng sức khoẻ MỚI.`,
+    );
   } else if (s.anToan !== "khong") {
     L.push(
-      `- ⚠⚠ AN TOÀN: ${AN_TOAN_LABEL[s.anToan]} → tin này BẮT BUỘC có 1 vế khuyên khách hỏi ý BÁC SĨ, chép gần nguyên văn: "anh/chị nhớ tham khảo ý kiến bác sĩ hoặc mang theo giấy khám sức khỏe trước khi tập để bên em hỗ trợ an toàn nhất ạ" — thiếu vế này là tin HỎNG — kể cả khi lượt trước đã dặn về một tình trạng khác thì tình trạng đang hỏi vẫn phải có vế này. Kèm ý HLV-KTV sẽ điều chỉnh theo thể trạng. ⛔ CẤM khẳng định trống "tập được bình thường", CẤM hứa chữa khỏi bệnh, CẤM xác nhận khách "khỏi cần đi khám / khỏi cần đi viện" — bệnh đã có chẩn đoán thì vẫn phải theo dõi ở cơ sở y tế. KHÔNG pitch gói, KHÔNG giục chốt lịch trong tin này.`,
+      `- ⚠⚠ AN TOÀN: ${AN_TOAN_LABEL[s.anToan]} → tin này BẮT BUỘC có 1 vế khuyên khách hỏi ý BÁC SĨ, chép gần nguyên văn: "anh/chị nhớ tham khảo ý kiến bác sĩ hoặc mang theo giấy khám sức khỏe trước khi tập để bên em hỗ trợ an toàn nhất ạ" — thiếu vế này là tin HỎNG — kể cả khi lượt trước đã dặn về một tình trạng khác thì tình trạng đang hỏi vẫn phải có vế này. Kèm ý HLV-KTV sẽ điều chỉnh theo thể trạng. ⛔ CẤM khẳng định trống "tập được bình thường", CẤM hứa chữa khỏi bệnh, CẤM xác nhận khách "khỏi cần đi khám / khỏi cần đi viện" — bệnh đã có chẩn đoán thì vẫn phải theo dõi ở cơ sở y tế. KHÔNG giục chốt lịch trong tin này.
+  ⚠⚠ ANSWER-FIRST VẪN THẮNG: lời dặn an toàn là vế THÊM VÀO, KHÔNG phải thứ thay cho câu trả lời. Lượt này khách hỏi GIÁ / khoá học / lịch / thông tin cụ thể thì câu ĐẦU vẫn phải trả lời ĐÚNG cái khách hỏi (kèm con số nếu là hỏi giá), rồi mới tới vế dặn an toàn ở câu sau. ⛔ CẤM biến cả tin thành lời khuyên y tế và bỏ trống câu khách vừa hỏi — khách hỏi "hai bà cháu học bơi thì bao nhiêu" mà chỉ nhận lại "mình nhớ hỏi ý bác sĩ" là tin HỎNG.`,
+    );
+  }
+
+  // ⛔ TUỔI BÉ đặt TRÊN phần [ĐÃ BIẾT]: 12B tự làm phép trừ năm sinh và ra số SAI, rồi lấy số sai
+  // đó CHỐI khách ("bé sinh 8/2019 nên vừa tròn 5 tuổi, bên em nhận từ 6 tuổi" — thực tế bé đã 6).
+  // Code đã tính sẵn ở updateState; ở đây chỉ ra lệnh dùng đúng con số đó.
+  const mchBoi = s.boMon.includes("bơi") || s.boMon.includes("boi") || s.mucTieu === "hoc-boi";
+  if (s.tuoiBe) {
+    // Mốc 6 tuổi CHỈ áp cho lớp BƠI — mạch khác (gym…) thì chỉ cần biết tuổi, đừng phán điều kiện.
+    const ketLuanBoi = mchBoi
+      ? s.tuoiBe.includes("CHƯA CHẮC")
+        ? ` Chưa chắc đủ 6 tuổi (mốc nhận lớp bơi) → HỎI nhẹ 1 câu bé bao nhiêu tuổi rồi, TUYỆT ĐỐI đừng chối cũng đừng nhận chắc.`
+        : s.tuoiBe.includes("CHƯA đủ")
+          ? ` Nói THẲNG là lớp bơi nhận bé từ 6 tuổi nên bé chưa học được, hẹn khi bé đủ tuổi.`
+          : ` Bé ĐỦ điều kiện học lớp bơi — ⛔ TUYỆT ĐỐI KHÔNG nói "bé chưa đủ 6 tuổi", KHÔNG hỏi lại tuổi bé nữa.`
+      : ` Dùng đúng con số này khi cần, KHÔNG hỏi lại tuổi bé.`;
+    L.push(
+      `- ⛔ TUỔI BÉ (hệ thống ĐÃ TÍNH sẵn, chép đúng, CẤM tự tính lại từ năm sinh/lớp): ${s.tuoiBe}.${ketLuanBoi}`,
     );
   }
 
@@ -341,14 +415,13 @@ export function buildTurnContext(
   // ── TÌNH TRẠNG BIẾT BƠI (chỉ mạch bơi) — biến suy-diễn-lúc-sinh thành chỉ-thị-state ──
   // Prior của 12B rất mạnh: "định/tranh thủ bơi" → nó tự khẳng định "đã biết bơi rồi" dù khách
   // chưa hề xác nhận (đo 24/07: ca 27137/26458). Đặt directive RÕ ngay trong khối state để đè.
-  const mchBoi = s.boMon.includes("bơi") || s.boMon.includes("boi") || s.mucTieu === "hoc-boi";
   if (mchBoi) {
     if (s.bietBoi === "biet") {
       L.push(`- BIẾT BƠI: khách ĐÃ biết bơi (khách tự xác nhận) → tư vấn nâng cao/kỹ thuật/duy trì thể lực, KHÔNG rủ "học từ đầu", KHÔNG hỏi lại đã biết bơi chưa.`);
     } else if (s.bietBoi === "chua-biet") {
       L.push(`- BIẾT BƠI: khách CHƯA biết bơi (khách tự xác nhận) → trấn an người mới, tư vấn KHOÁ HỌC từ đầu, KHÔNG nói ngược "đã biết bơi rồi", KHÔNG hỏi lại.`);
     } else {
-      L.push(`- ⛔ CHƯA RÕ khách có biết bơi hay không (khách CHƯA nói rõ). Ý ĐỊNH đi bơi ("định/tranh thủ bơi trưa", "muốn bơi cho khoẻ", "xin giá bơi") KHÔNG phải bằng chứng biết bơi. TUYỆT ĐỐI CẤM mở đầu "vì mình/chị/anh đã biết bơi rồi nên…" hoặc "vì mình chưa biết bơi nên…". Nếu cần định hướng lộ trình thì HỎI nhẹ 1 câu ("chị đã bơi được chưa hay muốn bên em kèm từ đầu ạ"); còn lại cứ trả lời đúng phần khách hỏi.`);
+      L.push(`- ⛔ CHƯA RÕ khách có biết bơi hay không (khách CHƯA nói rõ). Ý ĐỊNH đi bơi ("định/tranh thủ bơi trưa", "muốn bơi cho khoẻ", "xin giá bơi") KHÔNG phải bằng chứng biết bơi; việc khách kể HAY ĐI BƠI / đi biển / đi tắm bể bơi cũng CHƯA phải là biết bơi (nhiều người vẫn ra bể mà chưa bơi được, và người nhắn tin để HỌC bơi thì càng không). TUYỆT ĐỐI CẤM mở đầu "vì mình/chị/anh đã biết bơi rồi nên…" hoặc "vì mình chưa biết bơi nên…" — và CẤM cả cách nói vòng gán trình độ cho khách: "vì mình đã có kinh nghiệm bơi lội", "vì bé đã có nền tảng bơi", "mình bơi tốt rồi nên…". Nếu cần định hướng lộ trình thì HỎI nhẹ 1 câu ("chị đã bơi được chưa hay muốn bên em kèm từ đầu ạ"); còn lại cứ trả lời đúng phần khách hỏi.`);
     }
   }
 

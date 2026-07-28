@@ -113,6 +113,7 @@ export async function loadState(
       servicesInterested: (m as any).servicesInterested ?? [],
       rescheduleFromTime: (m as any).rescheduleFromTime ?? null,
       lastBotReply: (m as any).lastBotReply,
+      lastReplySource: (m as any).lastReplySource,
       lastUserMessage: (m as any).lastUserMessage,
       askedHistory: (m as any).askedHistory ?? [],
       mentionedFacts: (m as any).mentionedFacts ?? [],

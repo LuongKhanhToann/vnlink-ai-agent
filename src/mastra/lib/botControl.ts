@@ -10,6 +10,10 @@
  *                         enabled=false (admin tắt) → webhook bỏ qua, AI im lặng.
  *
  * Admin (Vercel) ghi cờ enabled vào bảng này; bot đọc ở lần tin kế tiếp → tắt/bật tức thì.
+ *
+ * CÔNG TẮC TỔNG (bot_settings.global_ai): tắt = AI im với MỌI người nhắn đến, kể cả khách MỚI
+ * chưa có dòng trong bot_controls. Đây là lớp CHẶN TRÊN, không ghi đè cờ từng user — bật lại
+ * thì mọi cờ riêng vẫn y nguyên như trước.
  */
 
 import { Pool } from "pg";
@@ -36,6 +40,9 @@ function getPool(): Pool {
   return pool;
 }
 
+/** Khoá dòng cờ tổng trong bot_settings (bảng key-value, chừa chỗ cho cờ khác sau này). */
+const GLOBAL_KEY = "global_ai";
+
 let schemaReady: Promise<void> | null = null;
 function ensureSchema(): Promise<void> {
   if (!schemaReady) {
@@ -47,6 +54,11 @@ function ensureSchema(): Promise<void> {
            enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
            last_active TIMESTAMPTZ NOT NULL DEFAULT NOW(),
            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+         );
+         CREATE TABLE IF NOT EXISTS bot_settings (
+           key        TEXT PRIMARY KEY,
+           enabled    BOOLEAN     NOT NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
          )`,
       )
       .then(() => {
@@ -150,6 +162,33 @@ export async function listUsers(): Promise<BotUser[]> {
   return rows as BotUser[];
 }
 
+/**
+ * Cờ TỔNG: AI có được phép tự động trả lời (bất kỳ ai) không? Đọc thẳng DB mỗi lần gọi.
+ * Chưa có dòng (lần đầu) → mặc định TRUE (bật). Lỗi DB thì để caller quyết fail-open.
+ */
+export async function getGlobalEnabled(): Promise<boolean> {
+  await ensureSchema();
+  const { rows } = await getPool().query(
+    `SELECT enabled FROM bot_settings WHERE key = $1`,
+    [GLOBAL_KEY],
+  );
+  if (rows.length === 0) return true;
+  return rows[0].enabled === true;
+}
+
+/** Bật/tắt AI cho TOÀN BỘ user nhắn đến (admin gọi). Không đụng cờ riêng của từng user. */
+export async function setGlobalEnabled(enabled: boolean): Promise<void> {
+  await ensureSchema();
+  await getPool().query(
+    `INSERT INTO bot_settings (key, enabled, updated_at)
+       VALUES ($1, $2, NOW())
+     ON CONFLICT (key)
+       DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()`,
+    [GLOBAL_KEY, enabled],
+  );
+  console.log(`[botControl] công tắc tổng → ${enabled ? "BẬT" : "TẮT"}`);
+}
+
 /** Bật/tắt AI cho 1 user (admin gọi). */
 export async function setBotEnabled(senderId: string, enabled: boolean): Promise<void> {
   await ensureSchema();
@@ -229,19 +268,24 @@ export async function deleteBotUser(senderId: string): Promise<void> {
 }
 
 /**
- * AI có được phép trả lời user này không? Đọc cờ enabled MỖI lần (không cache).
- * User chưa có trong bảng (tin đầu) → mặc định TRUE (bật). Lỗi DB → fail-open (TRUE)
- * để sự cố DB không làm câm cả bot.
+ * AI có được phép trả lời user này không? Đọc cờ MỖI lần (không cache), 1 round-trip lấy cả
+ * cờ TỔNG lẫn cờ riêng của user:
+ *   - Cờ tổng tắt  → FALSE cho MỌI người, kể cả khách mới chưa có dòng trong bot_controls.
+ *   - Cờ tổng bật  → theo cờ riêng; user chưa có trong bảng (tin đầu) → mặc định TRUE.
+ * Thiếu dòng cờ tổng (chưa ai bấm nút bao giờ) → coi như BẬT. Lỗi DB → fail-open (TRUE) để
+ * sự cố DB không làm câm cả bot.
  */
 export async function isBotEnabled(senderId: string): Promise<boolean> {
   try {
     await ensureSchema();
     const { rows } = await getPool().query(
-      `SELECT enabled FROM bot_controls WHERE sender_id = $1`,
-      [senderId],
+      `SELECT (SELECT enabled FROM bot_settings WHERE key = $2) AS global_enabled,
+              (SELECT enabled FROM bot_controls WHERE sender_id = $1) AS user_enabled`,
+      [senderId, GLOBAL_KEY],
     );
-    if (rows.length === 0) return true; // user mới → mặc định bật
-    return rows[0].enabled === true;
+    const { global_enabled, user_enabled } = rows[0];
+    if (global_enabled === false) return false; // công tắc tổng tắt → im với tất cả
+    return user_enabled !== false; // null (user mới) → bật
   } catch (e) {
     console.error(`[botControl] isBotEnabled failed for ${senderId} → fail-open:`, e);
     return true;

@@ -9,6 +9,8 @@
  *   POST /admin/api/logout    → xoá cookie.
  *   GET  /admin/api/users     → danh sách user (cần đăng nhập).
  *   POST /admin/api/users     → bật/tắt AI cho 1 user (cần đăng nhập).
+ *   GET  /admin/api/global    → trạng thái công tắc tổng (cần đăng nhập).
+ *   POST /admin/api/global    → bật/tắt AI cho TẤT CẢ user nhắn đến (cần đăng nhập).
  *
  * ENV cần thêm: ADMIN_USERNAME, ADMIN_PASSWORD, AUTH_SECRET (chuỗi ngẫu nhiên dài).
  * Dùng lại PG_* sẵn có (qua botControl.ts) — không cần biến DB mới.
@@ -17,7 +19,13 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { listUsers, setBotEnabled, deleteBotUser } from "../lib/botControl";
+import {
+  listUsers,
+  setBotEnabled,
+  deleteBotUser,
+  getGlobalEnabled,
+  setGlobalEnabled,
+} from "../lib/botControl";
 import { cancelFollowup } from "../lib/followup";
 import {
   MEDIA_CATEGORIES,
@@ -139,6 +147,33 @@ adminWebhook.post("/admin/api/users", async (c) => {
     return c.json({ ok: true });
   } catch (e) {
     console.error("[admin] toggle failed:", e);
+    return c.json({ error: "db_error" }, 500);
+  }
+});
+
+// ── CÔNG TẮC TỔNG: bật/tắt AI tự động trả lời cho TẤT CẢ user nhắn đến ──
+// Tắt = bot im với mọi người (kể cả khách mới chưa từng nhắn), nhưng vẫn lưu memory +
+// chạy classifier âm thầm như khi tắt lẻ 1 user. KHÔNG ghi đè cờ riêng của từng user:
+// bật lại thì ai đang bị tắt lẻ vẫn tắt, ai bật vẫn bật.
+adminWebhook.get("/admin/api/global", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json({ enabled: await getGlobalEnabled() });
+  } catch (e) {
+    console.error("[admin] read global flag failed:", e);
+    return c.json({ error: "db_error" }, 500);
+  }
+});
+
+adminWebhook.post("/admin/api/global", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { enabled } = await c.req.json();
+    if (typeof enabled !== "boolean") return c.json({ error: "bad_request" }, 400);
+    await setGlobalEnabled(enabled);
+    return c.json({ ok: true, enabled });
+  } catch (e) {
+    console.error("[admin] toggle global failed:", e);
     return c.json({ error: "db_error" }, 500);
   }
 });
@@ -342,6 +377,11 @@ th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.03em;text-t
 .slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
 input:checked + .slider{background:var(--sw-on)}
 input:checked + .slider:before{transform:translateX(20px)}
+.master{display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:15px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+.master.off{border-color:var(--off-text)}
+.master h2{font-size:15px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:9px}
+.master-desc{color:var(--muted);font-size:13px;margin:0;line-height:1.45}
+.dimmed{opacity:.5;transition:opacity .15s}
 .card{max-width:370px;margin:9vh auto;background:var(--surface);padding:30px;border-radius:16px;border:1px solid var(--border);box-shadow:var(--shadow)}
 .card h1{font-size:21px;margin:0 0 4px}
 .card .subtitle{margin:0 0 20px}
@@ -423,10 +463,20 @@ input:checked + .slider:before{transform:translateX(20px)}
   </div>
 
   <div id="view-users">
-    <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
-    <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()" />
-    <div id="list"></div>
-    <p class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
+    <div id="master" class="master">
+      <div>
+        <h2>Trợ lý AI tự động <span id="masterBadge" class="badge on">Đang bật</span></h2>
+        <p id="masterDesc" class="master-desc"></p>
+      </div>
+      <label class="switch"><input id="masterSw" type="checkbox" onchange="toggleGlobal(this)" /><span class="slider"></span></label>
+    </div>
+
+    <div id="usersWrap">
+      <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
+      <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()" />
+      <div id="list"></div>
+      <p id="userNote" class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
+    </div>
   </div>
 
   <div id="view-media" class="hidden">
@@ -440,6 +490,7 @@ input:checked + .slider:before{transform:translateX(20px)}
 
 <script>
 var USERS = [];
+var GLOBAL_ON = true;   // công tắc tổng — tắt thì AI im với tất cả, kể cả khách mới
 var PAGE = 1;
 var PAGE_SIZE = 20;
 var LAST_Q = null;
@@ -492,13 +543,57 @@ function handle401(r){
 async function boot(){
   updateThemeBtn();
   try {
-    var r = await fetch("/admin/api/users",{cache:"no-store"});
+    var rs = await Promise.all([
+      fetch("/admin/api/users",{cache:"no-store"}),
+      fetch("/admin/api/global",{cache:"no-store"})
+    ]);
+    var r = rs[0], rg = rs[1];
     if(r.status===401){ forceLogin(); return; }
     if(!r.ok){ forceLogin("Không kết nối được máy chủ, vui lòng đăng nhập lại."); return; }
     var d = await r.json(); USERS = d.users || [];
-    hide("login"); show("app"); updateThemeBtn(); render();
+    // Cờ tổng đọc lỗi → coi như đang bật (khớp fail-open phía bot), không chặn cả trang.
+    if(rg.ok){ var dg = await rg.json(); GLOBAL_ON = dg.enabled !== false; }
+    hide("login"); show("app"); updateThemeBtn(); renderGlobal(); render();
   } catch(e){
     forceLogin("Có lỗi xảy ra, vui lòng đăng nhập lại.");
+  }
+}
+
+// ── Công tắc tổng ──
+function renderGlobal(){
+  var on = GLOBAL_ON;
+  document.getElementById("masterSw").checked = on;
+  document.getElementById("master").className = "master" + (on ? "" : " off");
+  var b = document.getElementById("masterBadge");
+  b.className = "badge " + (on ? "on" : "off");
+  b.textContent = on ? "Đang bật" : "Đã tắt";
+  document.getElementById("masterDesc").textContent = on
+    ? "AI đang tự động trả lời mọi người nhắn đến — trừ những người bạn tắt riêng ở bảng dưới."
+    : "AI đang TẮT với tất cả mọi người, kể cả khách mới. Tin nhắn khách vẫn được lưu, bật lại là bot có đủ ngữ cảnh.";
+  // Tắt tổng → công tắc từng người tạm thời vô hiệu (vẫn sửa được, chỉ chưa có tác dụng).
+  document.getElementById("usersWrap").className = on ? "" : "dimmed";
+  document.getElementById("userNote").textContent = on
+    ? "Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo."
+    : "Công tắc tổng đang TẮT nên AI không trả lời ai. Cài đặt riêng từng người dưới đây vẫn được giữ và sẽ có hiệu lực lại khi bật tổng.";
+}
+
+async function toggleGlobal(el){
+  var next = el.checked;
+  if(!next){
+    var yes = await askConfirm("Tắt trợ lý AI với TẤT CẢ mọi người? Bot sẽ ngừng tự động trả lời mọi khách nhắn đến cho tới khi bạn bật lại.", "Tắt tất cả", true);
+    if(!yes){ el.checked = true; return; }
+  }
+  el.disabled = true;
+  var r = await fetch("/admin/api/global",{method:"POST",headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({enabled:next})});
+  el.disabled = false;
+  if(handle401(r)){ el.checked = !next; return; }
+  if(r.ok){
+    GLOBAL_ON = next; renderGlobal();
+    toast(next ? "Đã bật AI cho tất cả mọi người." : "Đã tắt AI với tất cả mọi người.", "ok");
+  } else {
+    el.checked = !next;
+    toast("Cập nhật thất bại, thử lại.", "err");
   }
 }
 

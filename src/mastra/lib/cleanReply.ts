@@ -17,7 +17,22 @@ const FAKE_PRAISE_PATTERNS: Array<[RegExp, string]> = [
   // tránh leak "ạ!" thành "Dạ vâng, ạ!").
   [/^(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt|Rất\s+vui\s+được\s+hỗ\s+trợ)\s*(?:ạ|nha|nhé)?\s*[!,.]?\s*/i, "Dạ vâng, "],
   // Cum giữa câu — bỏ luôn (nhẹ nhàng). Consume "ạ" trailing tương tự.
-  [/\s+(Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Lựa\s+chọn\s+tuyệt\s+vời|Rất\s+tuyệt)\s*(?:ạ|nha|nhé)?\s*[!,.]?/gi, ""],
+  // ⚠ 27/07 — VÁ LỖI DÍNH CHỮ: "Rất\s+tuyệt" đứng TRƯỚC "Rất tuyệt vời" trong alternation nên
+  // "là lựa chọn rất tuyệt vời ạ" chỉ bị ăn cụm " rất tuyệt " (kể cả space sau) → khách nhận
+  // "là lựa chọnvời ạ" (đo ở replay LIVE 26/07 convo 27851452844465770). Sửa 2 việc: đưa biến
+  // thể DÀI NHẤT lên trước, và thay bằng MỘT space thay vì chuỗi rỗng (bước gộp space ở cuối
+  // cleanReply sẽ dọn lại) để không bao giờ dán 2 từ vào nhau.
+  // (a) cụm khen đứng CUỐI MỆNH ĐỀ → bỏ cụm nhưng GIỮ dấu câu, nếu không 2 mệnh đề dính vào nhau
+  //     ("là lựa chọn tuyệt vời ạ, mình qua hôm nào ạ" → "là lựa chọn mình qua hôm nào ạ").
+  [
+    /\s+(Rất\s+tuyệt\s+vời|Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Rất\s+tuyệt)\s*(?:ạ|nha|nhé)?\s*(?=[,.!]|$)/gi,
+    "",
+  ],
+  // (b) cụm khen nằm GIỮA câu → thay bằng MỘT space (không được để rỗng: sẽ dán 2 từ liền nhau).
+  [
+    /\s+(Rất\s+tuyệt\s+vời|Tuyệt\s+vời|Tuyệt\s+quá|Chắc\s+chắn\s+rồi|Quá\s+hợp\s+lý|Hay\s+quá|Chuẩn\s+rồi|Rất\s+tuyệt)\s*(?:ạ|nha|nhé)?\s*/gi,
+    " ",
+  ],
 ];
 
 // Anti-sycophancy: bot khen đáp án của khách (vd "4 buổi/tuần là tần suất rất tốt", "chọn buổi sáng thì tốt quá").
@@ -350,6 +365,8 @@ export function cleanReply(
   for (const [pattern, replacement] of FAKE_PRAISE_PATTERNS) {
     r = r.replace(pattern, replacement);
   }
+  // Thay "Tuyệt vời!" đầu tin bằng "Dạ vâng, " để lại chữ HOA giữa câu ("Dạ vâng, Mình qua…").
+  r = r.replace(/^(Dạ vâng, )(\p{Lu})/u, (_m, dau: string, ch: string) => dau + ch.toLowerCase());
 
   // 1b. Sycophantic ACK — bot khen đáp án của khách
   for (const [pattern, replacement] of SYCOPHANTIC_ACK_PATTERNS) {

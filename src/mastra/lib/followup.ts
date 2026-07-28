@@ -3,7 +3,7 @@
  *
  * Nhắc CHỦ ĐỘNG khi khách im (ghost) — như 1 saler thật không bỏ lửng cuộc thoại.
  *
- * Nhịp TĂNG DẦN: mặc định 2 phút → 10 phút → 1 giờ rồi DỪNG (tối đa 3 lần/episode).
+ * Nhịp TĂNG DẦN: mặc định 15 phút → 1 giờ → 4 giờ rồi DỪNG (tối đa 3 lần/episode).
  * Mỗi lần khách nhắn lại → cancelFollowup() reset cả chuỗi (xem facebook.ts enqueueMessage).
  *
  * Nội dung do LLM tự viết (handlers.generate) dựa trên state + lịch sử — KHÔNG template,
@@ -12,14 +12,20 @@
  * In-memory only. Mất khi server restart — acceptable.
  */
 
-// Nhịp nhắc tăng dần (ms), gap TRƯỚC mỗi lần nhắc. Override qua env FOLLOWUP_DELAYS_MS="120000,600000,3600000".
+// Nhịp nhắc tăng dần (ms), gap TRƯỚC mỗi lần nhắc. Override qua env FOLLOWUP_DELAYS_MS="900000,3600000,14400000".
+//
+// ⚠ 26/07: nhịp cũ (2 phút) NHẮC CHÈN GIỮA CUỘC ĐANG NÓI — khách bình thường mất 2-3 phút để đọc
+// và soạn tin, nên timer nổ trước khi họ kịp trả lời. Đo trên convo 27851452844465770: bot trả lời
+// 14:39:36 → nhắc 14:41:49 (khách nhắn tiếp lúc 14:41:56, tức nhắc trước 7 giây), rồi 14:47 và
+// 14:50 — khách nhận 3 tin "bể 4 mùa…", "có cứu hộ…" xen giữa mạch tư vấn giá. 15 phút là mốc
+// khách thật sự đã im, không phải đang gõ.
 export const FOLLOWUP_DELAYS_MS: number[] = (() => {
   const raw = process.env.FOLLOWUP_DELAYS_MS;
   if (raw) {
     const parsed = raw.split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
     if (parsed.length) return parsed;
   }
-  return [2 * 60 * 1000, 10 * 60 * 1000, 60 * 60 * 1000];
+  return [15 * 60 * 1000, 60 * 60 * 1000, 4 * 60 * 60 * 1000];
 })();
 
 // Quiet hours (giờ VN): không nhắc trong [QUIET_START, QUIET_END). Default 22h → 8h sáng.

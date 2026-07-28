@@ -91,6 +91,120 @@ async function saveGemma(
   }
 }
 
+// Hàng đợi nối tiếp theo threadId: 2 tin echo/off-message đến gần nhau (vd khách gõ liền 2 tin
+// lúc AI tắt) mà cùng load→sửa→save `history` KHÔNG xếp hàng thì lượt 2 load state CŨ (chưa
+// thấy ghi của lượt 1) → save đè mất lượt 1 (lost update). Cùng kiểu nguy cơ mà silentClassify.ts
+// đã xử lý cho classify (xem `chains` ở đó) — áp dụng lại đây cho riêng history của gemma.
+const appendChains = new Map<string, Promise<void>>();
+
+/**
+ * Nối thêm tin vào lịch sử RIÊNG của gemma mà KHÔNG qua 1 lượt hội thoại đầy đủ (không classify,
+ * không sinh reply) — dùng cho facebook.ts khi:
+ *   (1) nhân viên trả lời tay qua FB inbox lúc AI tắt/xen ngang (source:"staff")
+ *   (2) khách nhắn lúc AI đang tắt (role:"user", không cần source)
+ * Thiếu bước này thì gemma (bộ não LIVE) không bao giờ thấy những gì thực sự đã xảy ra trong
+ * lúc AI tắt — bật lại có thể hỏi lại/lặp lại đúng thứ nhân viên vừa nói. Cap -24 giống saveGemma.
+ * Xếp hàng theo threadId (xem appendChains) để 2 lệnh gọi gần nhau không đè mất nhau.
+ * Best-effort — lỗi không được chặn webhook.
+ */
+export async function appendGemmaHistory(
+  mastra: any,
+  threadId: string,
+  resourceId: string,
+  entries: Msg[],
+): Promise<void> {
+  const prev = appendChains.get(threadId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {}) // lỗi lượt trước không chặn lượt sau
+    .then(async () => {
+      const { conv, history } = await loadGemma(mastra, threadId);
+      await saveGemma(mastra, threadId, resourceId, conv, [...history, ...entries].slice(-24));
+    })
+    .catch((e) => {
+      console.error(`[gemma] appendGemmaHistory failed for ${threadId}:`, e);
+    });
+  appendChains.set(threadId, next);
+  void next.finally(() => {
+    if (appendChains.get(threadId) === next) appendChains.delete(threadId);
+  });
+  return next;
+}
+
+// ── tin nhắc chủ động (followup) ──────────────────────────────────────────────
+
+/**
+ * Sinh TIN NHẮC bằng CHÍNH bộ não gemma (không phải agent 5.4).
+ *
+ * Vì sao cần: facebook.ts:generateFollowupReply luôn gọi `fitnessBrainAgent` (gpt-5.4 + prompts.ts)
+ * kể cả khi ENGINE=gemma → khách đang được gemma tư vấn lại nhận tin nhắc do một model khác viết,
+ * theo bảng kiến thức khác. Đo LIVE 26/07 (convo 27608560335468856): tin nhắc nói "bể mở từ 6h
+ * đến 20h" trong khi giờ thật là 20h30 — sai vì prompts.ts của 5.4 còn số cũ.
+ *
+ * KHÔNG chạy classifier và KHÔNG đụng state: khách chưa nói gì mới, phân loại lại chỉ tốn ~7s GPU
+ * và có nguy cơ coi chính chỉ thị nội bộ là lời khách. Chỉ 1 lần gọi model, có ngân sách token nhỏ.
+ * Trả null = không có gì đáng nhắc → caller im lặng.
+ */
+/**
+ * Chỉ thị nhắc RIÊNG cho gemma, mỗi lần nhắc một GÓC KHÁC.
+ *
+ * ⚠ Bản chỉ thị viết cho gpt-5.4 (facebook.ts) đưa nguyên si sang gemma thì 12B chọn cửa
+ * "__IMLANG__" 3/3 lần ở mọi ngữ cảnh test → tính năng nhắc chết hẳn. 12B cần lệnh THẲNG
+ * ("cứ nhắn 1 câu, chỉ im khi thật sự không nên nhắn") + góc nhìn cụ thể cho từng lần,
+ * nếu không 3 lần nhắc sẽ ra 3 câu na ná nhau (đo được: cả 3 đều là "bể có mái che…").
+ */
+function chiThiNhacGemma(knownLine: string, attempt: number): string {
+  const goc = [
+    "một chi tiết CỤ THỂ có ích bám đúng mạch vừa nói (thứ khách đang cân nhắc, điều gì tiện cho họ)",
+    "hỏi nhẹ MỘT câu xem mình còn băn khoăn gì để em giải đáp thêm",
+    "mời khách ghé qua xem cơ sở / tập thử một buổi, nhẹ nhàng, không giục",
+  ][Math.min(attempt, 2)];
+  return (
+    `${knownLine}` +
+    `[VIỆC CỦA EM LÚC NÀY — khách chưa trả lời tin trước, em chủ động nhắn THÊM 1 TIN. ` +
+    `Viết ĐÚNG 1 CÂU NGẮN, đời thường, ấm như nhân viên thật: ${goc}. ` +
+    `KHÔNG lặp lại câu hỏi/lời mời vừa gửi, KHÔNG lặp ý các tin nhắc trước, KHÔNG marketing sáo rỗng, KHÔNG xin lỗi vì nhắn lại, KHÔNG giục chốt, KHÔNG nhắc lại giá. ` +
+    `CHỈ trả về đúng từ __IMLANG__ khi thật sự KHÔNG NÊN nhắn gì (khách đã chốt xong, khách bảo đừng nhắn nữa) — còn lại cứ nhắn 1 câu. ` +
+    `Kết "ạ".]`
+  );
+}
+
+export async function runGemmaFollowup(opts: {
+  mastra: any;
+  threadId: string;
+  /** Dòng "Đã biết về khách: …" do facebook.ts dựng ("" nếu chưa biết gì). */
+  knownLine: string;
+  /** Lần nhắc thứ mấy (0-based) — mỗi lần một góc khác nhau. */
+  attempt: number;
+}): Promise<string | null> {
+  const { mastra, threadId } = opts;
+  const chiThi = chiThiNhacGemma(opts.knownLine, opts.attempt);
+  const { conv, history } = await loadGemma(mastra, threadId);
+  const { callChat, resolveLlmConfig } = await import("./gemma/llm");
+  const { buildDateBlock } = await import("./gemma/dates");
+  const { buildSystemPrompt } = await import("./gemma/prompt");
+  const { stripMediaLine } = await import("./gemma/text");
+  const { cleanReply } = await import("../lib/cleanReply");
+  const { lockHonorific } = await import("../lib/replyGuards");
+
+  const flow = conv.flow === "giai-co" ? "giai-co" : "fitness";
+  const r = await callChat(
+    [
+      { role: "system", content: buildSystemPrompt(buildDateBlock(), flow) },
+      ...history.slice(-8),
+      { role: "user", content: chiThi },
+    ],
+    { temperature: 0.7, maxTokens: 220 },
+    // timeout ngắn hơn lượt thật: tin nhắc trễ 3 phút thì vô nghĩa, thà bỏ lượt nhắc.
+    resolveLlmConfig({ timeoutMs: 60_000 }),
+  );
+  const raw = stripMediaLine(r.text).trim();
+  if (!raw || raw.includes("__IMLANG__")) return null;
+  const honorific = conv.xung === "anh" ? "anh" : conv.xung === "chi" ? "chị" : "anh/chị";
+  const recent = history.filter((m) => m.role === "assistant").map((m) => m.content).slice(-4);
+  const cleaned = lockHonorific(cleanReply(raw, false, recent.at(-1) ?? "", "", recent), honorific);
+  return cleaned.trim().length >= 5 ? cleaned.trim() : null;
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 export async function runGemmaTurn(opts: {
@@ -188,6 +302,7 @@ export async function runGemmaTurn(opts: {
     if (!prodShown.includes(sentGuardKey)) next.mediaShownKeys = [...prodShown, sentGuardKey];
   }
   next.lastBotReply = reply;
+  next.lastReplySource = "bot";
   next.recentBotReplies = [...(prodState.recentBotReplies ?? []), reply].slice(-4);
   next.recentUserMessages = [...(prodState.recentUserMessages ?? []), message].slice(-5);
   // reset bộ đếm follow-up khi funnel THẬT SỰ tiến triển (state-diff, không keyword)
