@@ -139,6 +139,22 @@ const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  {
+    // Live 26/07 convo 28415816001377936: người CHƯA BIẾT BƠI, mục tiêu rèn luyện sức khỏe, hỏi
+    // giá CHUNG CHUNG ("chi phí tập ntn") → bot từng báo THẺ BƠI người lớn 1 tháng 700 nghìn (vé
+    // bơi tự do) cho người không biết bơi. ĐÚNG = giá KHOÁ HỌC (lớp nhóm 12 buổi 1.5 triệu),
+    // KHÔNG neo thẻ tháng 700 nghìn / 4.5 triệu. Đây là ca resolvePriceBucket vá the-tap→hoc-boi.
+    name: "D · GIAHOCBOI (chưa biết bơi + hỏi giá chung → khoá học, không phải thẻ 700k)",
+    turns: [
+      { msg: "Có lớp học bơi cho người lớn không?" },
+      { msg: "Chưa biết bơi a" },
+      { msg: "Rèn luyện sức khoẻ ạ" },
+      {
+        msg: "Chi phí tập ntn ạ",
+        expect: { dung: ["1.5 triệu", "1,5 triệu"], sai: ["700 nghìn", "700 ngàn", "4.5 triệu"] },
+      },
+    ],
+  },
 ];
 
 /**
