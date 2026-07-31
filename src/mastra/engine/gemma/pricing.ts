@@ -194,6 +194,17 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     .map((l) => `  ${l}`)
     .join("\n")}`;
 
+  // 2 người mỗi người MỘT MÔN KHÁC NHAU (chồng gym, vợ yoga): cần cả bảng giá TỪNG MÔN để báo
+  // riêng từng người + bảng gia đình để nêu hướng nâng cấp. ⛔ CẤM tự cộng tổng (12B nhẩm sai:
+  // đo prod 31/07 F3 v2 → "tổng 8.3 triệu" trong khi Gym 4.5 + Yoga 5.8 = 10.3). Đặt trên mọi
+  // nhánh nhóm khác vì đây là ca ĐẶC BIỆT (2 người, 2 môn) không hợp bảng HS/SV / gia đình đơn.
+  if (s.flow !== "giai-co" && s.haiNguoiKhacMon) {
+    return table(
+      `⚠ 2 người mỗi người MỘT MÔN khác nhau → nêu RÕ 2 hướng: (1) mỗi người mua THẺ RIÊNG đúng môn mình tập — báo giá TỪNG môn theo bảng dưới, mỗi môn nêu riêng, ⛔ TUYỆT ĐỐI KHÔNG cộng gộp 2 thẻ thành một con số tổng (dễ tính sai); (2) nếu cả hai muốn dùng ĐỦ cả 4 dịch vụ thì có gói Gia đình Full 2 người 12 triệu. Hỏi khách nghiêng hướng nào.`,
+      `${render([GYM, YOGA, ZUMBA, BOI_LON])}\n${GIA_DINH}`,
+    );
+  }
+
   // Bảng BUỔI LẺ luôn có mặt: khách hỏi lộ trình thường hỏi kèm "1 buổi nhiêu", mà thiếu bảng là
   // bot chế số (bắt được ở DEDAT lượt 7: bịa "1 buổi 400 nghìn" trong khi bảng chỉ có 200/330).
   if (s.flow === "giai-co") {

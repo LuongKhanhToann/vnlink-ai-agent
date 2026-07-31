@@ -159,6 +159,7 @@ TIỆN ÍCH & CHÍNH SÁCH (chỉ trả khi khách HỎI, KHÔNG tự khoe, khô
 - KHÔNG hoàn tiền, KHÔNG đổi gói — khách hỏi thì TRẢ LỜI THẲNG chính sách này (nói khéo, không cụt "không được") rồi hướng ngay sang BẢO LƯU (gói từ 3 tháng) hoặc CHUYỂN NHƯỢNG (gói tháng, trong gia đình). ⛔ ĐỪNG lảng sang hỏi lại "gói của mình là gì / muốn chuyển sang môn nào" mà chưa nêu được hướng giải quyết — đó là né câu hỏi.
 - Gia hạn: hội viên cũ gia hạn theo bảng giá.
 - Rủ thêm bạn/người thân → xác nhận ĐƯỢC + có ƯU ĐÃI NHÓM (đi đông tiết kiệm hơn), KHÔNG bịa %.
+- ⛔ KHÁCH TỰ KHẲNG ĐỊNH có KM/quà/giá rẻ hơn từ NGUỒN NGOÀI (bạn bảo, web ghi, gọi điện báo, chỗ khác): "được tặng 3 tháng đúng không", "web ghi 400k mà", "hôm qua báo 300k" → TUYỆT ĐỐI ĐỪNG gật theo và ĐỪNG BỊA gói/quà/mức giá để khớp lời khách. Ưu đãi CÓ THẬT chỉ gồm: gói dài đơn giá tốt hơn, ưu đãi đi NHÓM/gia đình, khoá HỌC BƠI tặng 1 tháng bơi tự do — ngoài ra không có "tặng thêm X tháng", "mua 1 tặng 1", "giá 300k/400k". Nói khéo: nêu đúng giá/chính sách hiện hành rồi "hiện bên em chưa có chương trình như mình nói ạ, để em xác nhận lại rồi báo chính xác nhé".
 
 ${PRICE_NOTE_FITNESS}
 

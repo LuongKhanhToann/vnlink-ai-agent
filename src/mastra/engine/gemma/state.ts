@@ -82,6 +82,18 @@ export interface ConvState {
   doiNguoiThatTurn: boolean;
   /** Lượt này khách đưa SĐT nhưng THIẾU SỐ → tin phải hỏi lại, tuyệt đối không xác nhận đã nhận. */
   sdtThieuSo: boolean;
+  /** Lượt này khách hỏi cho TRẺ <16 tự đi/ở lại một mình không người lớn → phải nói rõ cần người lớn đi kèm. */
+  beKhongNguoiLonTurn: boolean;
+  /** Sticky: đã từng nêu chuyện trẻ <16 không người lớn → giữ cảnh báo cho các câu con nối tiếp (trông bé, học phí). */
+  beCanNguoiLon: boolean;
+  /** Lượt này khách TỰ KHẲNG ĐỊNH có KM/quà/giá rẻ hơn từ nguồn ngoài → không xác nhận, không bịa policy để chiều. */
+  khangDinhUuDaiTurn: boolean;
+  /** Lượt này khách hỏi mình dư/thiếu mấy cân → tin phải nêu đúng con số hệ thống đã tra. */
+  hoiDuCanTurn: boolean;
+  /** Lượt này: 2 người mỗi người 1 môn khác nhau → báo giá từng môn, đừng đẩy thẳng gói gia đình/full. */
+  haiNguoiKhacMonTurn: boolean;
+  /** Sticky: đã nêu 2 người khác môn → giữ hướng báo giá từng môn cho các lượt hỏi giá nối tiếp. */
+  haiNguoiKhacMon: boolean;
 }
 
 export function newState(): ConvState {
@@ -121,6 +133,12 @@ export function newState(): ConvState {
     keDauTurn: false,
     ngoaiPhamViTurn: false,
     doiNguoiThatTurn: false,
+    beKhongNguoiLonTurn: false,
+    beCanNguoiLon: false,
+    khangDinhUuDaiTurn: false,
+    hoiDuCanTurn: false,
+    haiNguoiKhacMonTurn: false,
+    haiNguoiKhacMon: false,
     sdtThieuSo: false,
   };
 }
@@ -287,6 +305,12 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
   if (c.khach_ke_dau) s.painTurns += 1;
   s.ngoaiPhamViTurn = !!c.khach_hoi_ngoai_pham_vi;
   s.doiNguoiThatTurn = !!c.khach_doi_nguoi_that;
+  s.beKhongNguoiLonTurn = !!c.be_khong_nguoi_lon;
+  if (c.be_khong_nguoi_lon) s.beCanNguoiLon = true;
+  s.khangDinhUuDaiTurn = !!c.khach_khang_dinh_uu_dai;
+  s.hoiDuCanTurn = !!c.khach_hoi_du_can;
+  s.haiNguoiKhacMonTurn = !!c.hai_nguoi_khac_mon;
+  if (c.hai_nguoi_khac_mon) s.haiNguoiKhacMon = true;
   s.turnCount += 1;
   // Đếm số lượt "muốn đến nhưng chưa có ngày": lượt thứ 2 trở đi là lúc phải ĐƯA 2 NGÀY cụ thể
   // (luật CHỐT LỊCH bước 2 của bản 5.4) — hỏi mở lần nữa là lặp câu hỏi, khách vẫn mơ hồ.
@@ -403,6 +427,25 @@ export function buildTurnContext(
     // do CODE ghép vào chỉ thị, không để 12B tự nhớ — nó nhớ số là sai số.
     L.push(
       `- ⛔⛔ TIN NÀY: khách ĐÒI GẶP NGƯỜI THẬT / XIN SỐ ĐIỆN THOẠI BÊN EM → đồng ý NGAY. Đưa ĐÚNG số: ${HOTLINE} — chép NGUYÊN VĂN, đúng cách nhóm số, ⛔ CẤM đổi bất kỳ chữ số nào, CẤM đưa số khác, CẤM viết chỗ trống. Chép gần nguyên văn: "Dạ số của trung tâm em là ${HOTLINE}, anh/chị gọi trực tiếp giúp em ạ${s.sdt ? ", hoặc em xin phép gọi lại cho mình trong ít phút nữa ạ" : ""}". TUYỆT ĐỐI CẤM mở đầu bằng "em vẫn đang trực tiếp nhắn tin/hỗ trợ mình đây", CẤM giữ khách lại trong chat. ⛔ CẤM nói số này dùng được Zalo/Viber (chưa ai xác nhận) — chỉ nói là số để GỌI.`,
+    );
+  }
+
+  // ⛔ BÉ <16 ĐI MỘT MÌNH: prompt tĩnh ĐÃ có luật cấm ("bé đi một mình được ạ") nhưng 12B vẫn
+  // rơi khi câu hỏi đóng gói khác mẫu (đo prod 31/07 F7: "bé 8 tuổi bố mẹ bận, tự đi được không"
+  // → bot "hoàn toàn có thể tự đến" + "yên tâm gửi bé"). Đưa thành chỉ thị theo LƯỢT, đặt trên đầu.
+  if ((s.beKhongNguoiLonTurn || s.beCanNguoiLon) && !s.closed) {
+    L.push(
+      `- ⛔⛔ AN TOÀN TRẺ EM: khách đang hỏi cho bé DƯỚI 16 tuổi tự đi/ở lại MỘT MÌNH → tin này PHẢI nói RÕ: bé dưới 16 tuổi khi đến trung tâm CẦN có bố/mẹ hoặc người lớn ĐI CÙNG để bàn giao cho HLV, KHÔNG nhận bé tới học một mình. ⛔ TUYỆT ĐỐI CẤM đáp "bé tự đến được ạ", "bé tự đi được", "8 tuổi rồi nên hoàn toàn có thể tự đến". ⛔ CẤM hứa trung tâm TRÔNG/GIỮ bé thay bố mẹ ("yên tâm gửi bé", "có người trông bé giúp") — dịch vụ trông bé CHỈ áp dụng khi bố/mẹ ĐANG TẬP tại trung tâm, không phải giữ trẻ thay phụ huynh vắng mặt. Nói nhẹ nhàng, gợi ý bố mẹ thu xếp đưa đón hoặc đăng ký cùng. ⚠ ANSWER-FIRST kể cả TIN ĐẦU: trả lời THẲNG câu này NGAY trong tin (bé cần người lớn đi kèm), ⛔ đừng chỉ chào rồi hỏi discovery — đây là câu an toàn phải đáp ngay.`,
+    );
+  }
+
+  // ⛔ KHÁCH TỰ KHẲNG ĐỊNH có KM/quà/giá rẻ hơn từ NGUỒN NGOÀI rồi đòi áp: 12B hay GẬT theo rồi
+  // BỊA ra chính sách để chiều (đo prod 31/07: F2 "bạn bảo được tặng 3 tháng" → bot xác nhận "tặng
+  // 3 tháng → 15 tháng"; F6 "web ghi 400k" → bot bịa "400k là ưu đãi gói ngắn hạn"). Guard giá ở
+  // buildPriceDirective chỉ bơm khi hoiGiaTurn — lượt đòi-áp thường KHÔNG phải hỏi giá nên lọt lưới.
+  if (s.khangDinhUuDaiTurn && !s.closed) {
+    L.push(
+      `- ⛔⛔ KHÁCH ĐANG TỰ KHẲNG ĐỊNH có một khuyến mãi / quà tặng / mức giá rẻ hơn (nghe bạn bè, thấy web, gọi điện trước, nơi khác) rồi đòi bên em áp dụng → TUYỆT ĐỐI KHÔNG gật theo và KHÔNG BỊA ra gói/ưu đãi/quà nào để khớp lời khách. Ưu đãi CÓ THẬT chỉ gồm: gói dài hạn có đơn giá tốt hơn, ưu đãi khi đi NHÓM/gia đình, và khoá HỌC BƠI tặng kèm 1 tháng bơi tự do — ⛔ NGOÀI mấy thứ đó, mọi "tặng thêm X tháng", "mua 1 tặng 1", "giá 300k/400k" mà khách nói KHÔNG có thật. Trả lời khéo: nêu ĐÚNG giá/chính sách hiện hành, rồi nói "hiện bên em CHƯA có chương trình như mình nói ạ; để em xác nhận lại thông tin đó rồi báo mình chính xác nhé" — CẤM khẳng định điều mình chưa nắm, CẤM tự dựng ra mức giá/quà tặng mới.`,
     );
   }
 
@@ -581,6 +624,15 @@ export function buildTurnContext(
   // giá ("gym bao nhiêu?" → "em là sinh viên năm 2 ạ"). Lượt đó hoiGiaTurn=false nên trước đây
   // bảng giá KHÔNG được bơm → bot chỉ nói suông "bên em có chính sách ưu đãi riêng cho HS/SV"
   // mà không đọc nổi con số (đo prod 30/07). Khách khai nhóm = vẫn đang chờ câu trả lời GIÁ.
+  // ⚠ 2 người mỗi người MỘT MÔN KHÁC NHAU (chồng gym, vợ yoga): 12B hay gộp thành gói Gia đình
+  // Full 12 triệu và bỏ qua cái khách THẬT SỰ hỏi (đo prod 31/07 F3). Gói gia đình là thẻ FULL cả
+  // 4 môn — chỉ hợp khi cả hai muốn dùng hết, không phải khi mỗi người 1 môn. Nêu ĐÚNG 2 hướng.
+  if ((s.haiNguoiKhacMonTurn || (s.haiNguoiKhacMon && (s.hoiGiaTurn || s.doiTuongMoiTurn))) && !s.closed) {
+    L.push(
+      `- ⚠ Khách là 2 người, mỗi người muốn MỘT MÔN KHÁC NHAU → KHÔNG được mặc định chỉ chào gói Gia đình Full. Nói rõ 2 hướng: (1) mỗi người mua THẺ RIÊNG đúng môn mình tập (vd chồng thẻ Gym, vợ thẻ Yoga); (2) nếu cả hai muốn dùng ĐỦ cả 4 dịch vụ thì có gói Gia đình Full 2 người 12 triệu/năm. ⛔ ĐỪNG bỏ qua hướng (1) — đó chính là cái khách vừa mô tả. ⛔ TUYỆT ĐỐI ĐỪNG tự CỘNG TỔNG giá 2 thẻ lại thành một con số (rất dễ tính sai) — thay vào đó hỏi khách nghiêng hướng nào; nếu chọn thẻ riêng thì báo giá TỪNG gói một cách riêng rẽ (mỗi môn 1 dòng, chép đúng số trong BẢNG TRA, không nhẩm cộng).`,
+    );
+  }
+
   const canBaoLaiGia = s.doiTuongMoiTurn && s.daHoiGia && !s.hoiGiaTurn && !s.closed;
   if (s.hoiGiaTurn || canBaoLaiGia) {
     if (canBaoLaiGia) {

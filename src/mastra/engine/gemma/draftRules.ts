@@ -272,7 +272,9 @@ const RULES: DraftRule[] = [
     // phán trơ "mình dư 4-5kg" — số trơ vừa không có căn cứ vừa hay lệch bảng (đo LIVE 30/07).
     id: "thieu-moc-can-doi",
     detect: (c) => {
-      if (!c.conv.theTrangMoiTurn || c.conv.flow === "giai-co") return null;
+      // Bắt cả 2 lượt: (a) khách VỪA cho số đo; (b) khách HỎI THẲNG "dư/thiếu mấy cân" ở lượt sau
+      // (số đo đã sticky trong state) — 12B hay lảng sang hỏi discovery dù vừa tính xong (prod 31/07 F4).
+      if ((!c.conv.theTrangMoiTurn && !c.conv.hoiDuCanTurn) || c.conv.flow === "giai-co") return null;
       const t = tinhCanChuan(c.conv.theTrang, c.conv.xung);
       if (!t) return null;
       const co = (n: number) => c.final.includes(String(n));
