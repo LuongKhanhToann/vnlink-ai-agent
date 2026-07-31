@@ -13,6 +13,7 @@
 
 import { HOTLINE } from "../contact";
 import type { Classification } from "./classifier";
+import { motaTheTrang } from "./bodyStats";
 import { tinhTuoiBe } from "./dates";
 import { buildPriceDirective, type PriceBucket } from "./pricing";
 
@@ -61,8 +62,18 @@ export interface ConvState {
   wantsComeTurns: number;
   /** Số lượt khách đã KỂ về cơn đau (lượt đầu tiên LUÔN là nhịp discovery, chưa được giảng). */
   painTurns: number;
+  /**
+   * Khách đã hỏi giá ở BẤT KỲ lượt nào trước đó (sticky). Cần vì khách hay khai nhóm ưu đãi
+   * (HS/SV, giáo viên, cả nhà) ở lượt SAU câu hỏi giá — lượt đó `hoiGiaTurn`=false nên bảng giá
+   * không được bơm, bot nói chung chung "bên em có ưu đãi riêng" mà KHÔNG đọc số (đo prod 30/07).
+   */
+  daHoiGia: boolean;
   // cờ theo lượt (ghi đè mỗi lượt)
   hoiGiaTurn: boolean;
+  /** Lượt này khách VỪA cho chiều cao - cân nặng → tin này phải nhận định thể trạng theo bảng. */
+  theTrangMoiTurn: boolean;
+  /** Lượt này khách VỪA khai thuộc nhóm có bảng giá riêng (HS/SV, giáo viên, gia đình, DN). */
+  doiTuongMoiTurn: boolean;
   hoiThongTinTurn: boolean;
   cheDatTurn: boolean;
   keDauTurn: boolean;
@@ -101,7 +112,10 @@ export function newState(): ConvState {
     turnCount: 0,
     wantsComeTurns: 0,
     painTurns: 0,
+    daHoiGia: false,
     hoiGiaTurn: false,
+    theTrangMoiTurn: false,
+    doiTuongMoiTurn: false,
     hoiThongTinTurn: false,
     cheDatTurn: false,
     keDauTurn: false,
@@ -168,13 +182,27 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
   // Hoa Sen, nên flow đó mâu thuẫn với chính slot bo_mon do model trả. Chỉ chặn khi lượt này
   // KHÔNG có dấu hiệu đau (khách vừa kể đau / có vùng đau) — mạch đau vẫn được sang giai-co.
   const BO_MON_TAP = ["gym", "yoga", "zumba", "boi", "pilates", "full"];
+  const coMachTap = BO_MON_TAP.includes((c.bo_mon || s.boMon || "").trim()) || !!s.mucTieu.trim();
   const flowLech =
     c.flow === "giai-co" &&
     BO_MON_TAP.includes((c.bo_mon || s.boMon || "").trim()) &&
     !c.khach_ke_dau &&
     !c.vung_dau?.trim() &&
     !s.vungDau;
-  const flowMoi = flowLech ? "fitness" : c.flow;
+  // ⛔ NHẤT QUÁN SLOT (2) — ĐAU KỂ TRONG MẠCH AN TOÀN CỦA NGƯỜI ĐANG HỎI TẬP:
+  // đo LIVE prod 30/07 — khách "mới sinh 4 tháng, muốn giảm mỡ bụng" (flow=fitness, mục tiêu
+  // giảm-cân, an-toàn=sau-sinh) nhắn thêm "em bị đau lưng nữa" → classifier lật flow=giai-co →
+  // lượt sau khách hỏi "chi phí thế nào" thì bot báo giá GIẢI CƠ bên Hoa Sen (330 nghìn/buổi,
+  // VIP2 3.8 triệu) cho một khách của Fami. Chập chờn ~50% (chạy lại thì giữ đúng fitness).
+  // Người sau sinh / bầu / bệnh nền kể đau là KHAI BÁO TÌNH TRẠNG để tập cho an toàn, KHÔNG
+  // phải xin trị liệu — mạch đang là fitness + đã có bộ môn/mục tiêu tập thì GIỮ fitness.
+  // (Khách vẫn hỏi được giải cơ: prompt fitness có sẵn đoạn giới thiệu chéo sang Hoa Sen.)
+  const dauLaKhaiBaoAnToan =
+    c.flow === "giai-co" &&
+    s.flow === "fitness" &&
+    coMachTap &&
+    (s.anToan === "sau-sinh" || s.anToan === "bau" || s.anToan === "benh-nen");
+  const flowMoi = flowLech || dauLaKhaiBaoAnToan ? "fitness" : c.flow;
   if (flowMoi && flowMoi !== "chua-ro") s.flow = flowMoi;
   if (c.khach_xung && c.khach_xung !== "chua-ro") s.xung = c.khach_xung;
   const ten = c.ten_khach?.trim();
@@ -186,7 +214,9 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
     if (isPhoneComplete(sdt)) s.sdt = sdt;
     else s.sdtThieuSo = true;
   }
+  const doiTuongCu = s.doiTuong;
   if (c.doi_tuong && c.doi_tuong !== "chua-ro") s.doiTuong = c.doi_tuong;
+  s.doiTuongMoiTurn = s.doiTuong !== "chua-ro" && s.doiTuong !== doiTuongCu;
   // slot: chỉ ghi đè khi lượt này khách THẬT SỰ cho giá trị mới (store-first cho tên/SĐT ở trên).
   // ⚠ Chống MẤT VẾ: 12B thỉnh thoảng nhắc lại slot cũ nhưng thiếu vế ("1m72 55kg" → "1m72").
   // Giá trị mới nằm GỌN TRONG giá trị cũ = bản rút gọn của chính nó → giữ bản đầy đủ.
@@ -200,10 +230,14 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
   };
   set("boMon", c.bo_mon);
   set("mucTieu", c.muc_tieu);
+  // Lượt này khách VỪA cho chiều cao - cân nặng (slot mới, không phải nhắc lại cái cũ) → tin này
+  // là tin nhận định thể trạng: phải nêu mốc cân đối do hệ thống tra sẵn (xem buildTurnContext).
+  const theTrangCu = s.theTrang;
   // biết bơi: enum sticky — KHÔNG dùng set() vì guard includes chặn nhầm "chua-biet"→"biet".
   // Chỉ cập nhật khi classifier có bằng chứng RÕ (biet/chua-biet); "chua-ro"/absent → giữ nguyên.
   if (c.biet_boi && c.biet_boi !== "chua-ro") s.bietBoi = c.biet_boi;
   set("theTrang", c.the_trang);
+  s.theTrangMoiTurn = !!s.theTrang && s.theTrang !== theTrangCu;
   set("vungDau", c.vung_dau);
   set("tinhChatDau", c.tinh_chat_dau);
   set("thoiGianDau", c.thoi_gian_dau);
@@ -246,6 +280,7 @@ export function updateState(s: ConvState, c: Classification, resolvedDayLabel: s
   }
   // Cờ SỰ KIỆN theo lượt: vắng (undefined) = không xảy ra → reset false (!!undefined === false).
   s.hoiGiaTurn = !!c.khach_hoi_gia;
+  if (s.hoiGiaTurn) s.daHoiGia = true;
   s.hoiThongTinTurn = !!c.khach_hoi_thong_tin;
   s.cheDatTurn = !!c.khach_che_dat;
   s.keDauTurn = !!c.khach_ke_dau;
@@ -346,7 +381,7 @@ export function buildTurnContext(
   // mà bot chào "Chủ nhật 26/07 hoặc thứ Hai 27/07" — thứ Hai không phải cuối tuần).
   if (dayOptions.length >= 2) {
     L.push(
-      `- ⛔⛔ TIN NÀY đưa khách chọn ĐÚNG 2 ngày sau, chép NGUYÊN VĂN: "${dayOptions[0]}" hoặc "${dayOptions[1]}". CẤM tự tính, CẤM đổi sang ngày khác — kể cả khi lượt trước em đã nêu 2 ngày khác thì lượt này vẫn phải dùng đúng 2 ngày này (luật chống lặp câu hỏi KHÔNG áp dụng cho 2 ngày này). CHƯA xin tên/SĐT ở tin này.`,
+      `- ⛔⛔ TIN NÀY đưa khách chọn ĐÚNG 2 ngày sau, chép NGUYÊN VĂN: "${dayOptions[0]}" hoặc "${dayOptions[1]}". CẤM tự tính, CẤM đổi sang ngày khác — kể cả khi lượt trước em đã nêu 2 ngày khác thì lượt này vẫn phải dùng đúng 2 ngày này (luật chống lặp câu hỏi KHÔNG áp dụng cho 2 ngày này). Việc DUY NHẤT của tin này là để khách chọn 1 trong 2 ngày → CHƯA xin tên/SĐT, và cũng CHƯA hỏi khung giờ (hỏi dồn ngày + giờ trong 1 tin là ép khách).`,
     );
   }
 
@@ -406,6 +441,39 @@ export function buildTurnContext(
       : ` Dùng đúng con số này khi cần, KHÔNG hỏi lại tuổi bé.`;
     L.push(
       `- ⛔ TUỔI BÉ (hệ thống ĐÃ TÍNH sẵn, chép đúng, CẤM tự tính lại từ năm sinh/lớp): ${s.tuoiBe}.${ketLuanBoi}`,
+    );
+  }
+
+  // ⛔ MỐC CÂN ĐỐI do CODE tra bảng: 12B đọc được bảng cân trong prompt nhưng trừ ra số SAI và
+  // mỗi lượt một số khác (đo LIVE 30/07: 1m70 - 75kg → "dư 4-5kg", chạy lại "dư 5-6kg"; bảng
+  // của trung tâm cho mốc 1m70 là 55-72kg = dư 3kg), lại hay bỏ hẳn việc NÊU MỐC nên khách chỉ
+  // nhận một con số trơ. Chỉ bơm đúng LƯỢT khách vừa cho số đo — các lượt sau nhắc lại là thừa.
+  // Khách ĐÃ biết bơi + vừa cho CHIỀU CAO trong mạch bơi mà KHÔNG có mục tiêu cân nặng → chiều cao
+  // đó để CHỌN MỨC VÉ BƠI LẺ (20/30/40 nghìn theo chiều cao), KHÔNG phải số đo nhận định vóc dáng.
+  // Bắt được A4 (30/07): khách "biết bơi, bơi tự do theo buổi" cho "1m65" ở lượt KHÔNG hỏi giá →
+  // không bảng nào được bơm → bot lảng sang pitch gói hội viên (hoặc nhận định giảm cân). Dùng slot
+  // có sẵn (boMon/bietBoi/mucTieu), KHÔNG thêm state mới.
+  const veLeChieuCao =
+    s.flow !== "giai-co" &&
+    s.theTrangMoiTurn &&
+    s.boMon === "boi" &&
+    s.bietBoi === "biet" &&
+    s.mucTieu !== "giam-can" &&
+    s.mucTieu !== "tang-can";
+  if (s.flow !== "giai-co" && s.theTrangMoiTurn && !veLeChieuCao) {
+    const mota = motaTheTrang(s.theTrang, s.xung);
+    if (mota) {
+      L.push(
+        `- ⛔⛔ THỂ TRẠNG (hệ thống ĐÃ TRA BẢNG CÂN CHUẨN, CẤM tự tính lại): ${mota}. Tin này BẮT BUỘC nhận định thể trạng theo ĐÚNG số trên — nêu MỐC cân đối trước rồi mới nói lệch bao nhiêu kg, chép nguyên con số, ⛔ CẤM chế số khác, CẤM nói lệch mà không nêu mốc. Xong thì gợi hướng tập phù hợp mục tiêu rồi DỪNG (chưa hỏi lịch, chưa báo giá nếu khách chưa hỏi).`,
+      );
+    }
+  }
+
+  // Mục tiêu giảm/tăng cân mà CHƯA có số đo → câu hỏi đúng là chiều cao - cân nặng. 12B hay hỏi
+  // "mình muốn giảm bao nhiêu cân" (prompt cấm rõ mà vẫn hỏi — đo prod 30/07 lượt 1 ca giảm cân).
+  if (s.flow !== "giai-co" && !s.theTrang && (s.mucTieu === "giam-can" || s.mucTieu === "tang-can")) {
+    L.push(
+      `- Khách muốn ${s.mucTieu === "giam-can" ? "giảm" : "tăng"} cân mà em CHƯA biết số đo → câu hỏi của tin này là xin CHIỀU CAO và CÂN NẶNG (gộp 1 câu, đủ chủ ngữ). ⛔ CẤM hỏi "mình muốn ${s.mucTieu === "giam-can" ? "giảm" : "tăng"} bao nhiêu cân", "vùng nào mình tự ti", "đã thử cách nào chưa", "ăn uống thế nào" — khách khó trả lời, hỏi dồn là rớt khách.`,
     );
   }
 
@@ -508,8 +576,23 @@ export function buildTurnContext(
   }
 
   // giá — bảng tra do pricing.ts cắt sẵn theo bộ môn/đối tượng/nhóm giá khách hỏi
-  if (s.hoiGiaTurn) {
-    L.push(buildPriceDirective(s, turn.priceBucket ?? ""));
+  //
+  // ⚠ Khách khai NHÓM ƯU ĐÃI (HS/SV, giáo viên, cả nhà, công ty) hầu như luôn ở lượt SAU câu hỏi
+  // giá ("gym bao nhiêu?" → "em là sinh viên năm 2 ạ"). Lượt đó hoiGiaTurn=false nên trước đây
+  // bảng giá KHÔNG được bơm → bot chỉ nói suông "bên em có chính sách ưu đãi riêng cho HS/SV"
+  // mà không đọc nổi con số (đo prod 30/07). Khách khai nhóm = vẫn đang chờ câu trả lời GIÁ.
+  const canBaoLaiGia = s.doiTuongMoiTurn && s.daHoiGia && !s.hoiGiaTurn && !s.closed;
+  if (s.hoiGiaTurn || canBaoLaiGia) {
+    if (canBaoLaiGia) {
+      L.push(
+        `- ⛔⛔ Khách vừa cho biết mình thuộc nhóm có bảng giá RIÊNG trong khi đang chờ câu trả lời về giá → tin này BÁO THẲNG con số của ĐÚNG bảng nhóm đó (theo BẢNG TRA bên dưới), ⛔ CẤM nói chung chung "bên em có nhiều ưu đãi cho nhóm này" mà không có số — khách hỏi giá mà không nhận được số là tin HỎNG.`,
+      );
+    }
+    // Khách vừa cho chiều cao trong mạch vé lẻ (dù lượt này lỡ bị coi là hỏi giá chung) → ép ve-boi-le.
+    L.push(buildPriceDirective(s, veLeChieuCao ? "ve-boi-le" : (turn.priceBucket ?? "")));
+  } else if (veLeChieuCao) {
+    // Khách "biết bơi" vừa cho chiều cao ở lượt KHÔNG hỏi giá → vẫn phải chốt MỨC VÉ LẺ theo chiều cao.
+    L.push(buildPriceDirective(s, "ve-boi-le"));
   } else {
     L.push(
       `- Tin này khách KHÔNG hỏi giá → không chủ động nêu con số tiền, KHÔNG đổ bảng giá và cũng KHÔNG chào tên gói/thẻ nào (gói Full, thẻ hội viên, liệu trình...). Lượt này chỉ tư vấn/hỏi thêm cho hiểu nhu cầu.`,
@@ -522,8 +605,13 @@ export function buildTurnContext(
       s.flow === "giai-co"
         ? "KTV được đào tạo bài bản, tác động đúng nhóm cơ gây đau nên đỡ bền hơn massage phải làm lại liên tục"
         : "gym 700m2 máy chuẩn quốc tế, bể bơi 4 mùa duy nhất Vĩnh Yên, GV Yoga - Zumba người Ấn Độ, InBody đo miễn phí, bãi đỗ xe rộng";
+    // Đo prod 30/07 (ca DEDAT): bot reframe đúng nhưng BỎ luôn vế mời trải nghiệm, rồi 2 lượt
+    // sau chỉ lặp lại đúng con số 500 nghìn → phễu đứng im, khách không có lý do gì để tới.
+    const moiThu = s.trialInvited
+      ? `⛔ Em ĐÃ mời trải nghiệm trước đó rồi → tin này KHÔNG mời lại (lặp nghe như bot), chỉ neo giá trị rồi để ngỏ.`
+      : `BẮT BUỘC kết bằng 1 câu mời khách qua trải nghiệm 1 buổi + đo InBody miễn phí cho cảm nhận thực tế — thiếu vế này là tin HỎNG (chỉ chê-rồi-thôi thì khách không có cớ để đến).`;
     L.push(
-      `- ⚠ Khách vừa CHÊ ĐẮT → tin này reframe GIÁ TRỊ trước (${value}) rồi mời trải nghiệm cảm nhận. ⛔ CẤM hạ giá, CẤM chia nhỏ giá theo ngày / so ly cà phê, CẤM chào ngay gói rẻ hơn trong cùng tin — gói nhẹ hơn chỉ đưa ra nếu khách VẪN từ chối ở lượt sau.`,
+      `- ⚠ Khách vừa CHÊ ĐẮT → tin này reframe GIÁ TRỊ trước (${value}). ${moiThu} ⛔ CẤM hạ giá, CẤM chia nhỏ giá theo ngày / so ly cà phê, CẤM chào ngay gói rẻ hơn trong cùng tin — gói nhẹ hơn chỉ đưa ra nếu khách VẪN từ chối ở lượt sau. ⛔ CẤM nhắc lại đúng con số vừa báo ở tin trước (lặp số = không trả lời gì mới).`,
     );
   }
 

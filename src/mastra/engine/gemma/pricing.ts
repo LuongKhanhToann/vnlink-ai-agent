@@ -100,7 +100,31 @@ function render(cards: Card[]): string {
  * Bảng tra cho khách hỏi thẻ tập: ĐÚNG gói khách đang hỏi (4 mốc) + 1 dòng neo nâng cấp.
  * Cố ý KHÔNG bơm cả bảng FULL kèm theo — càng nhiều dòng, 12B càng dễ xổ hết ra cho khách.
  */
-function tableForSport(boMon: string): string {
+/**
+ * Mục tiêu mà chính prompt bảo phải KẾT HỢP nhiều môn (giảm cân = Gym + Zumba + Bơi; giữ dáng /
+ * sức khoẻ = thẻ đa năng) → gói neo đúng là thẻ FULL, không phải gói 1 môn.
+ */
+const MUC_TIEU_DA_MON = ["giam-can", "giu-dang", "suc-khoe"];
+const MON_LE = ["gym", "yoga", "zumba", "boi"];
+
+function tableForSport(boMon: string, mucTieu = "", coSoDo = false): string {
+  // Slot muc_tieu là OPTIONAL nên 12B bỏ trống thất thường (chạy 2 lần thì 1 lần trống) — nhưng
+  // khách đã cho CHIỀU CAO - CÂN NẶNG thì chắc chắn đang bàn chuyện vóc dáng, tức mạch cần kết
+  // hợp nhiều môn. Dùng số đo làm tín hiệu dự phòng để khỏi neo nhầm gói 1 môn.
+  const daMon = MUC_TIEU_DA_MON.includes(mucTieu) || (coSoDo && !mucTieu);
+  const nhan = mucTieu || "cải thiện vóc dáng";
+  // ⚠ Đo prod 30/07 (ca giảm cân 1m58 - 65kg): bot tư vấn "kết hợp Gym và Zumba" xong khách hỏi
+  // giá thì báo GYM 500 nghìn — thẻ đó không dùng được Zumba, tức tự mâu thuẫn với lộ trình vừa
+  // khuyên (và bán hụt). Nguyên nhân: slot bo_mon bám vào 1 môn nên bảng tra chỉ có môn đó. Khi
+  // mục tiêu là loại phải kết hợp thì bơm THÊM bảng FULL và nói rõ đâu là gói neo.
+  if (daMon && MON_LE.includes(boMon)) {
+    return [
+      `⚠ Mục tiêu của khách (${nhan}) cần KẾT HỢP nhiều môn → gói neo là thẻ FULL 4 môn ở ngay dưới, báo mức FULL trước. Giá riêng môn ${boMon} (bảng phía sau) CHỈ dùng khi khách hỏi ĐÍCH DANH gói của riêng môn đó.`,
+      render([FULL]),
+      `─ (giá riêng môn ${boMon} — chỉ khi khách hỏi đích danh):`,
+      tableForSport(boMon),
+    ].join("\n");
+  }
   switch (boMon) {
     case "gym":
       return [render([GYM]), FULL_NEO, GYM_TAP_THUA].join("\n");
@@ -110,6 +134,10 @@ function tableForSport(boMon: string): string {
       return [render([ZUMBA]), FULL_NEO].join("\n");
     case "boi":
       return [render([BOI_LON]), render([BOI_BE]), FULL_NEO].join("\n");
+    case "eco":
+      // Khách muốn ĐÚNG 2 bộ môn KHÔNG có yoga → gói Fami ECO là câu trả lời (rẻ hơn Full). Neo
+      // ECO trước; Full chỉ là cửa nâng cấp. (classifier chỉ set bo_mon="eco" khi 2 môn & không yoga.)
+      return [render([ECO]), FULL_NEO].join("\n");
     default:
       return [
         render([FULL]),
@@ -192,7 +220,11 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
       // nào (bắt được ở smoke prod 23/07: 447 → 149 ký tự). Nên HS/SV cũng theo luật 1 mốc.
       // ⚠ Khách HS/SV hỏi giá RIÊNG một môn ("thế gói yoga nhiêu") mà chỉ nhận lại đúng con số
       // thẻ FULL vừa báo thì đọc như bot né câu hỏi (YOGA lượt 10) → phải NÓI RÕ lý do.
-      luat = `⚠ Khách là HỌC SINH/SINH VIÊN → CHỈ tồn tại DUY NHẤT thẻ FULL HS/SV dưới đây, ⛔ KHÔNG có "giá gym riêng cho HS/SV", CẤM lấy giá gói thường rồi gắn nhãn HS/SV (báo sai giá). Khách hỏi giá RIÊNG một bộ môn thì nói thẳng 1 vế rằng ưu đãi HS/SV chỉ áp cho thẻ FULL dùng cả 4 dịch vụ, không tách lẻ từng môn, rồi mới nêu con số — đừng lặp lại con số cũ mà không giải thích. ${LUAT_MOT_MOC}`;
+      // ⚠ Câu chữ ở đây từng viết tắt là "ưu đãi HS/SV … không tách lẻ từng môn" → 12B rụng mất
+      // vế "ưu đãi HS/SV" và tuyên bố thẳng với khách "hiện tại trung tâm không tách lẻ từng bộ
+      // môn" (đo prod 30/07) — đó là BỊA CHÍNH SÁCH: trung tâm vẫn bán gói Gym/Yoga/Zumba/Bơi
+      // riêng, chỉ là mức HS/SV thì không có. Nên nói rõ CẢ HAI VẾ và cấm hẳn câu tổng quát kia.
+      luat = `⚠ Khách là HỌC SINH/SINH VIÊN → ưu đãi HS/SV CHỈ tồn tại ở DUY NHẤT thẻ FULL dưới đây, ⛔ KHÔNG có "giá gym riêng cho HS/SV", CẤM lấy giá gói thường rồi gắn nhãn HS/SV (báo sai giá). Khách đòi tập RIÊNG một bộ môn → nói ĐỦ 2 VẾ: (1) mức ưu đãi HS/SV chỉ áp cho thẻ FULL dùng được cả 4 dịch vụ nên còn lợi hơn tập mỗi một môn, (2) trung tâm VẪN có gói riêng từng bộ môn nhưng theo bảng giá thường (không có mức HS/SV) — muốn vậy thì em xác nhận lại mức áp dụng cho mình. ⛔⛔ TUYỆT ĐỐI CẤM câu "trung tâm không tách lẻ từng bộ môn" hay "bên em chỉ bán thẻ trọn gói" — SAI CHÍNH SÁCH, trung tâm có bán gói từng môn. ${LUAT_MOT_MOC}`;
       rows.push(render([FULL_HSSV]));
       break;
     case "giao-vien":
@@ -205,10 +237,10 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
       break;
     case "doanh-nghiep":
       luat = `⚠ Khách là DOANH NGHIỆP/công ty → KHÔNG có bảng giá cố định cho đoàn: nói bên em có ưu đãi riêng rồi xin SĐT để sale báo lại, TUYỆT ĐỐI không tự chế số. Chỉ dùng bảng dưới nếu khách hỏi giá lẻ cho 1 người.`;
-      rows.push(tableForSport(s.boMon));
+      rows.push(tableForSport(s.boMon, s.mucTieu, !!s.theTrang));
       break;
     default:
-      rows.push(tableForSport(s.boMon));
+      rows.push(tableForSport(s.boMon, s.mucTieu, !!s.theTrang));
   }
   if (bucket === "hoc-boi") {
     // Khách hỏi HỌC BƠI: ĐƯA bảng KHOÁ HỌC lên ĐẦU làm câu trả lời chính; bảng thẻ bơi tháng
@@ -228,6 +260,19 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
       luat = `⚠ Lượt này khách hỏi giá CHUNG CHUNG trong mạch CHƯA BIẾT BƠI → mặc định là giá KHOÁ HỌC; chỉ khi khách nói RÕ muốn vé/thẻ bơi TỰ DO theo tháng thì mới lấy số ở bảng THAM CHIẾU. ${luat}`;
     }
     luat = `⚠ Khách hỏi HỌC BƠI (học cho tới khi BIẾT bơi) → con số trả lời phải lấy từ bảng KHOÁ HỌC BƠI (lớp nhóm 12 buổi 1.5 triệu / 1 kèm 1 giá 3 triệu...). ⛔ KHÔNG lấy giá THẺ BƠI theo tháng làm câu trả lời chính — dù khách hỏi cho BÉ/CHÁU, dù khách nói "gói trẻ em" / "gói cho bé" / "khoá trẻ em" thì con số VẪN là KHOÁ HỌC (lớp nhóm 1.5 triệu, 1 kèm 1 3 triệu), TUYỆT ĐỐI KHÔNG báo thẻ bơi trẻ em 12 tháng 3.6 triệu, KHÔNG báo thẻ bơi người lớn 4.5 triệu — mấy con số 3.6/4.5 triệu ở bảng THAM CHIẾU bên dưới CHỈ dùng khi khách hỏi RIÊNG thẻ bơi tự do theo tháng, KHÔNG phải câu trả lời cho người đang hỏi HỌC bơi. ${luat}`;
+  } else if (bucket === "ve-boi-le") {
+    // Vé bơi lẻ = bơi tự do THEO LƯỢT/BUỔI, giá theo CHIỀU CAO (20/30/40 nghìn) — KHÔNG phải thẻ
+    // tháng. Trước đây classifier hay rơi về the-tap → bot báo thẻ bơi 700 nghìn cho câu hỏi vé lẻ
+    // (đo A4 30/07). Đưa bảng vé lẻ lên ĐẦU làm câu trả lời; thẻ tháng hạ xuống + dán nhãn rõ.
+    const theBoiThang = rows.join("\n");
+    rows.length = 0;
+    rows.push(BANG_KHAC["ve-boi-le"]);
+    if (theBoiThang) {
+      rows.push(
+        `─ (Tham chiếu THẺ/GÓI theo THÁNG — KHÔNG phải vé lẻ; CHỈ nêu khi khách hỏi RIÊNG thẻ tháng):\n${theBoiThang}`,
+      );
+    }
+    luat = `⚠ Khách hỏi VÉ BƠI LẺ (bơi tự do theo LƯỢT/BUỔI) → giá tính theo CHIỀU CAO, lấy từ bảng VÉ BƠI LẺ ở đầu. Nếu khách ĐÃ cho chiều cao → báo ĐÚNG 1 mốc của họ (dưới 1m 20 nghìn / 1m-1m5 30 nghìn / trên 1m5 40 nghìn). Nếu CHƯA biết chiều cao → nêu GỌN 2 mốc người lớn (1m-1m5 30 nghìn, trên 1m5 40 nghìn) rồi có thể hỏi chiều cao cho chính xác. ⛔ CẤM báo quá 2 mốc trong 1 tin. ⛔ CẤM lấy 700 nghìn (thẻ bơi THÁNG) làm câu trả lời cho vé lẻ. ⛔ Chiều cao ở đây CHỈ để chọn mức vé — KHÔNG phải số đo để nhận định giảm cân / vóc dáng.`;
   } else if (bucket && bucket !== "the-tap") {
     rows.push(BANG_KHAC[bucket as Exclude<PriceBucket, "" | "the-tap" | "lieu-trinh">]);
   }

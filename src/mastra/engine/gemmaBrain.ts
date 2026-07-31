@@ -232,7 +232,7 @@ export async function runGemmaTurn(opts: {
   const { reply, mediaKey, cls, notes } = out;
 
   console.log(
-    `[gemma] cls: flow=${conv.flow} xưng=${conv.xung} hỏi-giá=${conv.hoiGiaTurn} media=${cls?.media ?? "—"} ` +
+    `[gemma] cls: flow=${conv.flow} xưng=${conv.xung} hỏi-giá=${conv.hoiGiaTurn} chê-đắt=${conv.cheDatTurn} media=${cls?.media ?? "—"} ` +
       `đến=${conv.wantsCome} ngày=${conv.ngayChot || "—"} an-toàn=${conv.anToan} chốt=${conv.closed}` +
       (notes.length ? ` · ${notes.join(" · ")}` : ""),
   );

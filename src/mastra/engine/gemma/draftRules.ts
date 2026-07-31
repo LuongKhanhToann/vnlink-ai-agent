@@ -11,6 +11,7 @@
  */
 
 import { coSoHotline, HOTLINE_CO_ZALO, HOTLINE } from "../contact";
+import { tinhCanChuan } from "./bodyStats";
 import { isGiaiCoDiscoveryGate, type ConvState } from "./state";
 import {
   chiLaLoiChao,
@@ -212,6 +213,86 @@ const RULES: DraftRule[] = [
     }),
   },
   {
+    // Lượt khách CHÊ ĐẮT: tin đúng = neo GIÁ TRỊ + mời qua cảm nhận, KHÔNG kèm con số. 12B hay
+    // đọc lại đúng mức vừa báo rồi thôi (đo prod 30/07 ca DEDAT: lặp "500 nghìn" và bỏ hẳn lời
+    // mời trải nghiệm → phễu đứng im). Chỉ dí lời mời khi CHƯA từng mời (mời lại = lặp như bot).
+    id: "che-dat-yeu",
+    detect: (c) => {
+      if (!c.conv.cheDatTurn || c.conv.closed) return null;
+      const loi: string[] = [];
+      if (countMoneyMentions(c.final) > 0) loi.push("nhắc lại con số giá");
+      const coMoi = /thử|trải nghiệm|inbody|ghé|qua trung tâm|tham quan/i.test(c.final);
+      if (!c.conv.trialInvited && !coMoi) loi.push("không mời trải nghiệm");
+      return loi.length ? loi.join(" + ") : null;
+    },
+    verdict: (detail, ctx) => ({
+      note: `vá tin chê đắt (${detail})`,
+      directive:
+        `- BẢN NHÁP BỊ LOẠI vì lượt khách chê đắt mà tin ${detail}. Viết lại NGẮN (2-3 câu): câu đầu neo GIÁ TRỊ cụ thể (gym 700m2 máy chuẩn quốc tế, bể bơi 4 mùa duy nhất Vĩnh Yên, GV Yoga - Zumba người Ấn Độ, InBody đo miễn phí)` +
+        (ctx.conv.trialInvited
+          ? `, rồi để ngỏ nhẹ nhàng. ⛔ Em đã mời trải nghiệm trước đó rồi nên KHÔNG mời lại.`
+          : `, rồi KẾT bằng 1 câu mời khách qua trải nghiệm 1 buổi + đo InBody miễn phí.`) +
+        ` ⛔ TUYỆT ĐỐI KHÔNG có con số tiền nào trong tin này (kể cả đọc lại mức vừa báo), KHÔNG hạ giá, KHÔNG chào gói rẻ hơn.`,
+      // Sinh lại 1 lần vẫn hay rơi mất lời mời (12B dồn hết token vào vế giá trị) — mà lượt chê
+      // đắt KHÔNG có lời mời thì phễu đứng im. Nối cơ học đúng 1 câu, không đụng phần model viết.
+      repair: (draft) => {
+        if (ctx.conv.trialInvited) return null;
+        if (/thử|trải nghiệm|inbody|ghé|qua trung tâm|tham quan/i.test(draft)) return null;
+        const xung = ctx.conv.xung === "chi" ? "Chị" : ctx.conv.xung === "anh" ? "Anh" : "Anh/chị";
+        return {
+          text: `${draft.trim().replace(/[.\s]*$/, ".")} ${xung} sắp xếp qua trải nghiệm thử 1 buổi và đo InBody miễn phí để cảm nhận thực tế xem sao ạ.`,
+          note: "nối lại lời mời trải nghiệm (bản sinh lại vẫn thiếu)",
+        };
+      },
+    }),
+  },
+  {
+    // Discovery giảm/tăng cân: câu hỏi ĐÚNG là chiều cao - cân nặng. Prompt cấm rõ kiểu hỏi
+    // "mình muốn giảm bao nhiêu cân" (khách khó trả lời, hỏi dồn là rớt) mà 12B vẫn hỏi ở ngay
+    // lượt đầu (đo prod 30/07 ca giảm cân). Soi chuỗi trong CHÍNH BẢN NHÁP của bot, không phải
+    // phân loại tin khách.
+    id: "hoi-muc-giam-can",
+    detect: (c) => {
+      // Không gán điều kiện theo muc_tieu: slot đó optional nên 12B hay bỏ trống ngay lượt đầu
+      // (chạy 2 lần thì 1 lần trống) — mà câu hỏi "muốn giảm bao nhiêu cân" thì SAI trong mọi
+      // trường hợp khi em chưa có số đo. Soi thẳng bản nháp của bot, không cần biết slot.
+      if (c.conv.theTrang || c.conv.flow === "giai-co") return null;
+      const low = c.draft.toLowerCase();
+      const hoiMuc = ["bao nhiêu cân", "bao nhiêu kg", "mục tiêu giảm bao nhiêu", "muốn giảm bao nhiêu"];
+      const hit = hoiMuc.find((cum) => low.includes(cum));
+      return hit ? `hỏi "${hit}" khi chưa có số đo` : null;
+    },
+    verdict: () => ({
+      note: "vá hỏi mức giảm cân thay vì hỏi số đo",
+      directive: `- BẢN NHÁP BỊ LOẠI vì em hỏi khách muốn giảm/tăng bao nhiêu cân — câu đó khách rất khó trả lời. Viết lại: hỏi ĐÚNG 1 câu xin CHIỀU CAO và CÂN NẶNG hiện tại (đủ chủ ngữ "anh/chị/mình") để em tư vấn theo chuẩn. CẤM hỏi số cân muốn giảm, CẤM hỏi vùng nào tự ti, CẤM hỏi đã thử cách nào.`,
+    }),
+  },
+  {
+    // Lượt khách vừa cho số đo: tin BẮT BUỘC nêu MỐC cân đối (hệ thống đã tra sẵn) chứ không
+    // phán trơ "mình dư 4-5kg" — số trơ vừa không có căn cứ vừa hay lệch bảng (đo LIVE 30/07).
+    id: "thieu-moc-can-doi",
+    detect: (c) => {
+      if (!c.conv.theTrangMoiTurn || c.conv.flow === "giai-co") return null;
+      const t = tinhCanChuan(c.conv.theTrang, c.conv.xung);
+      if (!t) return null;
+      const co = (n: number) => c.final.includes(String(n));
+      return co(t.lo) && co(t.hi) ? null : `thiếu mốc ${t.lo}-${t.hi}kg`;
+    },
+    verdict: (detail, ctx) => {
+      const t = tinhCanChuan(ctx.conv.theTrang, ctx.conv.xung);
+      const lech =
+        t?.huong === "du"
+          ? `đang dư khoảng ${t.lech}kg`
+          : t?.huong === "thieu"
+            ? `đang thiếu khoảng ${t.lech}kg`
+            : `đang trong mức cân đối`;
+      return {
+        note: `vá tin nhận định thể trạng ${detail}`,
+        directive: `- BẢN NHÁP BỊ LOẠI vì em nhận định thể trạng mà KHÔNG nêu mốc cân đối, hoặc nêu sai số. Viết lại: nói rõ với chiều cao của khách thì mốc cân đối là ${t?.lo}-${t?.hi}kg, khách ${lech} — chép ĐÚNG mấy con số này, ⛔ CẤM tự tính ra số khác. Rồi gợi hướng tập hợp mục tiêu, DỪNG ở đó.`,
+      };
+    },
+  },
+  {
     id: "lap-cau-hoi",
     detect: (c) => findRepeatedQuestion(c.draft, c.askedNorms),
     verdict: (q, ctx) => ({
@@ -262,9 +343,15 @@ const RULES: DraftRule[] = [
       extractQuestions(c.draft).length === 0
         ? "khách muốn đến mà tin không hỏi ngày"
         : null,
-    verdict: () => ({
+    verdict: (_detail, ctx) => ({
       note: "vá tin bỏ quên câu hỏi ngày",
-      directive: `- BẢN NHÁP BỊ LOẠI vì khách ĐÃ tỏ ý muốn qua mà tin lại không hỏi ngày nào. Viết lại NGẮN: giữ 1 câu xác nhận/dẫn dắt rồi KẾT bằng đúng 1 câu hỏi khách tiện qua hôm nào. CHƯA xin tên/SĐT ở tin này.`,
+      // Khi hệ thống ĐÃ tính sẵn 2 ngày (khách nói khung mơ hồ) thì chỉ thị viết lại phải nhắc
+      // đúng 2 ngày đó — bản cũ chỉ bảo "hỏi khách tiện hôm nào" nên tin sinh lại bỏ luôn cửa
+      // sổ ngày, khách hẹn "cuối tuần này" mà nhận về một tin không có ngày nào (smoke 30/07).
+      directive:
+        (ctx.dayOptions?.length ?? 0) >= 2
+          ? `- BẢN NHÁP BỊ LOẠI vì khách ĐÃ tỏ ý muốn qua mà tin không đưa ngày nào. Viết lại NGẮN: 1 câu xác nhận rồi KẾT bằng câu cho khách chọn ĐÚNG 2 ngày này, chép nguyên văn: "${ctx.dayOptions?.[0]}" hoặc "${ctx.dayOptions?.[1]}". CẤM đổi sang ngày khác, CHƯA xin tên/SĐT, CHƯA hỏi giờ.`
+          : `- BẢN NHÁP BỊ LOẠI vì khách ĐÃ tỏ ý muốn qua mà tin lại không hỏi ngày nào. Viết lại NGẮN: giữ 1 câu xác nhận/dẫn dắt rồi KẾT bằng đúng 1 câu hỏi khách tiện qua hôm nào. CHƯA xin tên/SĐT ở tin này.`,
     }),
   },
   {

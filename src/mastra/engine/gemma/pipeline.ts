@@ -26,7 +26,7 @@ import {
   stripQrMention,
   stripStaleGreeting,
 } from "../../lib/replyGuards";
-import { CLS_SCHEMA, buildClassifierMessages, type Classification } from "./classifier";
+import { clsSchemaFor, buildClassifierMessages, type Classification } from "./classifier";
 import { buildDateBlock, resolveDayLabel, resolveDayOptions } from "./dates";
 import { reviewDraft, VE_AN_TOAN } from "./draftRules";
 import { callChat, callJson, resolveLlmConfig, type ChatMsg, type LlmConfig } from "./llm";
@@ -34,7 +34,7 @@ import { decideMedia } from "./mediaGate";
 import { buildSystemPrompt, type GemmaFlow } from "./prompt";
 import { resolvePriceBucket, type PriceBucket } from "./pricing";
 import { buildTurnContext, updateState, type ConvState } from "./state";
-import { coVeAnToan, extractQuestions, norm, stripMediaLine } from "./text";
+import { countMoneyMentions, coVeAnToan, extractQuestions, norm, stripMediaLine } from "./text";
 
 // gemmaBrain.ts cần toGuardKey để ghi sổ ảnh vào state prod — re-export cho nó khỏi phải biết
 // bố cục module bên trong. Các hàm khác của nhánh gemma thì import thẳng từ module gốc.
@@ -210,7 +210,7 @@ async function classify(
   try {
     const r = await callJson<Classification>(
       buildClassifierMessages(conv, prevBotReply, message),
-      CLS_SCHEMA,
+      clsSchemaFor(conv, countMoneyMentions(prevBotReply) > 0),
       { maxTokens: MAX_CLS_TOKENS },
       cfg,
     );
@@ -268,7 +268,20 @@ async function draftReply(p: {
   let draft = stripMediaLine(r.text);
   let seconds = r.seconds;
 
-  let reply = p.finalize(draft);
+  // ⚠ LƯỚI CỬA SỔ 2 NGÀY (chạy trên MỌI đường ra, kể cả khi bản nháp đầu đã đạt): khách nói khung
+  // mơ hồ ("cuối tuần này") thì code đã tính sẵn đúng 2 ngày, nhưng 12B vẫn có lượt trả về tin
+  // không có ngày nào — hoặc hỏi mở "hôm nào" nên không luật nào bắt (smoke 30/07) → khách đang
+  // chờ xếp lịch mà không được đưa lựa chọn nào. Nối cơ học câu chọn ngày, không đụng phần model.
+  const napCuaSoNgay = (r: string): string => {
+    const d = p.dayOptions ?? [];
+    if (d.length < 2 || p.conv.ngayChot || p.conv.closed) return r;
+    if (d.some((x) => r.includes(x))) return r;
+    const xung = p.conv.xung === "chi" ? "Chị" : p.conv.xung === "anh" ? "Anh" : "Anh/chị";
+    p.notes.push("nối lại cửa sổ 2 ngày (tin thiếu ngày cụ thể)");
+    return `${r.trim().replace(/[.\s]*$/, ".")} ${xung} chọn giúp em ${d[0]} hay ${d[1]} tiện hơn ạ.`;
+  };
+
+  let reply = napCuaSoNgay(p.finalize(draft));
   const verdict = review(draft, reply);
   if (!verdict) return { draft, reply, seconds };
 
@@ -289,7 +302,7 @@ async function draftReply(p: {
     draft = repaired.text;
     p.notes.push(repaired.note);
   }
-  reply = p.finalize(draft);
+  reply = napCuaSoNgay(p.finalize(draft));
   // ⚠ LƯỚI CUỐI cho AN TOÀN: cleanReply có guard chống-lặp, nó CẮT câu dặn an toàn khi lượt
   // trước đã dặn (dù là cho một tình trạng KHÁC) — đo ở ANTOAN#3: lượt 1 dặn cho "bầu", lượt 3
   // hỏi cho mẹ 63 tuổi huyết áp thì vế dặn biến mất khỏi tin gửi khách. Cảnh báo an toàn là nội
@@ -300,6 +313,18 @@ async function draftReply(p: {
   }
   // ⚠ LƯỚI CUỐI cho SỐ ĐIỆN THOẠI: cùng lý do — khách hỏi lại số lần 2 thì câu chứa số gần trùng
   // tin trước, guard chống-lặp cắt mất, khách hỏi số mà nhận lại tin không có số nào.
+  // ⚠ LƯỚI CUỐI cho LỜI MỜI TRẢI NGHIỆM ở lượt khách CHÊ ĐẮT: cùng cơ chế — repair nối câu mời
+  // vào bản nháp, rồi cleanReply cắt tin quá dài đúng ở câu cuối nên khách lại nhận tin chỉ có
+  // vế "bên em xịn" mà không có cớ nào để đến (đo prod + smoke 30/07). Nối SAU mọi guard.
+  if (
+    verdict.id === "che-dat-yeu" &&
+    !p.conv.trialInvited &&
+    !/thử|trải nghiệm|inbody|ghé|qua trung tâm|tham quan/i.test(reply)
+  ) {
+    const xung = p.conv.xung === "chi" ? "Chị" : p.conv.xung === "anh" ? "Anh" : "Anh/chị";
+    reply = `${reply.trim().replace(/[.\s]*$/, ".")} ${xung} sắp xếp qua trải nghiệm thử 1 buổi và đo InBody miễn phí để cảm nhận thực tế xem sao ạ.`;
+    p.notes.push("nối lại lời mời trải nghiệm (guard văn phong đã cắt)");
+  }
   if (verdict.id === "hotline-sai" && p.conv.doiNguoiThatTurn && !coSoHotline(reply)) {
     const xung = p.conv.xung === "chi" ? "chị" : p.conv.xung === "anh" ? "anh" : "anh/chị";
     reply = `${reply.trim().replace(/[.\s]*$/, ".")} Dạ số của trung tâm em là ${HOTLINE}, ${xung} gọi trực tiếp giúp em ạ.`;
