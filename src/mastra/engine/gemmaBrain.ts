@@ -4,8 +4,8 @@
  * File này giờ CHỈ còn phần "gắn vào hệ prod": load/save state, fetch ảnh Cloudinary,
  * map sang ConversationState để Sheets + followup + admin chạy y nguyên.
  * Toàn bộ NHỊP HỘI THOẠI (classifier → FSM → cổng ảnh → sinh reply → guard văn phong)
- * nằm ở `engine/gemma/pipeline.ts` — dùng CHUNG với harness test (vnlink-gemma4/run.ts,
- * serve.ts) để test chạy đúng code prod, không còn 3 bản chép tay trôi lệch nhau.
+ * nằm ở `engine/gemma/pipeline.ts` — smoke test trong `src/mastra/scripts/` gọi thẳng
+ * pipeline này để test chạy đúng code prod, không còn 3 bản chép tay trôi lệch nhau.
  *
  * Tích hợp seam ENGINE (facebook.ts): trả CÙNG shape { reply, mediaUrls, qrUrl }.
  *   • Media: classifier quyết bộ ảnh (cổng deterministic như bản 5.4) → fetchMedia (Cloudinary).
@@ -185,11 +185,13 @@ export async function runGemmaFollowup(opts: {
   const { stripMediaLine } = await import("./gemma/text");
   const { cleanReply } = await import("../lib/cleanReply");
   const { lockHonorific } = await import("../lib/replyGuards");
+  const { loadKnowledge } = await import("../lib/knowledgeStore");
 
   const flow = conv.flow === "giai-co" ? "giai-co" : "fitness";
+  const knowledge = await loadKnowledge();
   const r = await callChat(
     [
-      { role: "system", content: buildSystemPrompt(buildDateBlock(), flow) },
+      { role: "system", content: buildSystemPrompt(buildDateBlock(), flow, knowledge.blocks, knowledge.promos) },
       ...history.slice(-8),
       { role: "user", content: chiThi },
     ],

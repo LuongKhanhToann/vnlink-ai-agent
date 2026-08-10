@@ -1,17 +1,14 @@
 import { Mastra } from "@mastra/core/mastra";
 import { ConsoleLogger } from "@mastra/core/logger";
 import { storage } from "./config/storage";
-import { fitnessBrainAgent, giaiCoBrainAgent, flowRouterAgent } from "./engine/agents";
 import { facebookWebhook } from "./routes/facebook";
 import { telegramWebhook } from "./routes/telegram";
 import { adminWebhook } from "./routes/admin";
 
-// 22/07 — DỌN LEGACY: bỏ hẳn routerWorkflow + agents/{fitness,giaiCo} (FSM + prefixBuilder cũ).
-// Còn ĐÚNG 2 bộ não: engine/brain.ts (ENGINE=agent, gpt-5.4 — GOLIVE) và engine/gemmaBrain.ts
-// (ENGINE=gemma, self-host). Đăng ký brain agent ở đây chỉ để playground/observability thấy;
-// brain.ts import thẳng từ engine/agents.ts chứ không qua mastra.getAgent().
+// 10/08 — CHỈ CÒN 1 BỘ NÃO: engine/gemmaBrain.ts (Gemini API, xem engine/gemma/llm.ts).
+// Đã gỡ hẳn engine 5.4 (brain.ts + agents.ts + prompts.ts) — không còn ENGINE switch/fallback.
+// Không đăng ký agent: gemma đọc lịch sử qua config/memory + storage, không dùng mastra.getAgent().
 export const mastra = new Mastra({
-  agents: { fitnessBrainAgent, giaiCoBrainAgent, flowRouterAgent },
   storage,
   logger: new ConsoleLogger({ name: "Vinalink", level: "info" }),
   server: {

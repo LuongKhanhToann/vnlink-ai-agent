@@ -14,7 +14,7 @@
  *   ROUNDS=2 ...                    # phần A chạy 2 vòng (reply ngẫu nhiên)
  *   CONSIST=4 ...                   # phần B hỏi mỗi câu 4 lần (mặc định 3)
  *
- * Nguồn chân lý giá: src/mastra/engine/prompts.ts (khớp 100% bảng giá Fami 07/2026).
+ * Nguồn chân lý giá: src/mastra/engine/gemma/pricing.ts (khớp 100% bảng giá Fami 07/2026).
  */
 
 import "dotenv/config";

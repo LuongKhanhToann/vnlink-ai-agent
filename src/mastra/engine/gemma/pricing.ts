@@ -1,7 +1,7 @@
 /**
  * pricing.ts — BẢNG GIÁ (Excel 07/2026) + luật báo giá cho nhánh gemma.
  *
- * ⚠ Sửa số ở đây = đổi nghiệp vụ thật. Số phải khớp `engine/prompts.ts` của bản 5.4.
+ * ⚠ Sửa số ở đây = đổi nghiệp vụ thật. Đây là NGUỒN CHÂN LÝ GIÁ (bản 5.4 đã gỡ 10/08).
  *
  * Vì sao tách riêng & CẮT NHỎ:
  *   Trước đây cả bảng giá (~1.500 ký tự, mọi gói, mỗi gói 1 dãy "500k · 1.5 · 2.5 · 4.5")
@@ -38,9 +38,37 @@ export const PRICE_BUCKETS: PriceBucket[] = [
 ];
 
 /** Thẻ hội viên theo tháng: giá 1 / 3 / 6 / 12 tháng. */
-interface Card {
+export interface Card {
   ten: string;
   moc: [string, string][];
+}
+
+/** Các nhóm giá KHÔNG theo mốc tháng (giữ nguyên văn, bơm khi khách hỏi đúng nhóm). */
+export type BangKhacKey = Exclude<PriceBucket, "" | "the-tap" | "lieu-trinh">;
+/** Khoá của 9 thẻ theo tháng — dùng cho editor giá trong admin. */
+export type CardKey =
+  | "FULL"
+  | "GYM"
+  | "YOGA"
+  | "ZUMBA"
+  | "BOI_LON"
+  | "BOI_BE"
+  | "ECO"
+  | "FULL_HSSV"
+  | "FULL_GV";
+
+/**
+ * TOÀN BỘ dữ liệu giá mà khách sửa được trên admin. LOGIC báo giá (luật 1 mốc, chọn bảng theo
+ * slot, chống bịa…) nằm trong các hàm dưới — KHÔNG nằm ở đây. Admin chỉ nạp DỮ LIỆU này rồi
+ * truyền vào buildPriceDirective; thiếu (chưa cấu hình) → dùng DEFAULT_PRICE_DATA bên dưới.
+ */
+export interface PriceData {
+  cards: Record<CardKey, Card>;
+  bangKhac: Record<BangKhacKey, string>;
+  giaDinh: string;
+  giaiCoLe: string;
+  giaiCoLieuTrinh: string;
+  gymTapThua: string;
 }
 
 const THANG = ["1 tháng", "3 tháng", "6 tháng", "12 tháng"];
@@ -60,11 +88,13 @@ const FULL_HSSV = card("FULL học sinh - sinh viên (14-22 tuổi, cả 4 dịc
 const FULL_GV = card("FULL giáo viên (cả 4 dịch vụ)", "700 nghìn", "1.8 triệu", "2.8 triệu", "4.8 triệu");
 /** Dòng NEO: chỉ mốc 12 tháng của một gói, để model không bị cám dỗ đọc cả bảng. */
 const neo = (c: Card, ten = c.ten) => `${ten} | ${c.moc[3][0]} = ${c.moc[3][1]}`;
-const FULL_NEO = `${neo(FULL, "FULL 4 môn (nâng cấp dùng cả Gym+Bơi+Yoga+Zumba)")}  ← chỉ nêu khi khách muốn NÂNG CẤP; khách xin gói RẺ HƠN thì CẤM lôi dòng này ra`;
+/** Dòng NEO thẻ FULL — tính TỪ card FULL nên sửa giá FULL trong admin là tự cập nhật ở đây. */
+const fullNeo = (full: Card) =>
+  `${neo(full, "FULL 4 môn (nâng cấp dùng cả Gym+Bơi+Yoga+Zumba)")}  ← chỉ nêu khi khách muốn NÂNG CẤP; khách xin gói RẺ HƠN thì CẤM lôi dòng này ra`;
 const GYM_TAP_THUA = "Gym tập thưa | 3 buổi mỗi tuần = 60% · 4 buổi mỗi tuần = 80% giá gym ở trên (chỉ nêu khi khách hỏi tập mấy buổi một tuần)";
 
 /** Các bảng KHÔNG theo mốc tháng — giữ nguyên văn, chỉ bơm khi khách hỏi đúng nhóm. */
-const BANG_KHAC: Record<Exclude<PriceBucket, "" | "the-tap" | "lieu-trinh">, string> = {
+const BANG_KHAC: Record<BangKhacKey, string> = {
   "pt-1-1":
     "PT 1 kèm 1 | 10 buổi = 3 triệu\nPT 1 kèm 1 | 15 buổi = 4 triệu\nPT 1 kèm 1 | 20 buổi = 6 triệu\nPT 1 kèm 1 | 30 buổi = 8 triệu\nPT 1 kèm 1 | 40 buổi = 10 triệu\nPT 1 kèm 1 | 50 buổi = 12 triệu\nPT cho học sinh - sinh viên | 10 buổi = 3 triệu · 20 buổi = 6 triệu",
   "hoc-boi":
@@ -92,6 +122,16 @@ const GIAI_CO_LIEU_TRINH = [
   "Liệu trình Full Body | 10 buổi = 3.3 triệu (tặng 1 → 11 buổi) · 20 buổi = 6.6 triệu (tặng 3 → 23 buổi)",
 ].join("\n");
 
+/** Dữ liệu giá mặc định (bản đang chạy live) — dùng khi admin CHƯA cấu hình giá riêng. */
+export const DEFAULT_PRICE_DATA: PriceData = {
+  cards: { FULL, GYM, YOGA, ZUMBA, BOI_LON, BOI_BE, ECO, FULL_HSSV, FULL_GV },
+  bangKhac: BANG_KHAC,
+  giaDinh: GIA_DINH,
+  giaiCoLe: GIAI_CO_LE,
+  giaiCoLieuTrinh: GIAI_CO_LIEU_TRINH,
+  gymTapThua: GYM_TAP_THUA,
+};
+
 function render(cards: Card[]): string {
   return cards.flatMap((c) => c.moc.map(([moc, gia]) => `${c.ten} | ${moc} = ${gia}`)).join("\n");
 }
@@ -107,7 +147,8 @@ function render(cards: Card[]): string {
 const MUC_TIEU_DA_MON = ["giam-can", "giu-dang", "suc-khoe"];
 const MON_LE = ["gym", "yoga", "zumba", "boi"];
 
-function tableForSport(boMon: string, mucTieu = "", coSoDo = false): string {
+function tableForSport(pd: PriceData, boMon: string, mucTieu = "", coSoDo = false): string {
+  const { FULL, GYM, YOGA, ZUMBA, BOI_LON, BOI_BE, ECO } = pd.cards;
   // Slot muc_tieu là OPTIONAL nên 12B bỏ trống thất thường (chạy 2 lần thì 1 lần trống) — nhưng
   // khách đã cho CHIỀU CAO - CÂN NẶNG thì chắc chắn đang bàn chuyện vóc dáng, tức mạch cần kết
   // hợp nhiều môn. Dùng số đo làm tín hiệu dự phòng để khỏi neo nhầm gói 1 môn.
@@ -122,22 +163,22 @@ function tableForSport(boMon: string, mucTieu = "", coSoDo = false): string {
       `⚠ Mục tiêu của khách (${nhan}) cần KẾT HỢP nhiều môn → gói neo là thẻ FULL 4 môn ở ngay dưới, báo mức FULL trước. Giá riêng môn ${boMon} (bảng phía sau) CHỈ dùng khi khách hỏi ĐÍCH DANH gói của riêng môn đó.`,
       render([FULL]),
       `─ (giá riêng môn ${boMon} — chỉ khi khách hỏi đích danh):`,
-      tableForSport(boMon),
+      tableForSport(pd, boMon),
     ].join("\n");
   }
   switch (boMon) {
     case "gym":
-      return [render([GYM]), FULL_NEO, GYM_TAP_THUA].join("\n");
+      return [render([GYM]), fullNeo(FULL), pd.gymTapThua].join("\n");
     case "yoga":
-      return [render([YOGA]), FULL_NEO].join("\n");
+      return [render([YOGA]), fullNeo(FULL)].join("\n");
     case "zumba":
-      return [render([ZUMBA]), FULL_NEO].join("\n");
+      return [render([ZUMBA]), fullNeo(FULL)].join("\n");
     case "boi":
-      return [render([BOI_LON]), render([BOI_BE]), FULL_NEO].join("\n");
+      return [render([BOI_LON]), render([BOI_BE]), fullNeo(FULL)].join("\n");
     case "eco":
       // Khách muốn ĐÚNG 2 bộ môn KHÔNG có yoga → gói Fami ECO là câu trả lời (rẻ hơn Full). Neo
       // ECO trước; Full chỉ là cửa nâng cấp. (classifier chỉ set bo_mon="eco" khi 2 môn & không yoga.)
-      return [render([ECO]), FULL_NEO].join("\n");
+      return [render([ECO]), fullNeo(FULL)].join("\n");
     default:
       return [
         render([FULL]),
@@ -183,7 +224,12 @@ export function resolvePriceBucket(s: ConvState, bucket: PriceBucket): PriceBuck
  * Dòng chỉ dẫn BÁO GIÁ bơm vào khối bối cảnh — gồm luật + đúng vài dòng bảng cần tra.
  * Trả "" khi lượt này khách không hỏi giá.
  */
-export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): string {
+export function buildPriceDirective(
+  s: ConvState,
+  rawBucket: PriceBucket,
+  pd: PriceData = DEFAULT_PRICE_DATA,
+): string {
+  const { GYM, YOGA, ZUMBA, BOI_LON, FULL_HSSV, FULL_GV } = pd.cards;
   // Gọi lại resolve ở đây (idempotent) để directive vẫn đúng dù caller quên vá.
   const bucket = resolvePriceBucket(s, rawBucket);
   // ⚠ Head KHÔNG được chứa con số tiền nào: 12B hay bốc luôn số trong ví dụ ra báo cho khách.
@@ -201,7 +247,7 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
   if (s.flow !== "giai-co" && s.haiNguoiKhacMon) {
     return table(
       `⚠ 2 người mỗi người MỘT MÔN khác nhau → nêu RÕ 2 hướng: (1) mỗi người mua THẺ RIÊNG đúng môn mình tập — báo giá TỪNG môn theo bảng dưới, mỗi môn nêu riêng, ⛔ TUYỆT ĐỐI KHÔNG cộng gộp 2 thẻ thành một con số tổng (dễ tính sai); (2) nếu cả hai muốn dùng ĐỦ cả 4 dịch vụ thì có gói Gia đình Full 2 người 12 triệu. Hỏi khách nghiêng hướng nào.`,
-      `${render([GYM, YOGA, ZUMBA, BOI_LON])}\n${GIA_DINH}`,
+      `${render([GYM, YOGA, ZUMBA, BOI_LON])}\n${pd.giaDinh}`,
     );
   }
 
@@ -211,11 +257,11 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     return bucket === "lieu-trinh"
       ? table(
           `⛔ Khách hỏi LỘ TRÌNH nhiều buổi → nêu ĐÚNG 1 liệu trình phù hợp nhất (ưu tiên VIP2 mười buổi) kèm 1 con số. CẤM đọc cả 3 liệu trình. Khách hỏi kèm "1 buổi bao nhiêu" thì lấy số ở bảng BUỔI LẺ, CẤM tự chế mức khác.`,
-          `${GIAI_CO_LE}\n${GIAI_CO_LIEU_TRINH}`,
+          `${pd.giaiCoLe}\n${pd.giaiCoLieuTrinh}`,
         )
       : table(
           `⛔ Báo giá 1 BUỔI làm mức tham chiếu, chép đúng số trong bảng. CẤM kể gói liệu trình 10 buổi khi khách chưa hỏi lộ trình.`,
-          GIAI_CO_LE,
+          pd.giaiCoLe,
         );
   }
 
@@ -244,14 +290,14 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
       break;
     case "gia-dinh":
       luat = `⚠ Khách đăng ký CHO CẢ NHÀ → dùng bảng gia đình dưới đây.`;
-      rows.push(GIA_DINH);
+      rows.push(pd.giaDinh);
       break;
     case "doanh-nghiep":
       luat = `⚠ Khách là DOANH NGHIỆP/công ty → KHÔNG có bảng giá cố định cho đoàn: nói bên em có ưu đãi riêng rồi xin SĐT để sale báo lại, TUYỆT ĐỐI không tự chế số. Chỉ dùng bảng dưới nếu khách hỏi giá lẻ cho 1 người.`;
-      rows.push(tableForSport(s.boMon, s.mucTieu, !!s.theTrang));
+      rows.push(tableForSport(pd, s.boMon, s.mucTieu, !!s.theTrang));
       break;
     default:
-      rows.push(tableForSport(s.boMon, s.mucTieu, !!s.theTrang));
+      rows.push(tableForSport(pd, s.boMon, s.mucTieu, !!s.theTrang));
   }
   if (bucket === "hoc-boi") {
     // Khách hỏi HỌC BƠI: ĐƯA bảng KHOÁ HỌC lên ĐẦU làm câu trả lời chính; bảng thẻ bơi tháng
@@ -259,7 +305,7 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     // không neo nhầm thẻ (bắt được: "giá học bơi cháu 10t" → bot báo thẻ trẻ em 12 tháng 3.6 triệu).
     const theBoiThang = rows.join("\n");
     rows.length = 0;
-    rows.push(BANG_KHAC["hoc-boi"]);
+    rows.push(pd.bangKhac["hoc-boi"]);
     if (theBoiThang) {
       rows.push(
         `─ (Tham chiếu THẺ/GÓI THEO THÁNG — bơi tự do hoặc thẻ hội viên, KHÔNG phải giá HỌC BƠI; CHỈ nêu khi khách hỏi RIÊNG vé/thẻ theo tháng):\n${theBoiThang}`,
@@ -277,7 +323,7 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     // (đo A4 30/07). Đưa bảng vé lẻ lên ĐẦU làm câu trả lời; thẻ tháng hạ xuống + dán nhãn rõ.
     const theBoiThang = rows.join("\n");
     rows.length = 0;
-    rows.push(BANG_KHAC["ve-boi-le"]);
+    rows.push(pd.bangKhac["ve-boi-le"]);
     if (theBoiThang) {
       rows.push(
         `─ (Tham chiếu THẺ/GÓI theo THÁNG — KHÔNG phải vé lẻ; CHỈ nêu khi khách hỏi RIÊNG thẻ tháng):\n${theBoiThang}`,
@@ -285,7 +331,7 @@ export function buildPriceDirective(s: ConvState, rawBucket: PriceBucket): strin
     }
     luat = `⚠ Khách hỏi VÉ BƠI LẺ (bơi tự do theo LƯỢT/BUỔI) → giá tính theo CHIỀU CAO, lấy từ bảng VÉ BƠI LẺ ở đầu. Nếu khách ĐÃ cho chiều cao → báo ĐÚNG 1 mốc của họ (dưới 1m 20 nghìn / 1m-1m5 30 nghìn / trên 1m5 40 nghìn). Nếu CHƯA biết chiều cao → nêu GỌN 2 mốc người lớn (1m-1m5 30 nghìn, trên 1m5 40 nghìn) rồi có thể hỏi chiều cao cho chính xác. ⛔ CẤM báo quá 2 mốc trong 1 tin. ⛔ CẤM lấy 700 nghìn (thẻ bơi THÁNG) làm câu trả lời cho vé lẻ. ⛔ Chiều cao ở đây CHỈ để chọn mức vé — KHÔNG phải số đo để nhận định giảm cân / vóc dáng.`;
   } else if (bucket && bucket !== "the-tap") {
-    rows.push(BANG_KHAC[bucket as Exclude<PriceBucket, "" | "the-tap" | "lieu-trinh">]);
+    rows.push(pd.bangKhac[bucket as BangKhacKey]);
   }
   return table(luat, rows.join("\n"));
 }

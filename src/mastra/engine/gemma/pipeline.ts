@@ -1,10 +1,9 @@
 /**
- * pipeline.ts — MỘT lượt hội thoại của bản gemma4:12b, dùng CHUNG cho cả 3 nơi:
- *   • engine/gemmaBrain.ts  (prod, ENGINE=gemma qua Facebook)
- *   • vnlink-gemma4/run.ts  (chạy 16 kịch bản test luồng dài)
- *   • vnlink-gemma4/serve.ts (trang chat tay)
+ * pipeline.ts — MỘT lượt hội thoại của bản gemma4:12b, dùng CHUNG cho:
+ *   • engine/gemmaBrain.ts        (prod, qua Facebook)
+ *   • src/mastra/scripts/smoke*.ts (smoke test gọi thẳng pipeline)
  *
- * Trước đây 3 file chép tay cùng một pipeline → trôi lệch nhau (bảng giá giáo viên chỉ có
+ * Trước đây pipeline bị chép tay nhiều bản → trôi lệch nhau (bảng giá giáo viên chỉ có
  * ở 1 bản). Giờ chỉ còn 1 nguồn: test chạy ĐÚNG code mà prod chạy.
  *
  * File này chỉ còn NHỊP (song ánh với engine/brain.ts của bản 5.4), chi tiết ở module riêng:
@@ -34,6 +33,8 @@ import { decideMedia } from "./mediaGate";
 import { buildSystemPrompt, type GemmaFlow } from "./prompt";
 import { resolvePriceBucket, type PriceBucket } from "./pricing";
 import { buildTurnContext, updateState, type ConvState } from "./state";
+import { loadKnowledge, type Knowledge } from "../../lib/knowledgeStore";
+import { retrieveDocs } from "../../lib/docStore";
 import { countMoneyMentions, coVeAnToan, extractQuestions, norm, stripMediaLine } from "./text";
 
 // gemmaBrain.ts cần toGuardKey để ghi sổ ảnh vào state prod — re-export cho nó khỏi phải biết
@@ -97,6 +98,12 @@ export async function runGemmaTurn(opts: {
   const cfg = resolveLlmConfig(opts);
   const notes: string[] = [];
   const prevBotReply = [...history].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  // Nạp kiến thức động (cục prompt + bảng giá khách sửa trên admin) SONG SONG với classifier —
+  // chỉ cần khi sinh reply nên await sau. Lỗi DB đã fail-open về default trong loadKnowledge.
+  const knowledgeP = loadKnowledge();
+  // Retrieve tài liệu tham khảo (RAG) cũng chạy SONG SONG — độ trễ embedding ẩn dưới classify.
+  // Chưa nạp tài liệu nào / lỗi → trả "" (fail-open), bot chạy y như chưa có RAG.
+  const refDocsP = retrieveDocs(message);
 
   // 1. classifier — hiểu khách + chọn bộ ảnh
   const { cls, seconds: clsSeconds } = await classify(conv, prevBotReply, message, cfg, notes);
@@ -159,6 +166,8 @@ export async function runGemmaTurn(opts: {
     dayOptions: dayOptionsFor(conv, cls),
     cfg,
     notes,
+    knowledge: await knowledgeP,
+    refDocs: await refDocsP,
     finalize,
   });
   const reply = draftRun.reply;
@@ -234,14 +243,19 @@ async function draftReply(p: {
   dayOptions: string[];
   cfg: LlmConfig;
   notes: string[];
+  /** Kiến thức động (cục prompt + bảng giá khách sửa trên admin) đã nạp ở đầu lượt. */
+  knowledge: Knowledge;
+  /** Khối [TÀI LIỆU THAM KHẢO] retrieve theo câu khách (RAG); "" = không có đoạn liên quan. */
+  refDocs: string;
   /** cleanReply + guard — biến bản nháp thành đúng chuỗi khách nhận. */
   finalize: (draft: string) => string;
 }): Promise<{ draft: string; reply: string; seconds: number }> {
-  const system = buildSystemPrompt(buildDateBlock(), p.flow);
+  const system = buildSystemPrompt(buildDateBlock(), p.flow, p.knowledge.blocks, p.knowledge.promos, p.refDocs);
   const context = buildTurnContext(p.conv, {
     mediaKey: p.mediaKey,
     dayOptions: p.dayOptions,
     priceBucket: p.priceBucket,
+    prices: p.knowledge.prices,
   });
   // Tag "staff" chỉ đánh dấu ở ĐÂY (khi build mảng gửi LLM), KHÔNG sửa p.history gốc — mọi nơi
   // khác đọc .content của history (prevBotReply, prevReplyNorms, polish's recentBotReplies) vẫn

@@ -403,10 +403,6 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
     const { mastra } = await import("../index");
     const { loadState, saveState } = await import("../lib/stateStore");
     const { cleanReply } = await import("../lib/cleanReply");
-    // Dùng CHÍNH agent engine (brain) như lượt trả lời thật → giọng nhắc KHỚP giọng reply.
-    // Trước đây follow-up xài agent LEGACY (agents/fitness.ts) + prefix cũ ("[VIỆC CẦN LÀM — MỞ
-    // ĐẦU] chào ấm rồi hỏi...") → giọng lệch, ép model đẻ filler sáo. Bỏ hẳn cả hai.
-    const { fitnessBrainAgent, giaiCoBrainAgent } = await import("../engine/agents");
 
     const state = await loadState(mastra, senderId, senderId);
 
@@ -428,8 +424,6 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
       return null;
     }
 
-    const agent = state.flow === "giai-co" ? giaiCoBrainAgent : fitnessBrainAgent;
-
     // Điều đã biết về khách (gọn) — để tin nhắc MÓC vào cái cụ thể, không nói chung chung.
     const kn = state.knownInfo;
     const knownBits = [
@@ -439,63 +433,19 @@ export async function generateFollowupReply(senderId: string, attempt: number): 
       kn.painArea && `vùng đau ${kn.painArea}`,
     ].filter(Boolean);
     const knownLine = knownBits.length ? `Đã biết về khách: ${knownBits.join(", ")}.\n` : "";
-    const mediaNote = state.mediaShown
-      ? "Em đã gửi ảnh ở lượt trước — đừng nhắc/mời lại ảnh, đừng gọi tool gửi ảnh. "
-      : "Đừng gọi tool gửi ảnh/QR. ";
 
-    // Prompt nhắc GỌN cho gpt-5.4: nói NGUYÊN TẮC, KHÔNG kịch bản, KHÔNG liệt kê câu ví dụ (priming).
-    // Cho phép IM: model tự phán "có gì đáng nói thêm không"; không có → trả __IMLANG__ → bỏ gửi.
-    // Đây là cách bỏ filler sáo ("giữ mạch tư vấn"/"khung tập"...) TẬN GỐC: thà im hơn nhắn cho có.
-    const followupInstruction =
-      `${knownLine}` +
-      `[TIN NHẮC CHỦ ĐỘNG — khách im một lúc, chưa trả lời tin trước của em. ` +
-      `CHỈ nhắn nếu em thật sự có MỘT điều cụ thể, hữu ích để nói thêm dựa trên đúng cái đã biết ở trên và mạch trò chuyện. ` +
-      `Có thì: đúng 1 câu NGẮN, đời thường, ấm như nhân viên thật nhắn tin — không lặp lại câu hỏi/lời mời vừa gửi, không dùng từ ngữ marketing/nội bộ sáo rỗng, không xin lỗi vì nhắn lại, không giục chốt. ` +
-      `Nếu KHÔNG có gì đáng nói thêm (chỉ còn cách nói chung chung cho có) → trả về ĐÚNG một từ: __IMLANG__ (em sẽ không gửi gì). ` +
-      `${mediaNote}Kết "ạ".]`;
-
-    // Ngữ cảnh hội thoại đến từ memory (lastMessages) — brain agent tự đọc lịch sử, KHÔNG cần
-    // bơm prefix legacy nữa. Chỉ đưa "đã biết về khách" + chỉ thị nhắc gọn ở trên.
-    //
-    // ⚠ toolChoice="none": tin nhắc KHÔNG cần tool nào (media đã pre-fetch ở
-    // scheduleFollowupWithMedia, QR chỉ gửi khi đã có contact). Trước đây để tool mở với
-    // maxSteps=1 → memory bật workingMemory nên agent có tool updateWorkingMemory, model
-    // tiêu đúng bước duy nhất vào tool call → vòng đó KHÔNG sinh text → res.text="" →
-    // followup im lặng (log "generate trả rỗng"; repro: 8/8 lượt rỗng, vòng nào cũng
-    // tools=[updateWorkingMemory] textLen=0). Cấm tool = model buộc phải viết chữ ngay
-    // bước 1, và chỉ tốn 1 lượt LLM/lần nhắc. Cập nhật working memory ở đây cũng vô nghĩa —
-    // khách chưa nói gì mới.
-    // maxSteps=2 + gom text theo vòng (như brain.ts:runAgentTurn): lưới an toàn phòng khi
-    // provider/adapter lờ toolChoice — vẫn còn 1 bước để ra chữ thay vì im lặng.
-    // ⚠ ENGINE=gemma thì tin nhắc PHẢI do chính gemma viết. Trước đây nhánh nào cũng dùng agent
-    // 5.4 → khách được gemma tư vấn nhưng nhận tin nhắc của một model khác, đọc bảng kiến thức
-    // khác (đo LIVE 26/07 convo 27608560335468856: tin nhắc nói bể mở "6h đến 20h", giờ thật
-    // 20h30 — số cũ còn sót trong prompts.ts của 5.4). Gemma lỗi thì rơi xuống 5.4 như cũ.
+    // Tin nhắc do CHÍNH gemma viết (khớp giọng + đọc đúng bảng kiến thức bot đang dùng). gemma tự
+    // quyết IM (trả null) là quyết định HỢP LỆ — vẫn đi tiếp xuống dưới bump followupCount (chống
+    // loop). gemma lỗi → coi như IM lượt nhắc, không gửi gì.
     let finalText = "";
-    // gemma tự quyết IM (trả null) là một quyết định HỢP LỆ — không được vì thế mà chạy tiếp
-    // sang 5.4 để cố nặn ra tin nhắn; vẫn đi tiếp xuống dưới để bump followupCount (chống loop).
-    let gemmaImLang = false;
-    if (process.env.ENGINE === "gemma") {
-      try {
-        const { runGemmaFollowup } = await import("../engine/gemmaBrain");
-        const t = await runGemmaFollowup({ mastra, threadId: senderId, knownLine, attempt });
-        if (t) finalText = t;
-        else gemmaImLang = true;
-      } catch (e) {
-        console.error("[followup] gemma lỗi → dùng agent 5.4:", (e as Error)?.message);
-      }
+    try {
+      const { runGemmaFollowup } = await import("../engine/gemmaBrain");
+      const t = await runGemmaFollowup({ mastra, threadId: senderId, knownLine, attempt });
+      if (t) finalText = t;
+    } catch (e) {
+      console.error("[followup] gemma lỗi → im lặng lượt nhắc:", (e as Error)?.message);
     }
-    const res: any = finalText || gemmaImLang
-      ? { text: finalText }
-      : await agent.generate(followupInstruction, {
-          maxSteps: 2,
-          toolChoice: "none",
-          modelSettings: { temperature: 0.7, topP: 0.95 },
-          memory: { thread: { id: senderId }, resource: senderId, options: { lastMessages: 8 } },
-          onIterationComplete: ({ text }: { text: string }) => {
-            if (typeof text === "string" && text.trim()) finalText = text;
-          },
-        });
+    const res: any = { text: finalText };
 
     // KH nhắn CHÈN trong lúc đang generate (generate mất ~5-15s) → vứt tin nhắc này, đừng gửi:
     // khách vừa nói mà bot lại nhắc "im lâu quá" thì vô duyên, và turn thật sắp trả lời rồi.
@@ -742,17 +692,13 @@ async function handleMessage(
   const { mastra } = await import("../index");
   const { tryWriteLeadIfReady } = await import("../lib/stateStore");
 
-  // ═══════ ENGINE SWITCH ═══════
-  // CÒN ĐÚNG 2 BỘ NÃO (22/07 dọn legacy routerWorkflow + FSM cũ):
-  //   • ENGINE=gemma → gemma4:12b self-host (engine/gemmaBrain.ts).
-  //   • còn lại      → engine/brain.ts (gpt-5.4) — MẶC ĐỊNH, đang golive.
-  // Gemma fail (box GPU chết / tunnel đứt) → rơi xuống brain gpt-5.4 để khách LUÔN có reply
-  // (memory gemma lưu thread riêng nên tin fallback đó có thể hơi thiếu ngữ cảnh — chấp nhận
-  // cho failure-mode, hơn là im lặng). Cả 2 nhánh trả CÙNG shape { reply, mediaUrls, qrUrl }
-  // → phần humanize/gửi-media/ghi-Sheets/followup BÊN DƯỚI chạy y nguyên, không đụng.
+  // ═══════ 1 BỘ NÃO DUY NHẤT: gemma (Gemini API) ═══════
+  // 10/08 — gỡ hẳn engine 5.4 + ENGINE switch. Gemma lỗi (hết quota / lưới Gemini cạn) → bot IM
+  // LẶNG lượt này (không gửi gì, không báo "gặp sự cố"); hết quota thì llm.ts đã tắt AI tổng.
+  // Output shape { reply, mediaUrls, qrUrl } giữ nguyên → humanize/gửi-media/Sheets/followup bên
+  // dưới chạy y cũ, không đụng.
   let output: { reply: string; mediaUrls: string[] | null; qrUrl: string | null } | undefined;
-
-  if (process.env.ENGINE === "gemma") {
+  {
     const { runGemmaTurn } = await import("../engine/gemmaBrain");
     try {
       output = await runGemmaTurn({
@@ -764,26 +710,7 @@ async function handleMessage(
       });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") throw e;
-      // GPU box down / tunnel đứt / lỗi LLM → KHÔNG im lặng: rơi xuống brain gpt-5.4 bên dưới
-      // (output còn undefined) để khách vẫn luôn có reply.
-      console.error("[fb] gemma engine failed → fallback brain gpt-5.4:", (e as Error)?.message);
-    }
-  }
-
-  if (!output) {
-    const { runAgentTurn } = await import("../engine/brain");
-    try {
-      output = await runAgentTurn({
-        mastra,
-        message:    text,
-        threadId:   senderId,
-        resourceId: senderId,
-        abortSignal, // brain tự honor abortSignal (không cần workflow.cancel)
-      });
-    } catch (e) {
-      if ((e as Error)?.name === "AbortError") throw e;
-      // Hết quota / lỗi LLM → IM LẶNG, KHÔNG gửi "em gặp sự cố" (xem lý do ở flush catch).
-      console.error("[fb] agent engine failed (im lặng, không báo khách):", (e as Error)?.message);
+      console.error("[fb] gemma engine failed → im lặng:", (e as Error)?.message);
       return;
     }
   }

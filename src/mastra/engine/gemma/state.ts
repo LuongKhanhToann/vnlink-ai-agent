@@ -15,7 +15,7 @@ import { HOTLINE } from "../contact";
 import type { Classification } from "./classifier";
 import { motaTheTrang } from "./bodyStats";
 import { tinhTuoiBe } from "./dates";
-import { buildPriceDirective, type PriceBucket } from "./pricing";
+import { buildPriceDirective, type PriceBucket, type PriceData } from "./pricing";
 
 export interface AskedQuestion {
   raw: string;
@@ -377,6 +377,8 @@ export function buildTurnContext(
     dayOptions?: string[];
     /** Nhóm giá khách đang hỏi (classifier quyết) — chọn đúng vài dòng bảng để bơm. */
     priceBucket?: PriceBucket;
+    /** Bảng giá động (khách sửa trên admin). Bỏ trống → buildPriceDirective dùng giá mặc định. */
+    prices?: PriceData;
   },
 ): string {
   const { mediaKey } = turn;
@@ -641,10 +643,10 @@ export function buildTurnContext(
       );
     }
     // Khách vừa cho chiều cao trong mạch vé lẻ (dù lượt này lỡ bị coi là hỏi giá chung) → ép ve-boi-le.
-    L.push(buildPriceDirective(s, veLeChieuCao ? "ve-boi-le" : (turn.priceBucket ?? "")));
+    L.push(buildPriceDirective(s, veLeChieuCao ? "ve-boi-le" : (turn.priceBucket ?? ""), turn.prices));
   } else if (veLeChieuCao) {
     // Khách "biết bơi" vừa cho chiều cao ở lượt KHÔNG hỏi giá → vẫn phải chốt MỨC VÉ LẺ theo chiều cao.
-    L.push(buildPriceDirective(s, "ve-boi-le"));
+    L.push(buildPriceDirective(s, "ve-boi-le", turn.prices));
   } else {
     L.push(
       `- Tin này khách KHÔNG hỏi giá → không chủ động nêu con số tiền, KHÔNG đổ bảng giá và cũng KHÔNG chào tên gói/thẻ nào (gói Full, thẻ hội viên, liệu trình...). Lượt này chỉ tư vấn/hỏi thêm cho hiểu nhu cầu.`,

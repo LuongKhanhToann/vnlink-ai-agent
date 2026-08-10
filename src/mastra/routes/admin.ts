@@ -27,6 +27,9 @@ import {
   setGlobalEnabled,
 } from "../lib/botControl";
 import { cancelFollowup } from "../lib/followup";
+import { adminSnapshot, setBlock, setPrices, resetKey, listPromos, savePromo, deletePromo } from "../lib/knowledgeStore";
+import { listDocs, ingestDoc, deleteDoc } from "../lib/docStore";
+import { parseUpload } from "../lib/parseUpload";
 import {
   MEDIA_CATEGORIES,
   IMAGE_MAX_BYTES,
@@ -315,6 +318,186 @@ adminWebhook.post("/admin/api/media/delete", async (c) => {
   }
 });
 
+// ── Kiến thức: cục prompt (kịch bản) + bảng giá có cấu trúc ──
+adminWebhook.get("/admin/api/knowledge", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json(await adminSnapshot());
+  } catch (e) {
+    console.error("[admin] knowledge snapshot failed:", e);
+    return c.json({ error: "db_error" }, 500);
+  }
+});
+
+// Lưu 1 cục prompt (text). value rỗng → coi như đưa về mặc định (xoá override).
+adminWebhook.post("/admin/api/knowledge/block", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { key, value } = await c.req.json();
+    if (typeof key !== "string" || typeof value !== "string") {
+      return c.json({ error: "bad_request" }, 400);
+    }
+    if (value.trim()) await setBlock(key, value);
+    else await resetKey(key);
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] save block failed:", e);
+    return c.json({ error: (e as Error).message || "save_error" }, 400);
+  }
+});
+
+// Đưa 1 cục prompt về mặc định (xoá override).
+adminWebhook.post("/admin/api/knowledge/block/reset", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { key } = await c.req.json();
+    if (typeof key !== "string") return c.json({ error: "bad_request" }, 400);
+    await resetKey(key);
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] reset block failed:", e);
+    return c.json({ error: "reset_error" }, 500);
+  }
+});
+
+// Lưu toàn bộ bảng giá (JSON PriceData). Store tự validate + merge lên default.
+adminWebhook.post("/admin/api/knowledge/prices", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const body = await c.req.json();
+    await setPrices(body.prices ?? body);
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] save prices failed:", e);
+    return c.json({ error: "save_error" }, 500);
+  }
+});
+
+// Đưa bảng giá về mặc định.
+adminWebhook.post("/admin/api/knowledge/prices/reset", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    await resetKey("prices");
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] reset prices failed:", e);
+    return c.json({ error: "reset_error" }, 500);
+  }
+});
+
+// ── Khuyến mãi theo đợt (promotions) ──
+// Danh sách toàn bộ đợt (kể cả hết hạn/tắt) — kèm cờ live để admin biết đợt nào bot đang dùng.
+adminWebhook.get("/admin/api/promos", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json({ promos: await listPromos() });
+  } catch (e) {
+    console.error("[admin] list promos failed:", e);
+    return c.json({ error: "db_error" }, 500);
+  }
+});
+
+// Thêm mới (không id) hoặc sửa (có id) 1 đợt ưu đãi.
+adminWebhook.post("/admin/api/promos/save", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const b = await c.req.json();
+    const id = await savePromo({
+      id: b.id ?? null,
+      title: b.title,
+      content: b.content,
+      start_date: b.start_date ?? null,
+      end_date: b.end_date ?? null,
+      active: b.active !== false,
+    });
+    return c.json({ ok: true, id });
+  } catch (e) {
+    console.error("[admin] save promo failed:", e);
+    return c.json({ error: (e as Error).message || "save_error" }, 400);
+  }
+});
+
+// Xoá hẳn 1 đợt ưu đãi.
+adminWebhook.post("/admin/api/promos/delete", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { id } = await c.req.json();
+    if (!id) return c.json({ error: "bad_request" }, 400);
+    await deletePromo(Number(id));
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] delete promo failed:", e);
+    return c.json({ error: "delete_error" }, 500);
+  }
+});
+
+// ── Tài liệu tham khảo (RAG) ──
+const DOC_MAX_BYTES = 15 * 1024 * 1024; // 15MB/file
+
+// Danh sách tài liệu đã nạp.
+adminWebhook.get("/admin/api/docs", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json({ docs: await listDocs() });
+  } catch (e) {
+    console.error("[admin] list docs failed:", e);
+    return c.json({ error: "db_error" }, 500);
+  }
+});
+
+// Nạp tài liệu: hoặc upload file (PDF/Word/text) qua multipart, hoặc dán text trực tiếp (JSON).
+adminWebhook.post("/admin/api/docs/upload", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const ct = c.req.header("content-type") || "";
+    let title = "";
+    let category = "chung";
+    let text = "";
+
+    if (ct.includes("multipart/form-data")) {
+      const body = await c.req.parseBody();
+      category = typeof body.category === "string" ? body.category : "chung";
+      const file = body.file;
+      if (file instanceof File) {
+        if (file.size > DOC_MAX_BYTES) return c.json({ error: "Tệp quá lớn (tối đa 15MB)" }, 400);
+        const buf = Buffer.from(await file.arrayBuffer());
+        const parsed = await parseUpload(buf, file.name, file.type);
+        text = parsed.text;
+        title = typeof body.title === "string" && body.title.trim() ? body.title : file.name;
+      } else {
+        // dán text qua form
+        text = typeof body.text === "string" ? body.text : "";
+        title = typeof body.title === "string" ? body.title : "";
+      }
+    } else {
+      const b = await c.req.json();
+      title = b.title ?? "";
+      category = b.category ?? "chung";
+      text = b.text ?? "";
+    }
+
+    const r = await ingestDoc({ title, category, text });
+    return c.json({ ok: true, id: r.id, chunks: r.chunks });
+  } catch (e) {
+    console.error("[admin] upload doc failed:", e);
+    return c.json({ error: (e as Error).message || "upload_error" }, 400);
+  }
+});
+
+// Xoá 1 tài liệu (kèm mọi chunk).
+adminWebhook.post("/admin/api/docs/delete", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const { id } = await c.req.json();
+    if (!id) return c.json({ error: "bad_request" }, 400);
+    await deleteDoc(Number(id));
+    return c.json({ ok: true });
+  } catch (e) {
+    console.error("[admin] delete doc failed:", e);
+    return c.json({ error: "delete_error" }, 500);
+  }
+});
+
 // ─────────────────────────────────────────────
 // Trang HTML — login + dashboard trong 1 file, gọi các API ở trên.
 // Hỗ trợ sáng/tối (CSS variables, lưu localStorage). Không backtick bên trong.
@@ -432,6 +615,24 @@ input:checked + .slider:before{transform:translateX(20px)}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 .modal-actions .btn{width:auto}
 .btn-danger{background:var(--off-bg);border-color:var(--off-bg);color:var(--off-text)}
+.know-sub{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:4px 0 16px}
+.kgroup{font-size:14px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:22px 0 10px}
+.kcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+.khead{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px}
+.ktext{width:100%;min-height:180px;background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5;resize:vertical}
+.ktext-sm{min-height:90px}
+.kacts{display:flex;gap:8px;margin-top:10px}
+.kbtn{width:auto}
+.ptable-wrap{overflow-x:auto}
+.ptable{border-collapse:collapse;width:100%;font-size:13px}
+.ptable th,.ptable td{border:1px solid var(--border);padding:6px 8px;text-align:left}
+.ptable th{color:var(--muted);font-weight:600;white-space:nowrap}
+.ptable .pname{font-weight:600;min-width:150px}
+.pinp{width:110px;padding:6px 8px;font-size:13px}
+.plbl{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+.prow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-top:4px}
+.pdate{width:auto}
+.pchk{display:flex;align-items:center;gap:6px;font-size:13px;padding-bottom:8px}
 </style>
 </head>
 <body>
@@ -459,6 +660,8 @@ input:checked + .slider:before{transform:translateX(20px)}
 
   <div class="tabs">
     <button id="tab-users" class="tab active" onclick="switchTab('users')">Người dùng</button>
+    <button id="tab-knowledge" class="tab" onclick="switchTab('knowledge')">Kịch bản &amp; Giá</button>
+    <button id="tab-docs" class="tab" onclick="switchTab('docs')">Tài liệu</button>
     <button id="tab-media" class="tab" onclick="switchTab('media')">Thư viện ảnh/video</button>
   </div>
 
@@ -477,6 +680,44 @@ input:checked + .slider:before{transform:translateX(20px)}
       <div id="list"></div>
       <p id="userNote" class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
     </div>
+  </div>
+
+  <div id="view-knowledge" class="hidden">
+    <p class="subtitle">Sửa nội dung trợ lý AI dùng để tư vấn. Lưu xong có hiệu lực ngay ở tin kế tiếp, không cần deploy.</p>
+    <div class="know-sub">
+      <button id="ksub-blocks" class="tab active" onclick="switchKnow('blocks')">Kịch bản (cục nội dung)</button>
+      <button id="ksub-prices" class="tab" onclick="switchKnow('prices')">Bảng giá</button>
+      <button id="ksub-promos" class="tab" onclick="switchKnow('promos')">Khuyến mãi theo đợt</button>
+    </div>
+    <div id="know-blocks"><p class="muted">Đang tải…</p></div>
+    <div id="know-prices" class="hidden"><p class="muted">Đang tải…</p></div>
+    <div id="know-promos" class="hidden"><p class="muted">Đang tải…</p></div>
+  </div>
+
+  <div id="view-docs" class="hidden">
+    <p class="subtitle">Kiến thức chung (fitness, tăng giảm cân, dinh dưỡng, trị liệu…). Bot tự đọc và dùng khi khách hỏi tới. Nạp PDF, Word (.docx), text/.md — hoặc dán nội dung trực tiếp.</p>
+    <div class="kcard">
+      <div class="khead"><b>Nạp tài liệu mới</b></div>
+      <label class="plbl">Chủ đề</label>
+      <select id="doc-cat" class="input pdate">
+        <option value="fitness">Kiến thức về fitness</option>
+        <option value="tang-giam-can">Kiến thức tăng giảm cân</option>
+        <option value="dinh-duong">Kiến thức về dinh dưỡng</option>
+        <option value="tri-lieu">Kiến thức về trị liệu</option>
+        <option value="sale">Cách sale</option>
+        <option value="chung" selected>Chung</option>
+      </select>
+      <label class="plbl">Tên tài liệu (để trống sẽ lấy tên file)</label>
+      <input id="doc-title" class="input" placeholder="VD: Hướng dẫn dinh dưỡng tăng cân"/>
+      <label class="plbl">Cách 1 — Chọn file (PDF / Word / text)</label>
+      <input id="doc-file" type="file" accept=".pdf,.docx,.txt,.md,.markdown" class="input pdate"/>
+      <label class="plbl">Cách 2 — Hoặc dán nội dung text</label>
+      <textarea id="doc-text" class="ktext ktext-sm" placeholder="Dán nội dung tài liệu vào đây nếu không có file."></textarea>
+      <div class="kacts"><button id="doc-up-btn" class="btn btn-primary" onclick="uploadDoc()">Nạp tài liệu</button></div>
+      <p class="note">Nạp xong bot dùng được ngay ở tin kế tiếp. File scan (ảnh) không đọc được chữ — hãy dán text.</p>
+    </div>
+    <h3 class="kgroup">Tài liệu đã nạp</h3>
+    <div id="docList"><p class="muted">Đang tải…</p></div>
   </div>
 
   <div id="view-media" class="hidden">
@@ -704,13 +945,285 @@ var MEDIA = null;            // null = chưa nạp
 var LIMITS = { image: 8388608, video: 26214400 };
 var DELITEMS = [];          // map index → {public_id, resource_type} cho nút xoá
 
+// ── Kịch bản & Giá ──
+var KNOW = null;            // {blocks:[...], prices, defaultPrices}; null = chưa nạp
+var CARD_ORDER = ["FULL","GYM","YOGA","ZUMBA","BOI_LON","BOI_BE","ECO","FULL_HSSV","FULL_GV"];
+
+function switchKnow(sub){
+  ["blocks","prices","promos"].forEach(function(s){
+    document.getElementById("ksub-"+s).classList.toggle("active", s===sub);
+    document.getElementById("know-"+s).classList.toggle("hidden", s!==sub);
+  });
+  if(sub==="promos") loadPromos();
+}
+
+async function loadKnow(){
+  var b = document.getElementById("know-blocks");
+  var r;
+  try { r = await fetch("/admin/api/knowledge",{cache:"no-store"}); }
+  catch(e){ b.innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; return; }
+  if(handle401(r)) return;
+  if(!r.ok){ b.innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+  KNOW = await r.json();
+  renderBlocks();
+  renderPrices();
+}
+
+function renderBlocks(){
+  var box = document.getElementById("know-blocks");
+  var groups = {};
+  KNOW.blocks.forEach(function(bk){ (groups[bk.group]=groups[bk.group]||[]).push(bk); });
+  var html = "";
+  Object.keys(groups).forEach(function(g){
+    html += '<h3 class="kgroup">'+esc(g)+'</h3>';
+    groups[g].forEach(function(bk){
+      var badge = bk.overridden ? '<span class="badge on">Đã sửa</span>' : '<span class="badge">Mặc định</span>';
+      html += '<div class="kcard"><div class="khead"><b>'+esc(bk.label)+'</b> '+badge+'</div>'
+        + '<textarea id="blk-'+esc(bk.key)+'" class="ktext">'+esc(bk.value)+'</textarea>'
+        + '<div class="kacts"><button class="btn btn-primary kbtn" onclick="saveBlock(\\''+esc(bk.key)+'\\')">Lưu</button>'
+        + '<button class="btn kbtn" onclick="resetBlock(\\''+esc(bk.key)+'\\')">Về mặc định</button></div></div>';
+    });
+  });
+  box.innerHTML = html;
+}
+
+async function saveBlock(key){
+  var ta = document.getElementById("blk-"+key);
+  var val = ta.value;
+  var r = await fetch("/admin/api/knowledge/block",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:key,value:val})});
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(r.ok){
+    var bk = KNOW.blocks.find(function(x){return x.key===key;});
+    if(bk){ bk.value = val; bk.overridden = !!val.trim(); }
+    renderBlocks();
+    toast("Đã lưu và áp dụng ngay","ok");
+  } else { toast(d.error || "Lưu thất bại","err"); }
+}
+
+async function resetBlock(key){
+  if(!(await askConfirm("Đưa cục này về nội dung mặc định?","Về mặc định"))) return;
+  var r = await fetch("/admin/api/knowledge/block/reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:key})});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã về mặc định","ok"); KNOW=null; loadKnow(); }
+  else { toast("Thất bại","err"); }
+}
+
+function pinp(id,val){ return '<input id="'+id+'" class="input pinp" value="'+esc(val)+'"/>'; }
+function ptaCard(id,label,val){ return '<div class="kcard"><div class="khead"><b>'+esc(label)+'</b></div><textarea id="'+id+'" class="ktext ktext-sm">'+esc(val)+'</textarea></div>'; }
+
+function renderPrices(){
+  var box = document.getElementById("know-prices");
+  var p = KNOW.prices;
+  var html = '<p class="note">Sửa số tiền rồi bấm “Lưu bảng giá”. Viết đầy đủ chữ: “4.5 triệu”, “500 nghìn” (đừng viết tắt “4.5tr”, “500k”).</p>';
+  html += '<h3 class="kgroup">Thẻ hội viên theo tháng</h3><div class="ptable-wrap"><table class="ptable"><tr><th>Gói</th>';
+  p.cards.FULL.moc.forEach(function(m){ html += '<th>'+esc(m[0])+'</th>'; });
+  html += '</tr>';
+  CARD_ORDER.forEach(function(k){
+    var c = p.cards[k];
+    html += '<tr><td class="pname">'+esc(c.ten)+'</td>';
+    c.moc.forEach(function(m,i){ html += '<td>'+pinp("pc-"+k+"-"+i, m[1])+'</td>'; });
+    html += '</tr>';
+  });
+  html += '</table></div>';
+  html += '<h3 class="kgroup">Các bảng giá khác (giữ nguyên định dạng: mỗi mức 1 dòng)</h3>';
+  html += ptaCard("pbk-pt-1-1","PT 1 kèm 1", p.bangKhac["pt-1-1"]);
+  html += ptaCard("pbk-hoc-boi","Học bơi", p.bangKhac["hoc-boi"]);
+  html += ptaCard("pbk-ve-boi-le","Vé bơi lẻ", p.bangKhac["ve-boi-le"]);
+  html += ptaCard("pbk-pilates","Pilates", p.bangKhac["pilates"]);
+  html += ptaCard("pbk-thue-hlv","Thuê HLV theo giờ", p.bangKhac["thue-hlv"]);
+  html += ptaCard("pgiadinh","Gói gia đình", p.giaDinh);
+  html += ptaCard("pgymthua","Gym tập thưa (theo buổi/tuần)", p.gymTapThua);
+  html += ptaCard("pgcle","Giải cơ — buổi lẻ", p.giaiCoLe);
+  html += ptaCard("pgclt","Giải cơ — liệu trình", p.giaiCoLieuTrinh);
+  html += '<div class="kacts"><button class="btn btn-primary" onclick="savePrices()">Lưu bảng giá</button><button class="btn" onclick="resetPrices()">Về mặc định</button></div>';
+  box.innerHTML = html;
+}
+
+function collectPrices(){
+  var src = KNOW.prices;
+  var cards = {};
+  CARD_ORDER.forEach(function(k){
+    var c = src.cards[k];
+    cards[k] = { ten: c.ten, moc: c.moc.map(function(m,i){ return [m[0], document.getElementById("pc-"+k+"-"+i).value]; }) };
+  });
+  return {
+    cards: cards,
+    bangKhac: {
+      "pt-1-1": document.getElementById("pbk-pt-1-1").value,
+      "hoc-boi": document.getElementById("pbk-hoc-boi").value,
+      "ve-boi-le": document.getElementById("pbk-ve-boi-le").value,
+      "pilates": document.getElementById("pbk-pilates").value,
+      "thue-hlv": document.getElementById("pbk-thue-hlv").value
+    },
+    giaDinh: document.getElementById("pgiadinh").value,
+    gymTapThua: document.getElementById("pgymthua").value,
+    giaiCoLe: document.getElementById("pgcle").value,
+    giaiCoLieuTrinh: document.getElementById("pgclt").value
+  };
+}
+
+async function savePrices(){
+  var prices = collectPrices();
+  var r = await fetch("/admin/api/knowledge/prices",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prices:prices})});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã lưu bảng giá, áp dụng ngay","ok"); KNOW=null; loadKnow(); }
+  else { toast("Lưu thất bại","err"); }
+}
+
+async function resetPrices(){
+  if(!(await askConfirm("Đưa toàn bộ bảng giá về mặc định?","Về mặc định",true))) return;
+  var r = await fetch("/admin/api/knowledge/prices/reset",{method:"POST"});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã về mặc định","ok"); KNOW=null; loadKnow(); }
+  else { toast("Thất bại","err"); }
+}
+
+// ── Khuyến mãi theo đợt ──
+var PROMOS = [];
+
+async function loadPromos(){
+  var box = document.getElementById("know-promos");
+  var r;
+  try { r = await fetch("/admin/api/promos",{cache:"no-store"}); }
+  catch(e){ box.innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; return; }
+  if(handle401(r)) return;
+  if(!r.ok){ box.innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+  var d = await r.json();
+  PROMOS = d.promos || [];
+  renderPromos();
+}
+
+function promoRow(p){
+  var isNew = !p.id;
+  var pid = isNew ? "new" : String(p.id);
+  var badge = isNew ? '' :
+    (p.live ? '<span class="badge on">Đang chạy</span>'
+            : (p.active ? '<span class="badge">Chưa tới/đã hết hạn</span>' : '<span class="badge">Đang tắt</span>'));
+  var h = '<div class="kcard"><div class="khead"><b>'+(isNew?'Thêm đợt ưu đãi mới':esc(p.title||'(chưa đặt tên)'))+'</b> '+badge+'</div>';
+  h += '<label class="plbl">Tiêu đề</label>'+'<input id="pm-title-'+pid+'" class="input" value="'+esc(p.title||'')+'" placeholder="VD: Ưu đãi khai xuân"/>';
+  h += '<label class="plbl">Nội dung (bot sẽ nói cho khách)</label><textarea id="pm-content-'+pid+'" class="ktext ktext-sm" placeholder="VD: Đăng ký gói năm trong tháng này tặng thêm 1 tháng tập.">'+esc(p.content||'')+'</textarea>';
+  h += '<div class="prow">';
+  h += '<span><label class="plbl">Từ ngày</label><input id="pm-start-'+pid+'" type="date" class="input pdate" value="'+esc(p.start_date||'')+'"/></span>';
+  h += '<span><label class="plbl">Đến ngày</label><input id="pm-end-'+pid+'" type="date" class="input pdate" value="'+esc(p.end_date||'')+'"/></span>';
+  h += '<label class="pchk"><input id="pm-active-'+pid+'" type="checkbox" '+(isNew||p.active?'checked':'')+'/> Bật</label>';
+  h += '</div>';
+  h += '<p class="note">Để trống ngày = không giới hạn. Đợt chỉ được bot dùng khi Bật + hôm nay nằm trong khoảng ngày.</p>';
+  h += '<div class="kacts"><button class="btn btn-primary kbtn" onclick="savePromo(\\''+pid+'\\')">'+(isNew?'Thêm':'Lưu')+'</button>';
+  if(!isNew) h += '<button class="btn kbtn" onclick="delPromo('+p.id+')">Xoá</button>';
+  h += '</div></div>';
+  return h;
+}
+
+function renderPromos(){
+  var box = document.getElementById("know-promos");
+  var html = '<p class="note">Chương trình khuyến mãi theo đợt. Bot chỉ nói ưu đãi khi đợt đang chạy (Bật + trong hạn); hết hạn tự ẩn, không cần tắt tay.</p>';
+  html += promoRow({});
+  if(PROMOS.length){ html += '<h3 class="kgroup">Các đợt đã tạo</h3>'; PROMOS.forEach(function(p){ html += promoRow(p); }); }
+  box.innerHTML = html;
+}
+
+async function savePromo(pid){
+  var g = function(k){ var el = document.getElementById("pm-"+k+"-"+pid); return el ? el.value : ""; };
+  var body = {
+    title: g("title"), content: g("content"),
+    start_date: g("start"), end_date: g("end"),
+    active: document.getElementById("pm-active-"+pid).checked
+  };
+  if(pid !== "new") body.id = Number(pid);
+  if(!body.title.trim() || !body.content.trim()){ toast("Cần nhập tiêu đề và nội dung","err"); return; }
+  var r = await fetch("/admin/api/promos/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(r.ok){ toast("Đã lưu, áp dụng ngay","ok"); loadPromos(); }
+  else { toast(d.error || "Lưu thất bại","err"); }
+}
+
+async function delPromo(id){
+  if(!(await askConfirm("Xoá hẳn đợt ưu đãi này?","Xoá",true))) return;
+  var r = await fetch("/admin/api/promos/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã xoá","ok"); loadPromos(); }
+  else { toast("Xoá thất bại","err"); }
+}
+
+// ── Tài liệu tham khảo (RAG) ──
+var CAT_LABEL = {"fitness":"Kiến thức về fitness","tang-giam-can":"Kiến thức tăng giảm cân","dinh-duong":"Kiến thức về dinh dưỡng","tri-lieu":"Kiến thức về trị liệu","sale":"Cách sale","chung":"Chung"};
+
+async function loadDocs(){
+  var box = document.getElementById("docList");
+  var r;
+  try { r = await fetch("/admin/api/docs",{cache:"no-store"}); }
+  catch(e){ box.innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; return; }
+  if(handle401(r)) return;
+  if(!r.ok){ box.innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+  var d = await r.json();
+  renderDocs(d.docs || []);
+}
+
+function renderDocs(docs){
+  var box = document.getElementById("docList");
+  if(!docs.length){ box.innerHTML = '<p class="muted">Chưa có tài liệu nào.</p>'; return; }
+  var html = '';
+  docs.forEach(function(d){
+    var cat = CAT_LABEL[d.category] || d.category;
+    var when = (d.created_at||"").slice(0,10);
+    html += '<div class="kcard"><div class="khead"><b>'+esc(d.title)+'</b> <span class="badge">'+esc(cat)+'</span>'
+      + '<span class="muted" style="margin-left:auto">'+d.chunk_count+' đoạn · '+esc(when)+'</span></div>'
+      + '<div class="kacts"><button class="btn kbtn" onclick="delDoc('+d.id+')">Xoá</button></div></div>';
+  });
+  box.innerHTML = html;
+}
+
+async function uploadDoc(){
+  var btn = document.getElementById("doc-up-btn");
+  var cat = document.getElementById("doc-cat").value;
+  var title = document.getElementById("doc-title").value;
+  var fileEl = document.getElementById("doc-file");
+  var text = document.getElementById("doc-text").value;
+  var hasFile = fileEl.files && fileEl.files.length;
+  if(!hasFile && !text.trim()){ toast("Chọn file hoặc dán nội dung","err"); return; }
+
+  btn.disabled = true; btn.textContent = "Đang xử lý…";
+  var r;
+  try {
+    if(hasFile){
+      var fd = new FormData();
+      fd.append("file", fileEl.files[0]);
+      fd.append("category", cat);
+      fd.append("title", title);
+      r = await fetch("/admin/api/docs/upload",{method:"POST",body:fd});
+    } else {
+      r = await fetch("/admin/api/docs/upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,category:cat,text:text})});
+    }
+  } catch(e){ toast("Tải lên lỗi","err"); btn.disabled=false; btn.textContent="Nạp tài liệu"; return; }
+  btn.disabled = false; btn.textContent = "Nạp tài liệu";
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(r.ok){
+    toast("Đã nạp tài liệu ("+d.chunks+" đoạn), bot dùng được ngay","ok");
+    document.getElementById("doc-title").value=""; fileEl.value=""; document.getElementById("doc-text").value="";
+    loadDocs();
+  } else { toast(d.error || "Nạp thất bại","err"); }
+}
+
+async function delDoc(id){
+  if(!(await askConfirm("Xoá hẳn tài liệu này khỏi kiến thức bot?","Xoá",true))) return;
+  var r = await fetch("/admin/api/docs/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã xoá","ok"); loadDocs(); }
+  else { toast("Xoá thất bại","err"); }
+}
+
 function switchTab(name){
-  var isUsers = name === "users";
-  document.getElementById("tab-users").classList.toggle("active", isUsers);
-  document.getElementById("tab-media").classList.toggle("active", !isUsers);
-  document.getElementById("view-users").classList.toggle("hidden", !isUsers);
-  document.getElementById("view-media").classList.toggle("hidden", isUsers);
-  if(!isUsers && MEDIA === null) loadMedia();
+  var tabs = ["users","knowledge","docs","media"];
+  tabs.forEach(function(t){
+    var tb = document.getElementById("tab-"+t); if(tb) tb.classList.toggle("active", t===name);
+    var vw = document.getElementById("view-"+t); if(vw) vw.classList.toggle("hidden", t!==name);
+  });
+  if(name==="media" && MEDIA === null) loadMedia();
+  if(name==="knowledge" && KNOW === null) loadKnow();
+  if(name==="docs") loadDocs();
 }
 
 function fmtBytes(n){

@@ -38,7 +38,7 @@ const geminiApiKeys = (): string[] =>
  * Mặc định theo ĐO THẬT về tốc độ/ổn định (không phải theo cỡ tham số):
  *   1) gemini-flash-lite-latest — nhanh ~1s, KHÔNG thinking. Phục vụ đa số (500 RPD/key).
  *   2) gemma-4-26b-a4b-it — MoE, thought≈0 → nhanh ~3-4s, JSON ổn định. Tràn volume (14.4K RPD/key).
- * Hết cả lưới Gemini → rớt xuống dự phòng gpt-5.4 (fallback.ts).
+ * Hết cả lưới Gemini (mọi key cạn quota) → KHÔNG còn fallback: tắt công tắc AI tổng + dừng lượt.
  * ⚠ ĐÃ BỎ gemma-4-31b-it khỏi mặc định: đo trên prompt pipeline này nó thinking BẮT BUỘC nặng
  *   (1245-2338 token/lượt) → 37-68s. Muốn thêm lại (vd đo thấy nhanh với key riêng) chỉ cần
  *   nối vào GEMINI_CHAT_MODELS — code xử lý reserve/guard cho nó vẫn còn nguyên, không cần sửa.
@@ -155,13 +155,23 @@ async function callOllama(body: Record<string, unknown>, cfg: LlmConfig): Promis
 
 export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
-/**
- * FALLBACK sang 5.4 khi Gemma CHẾT giữa lượt (mạng/proxy/timeout). Bật mặc định; tắt bằng
- * GEMMA_FALLBACK=0. KHÔNG fallback khi caller CHỦ ĐỘNG huỷ (cancel-and-restart của facebook.ts):
- * gửi reply cho lượt đã bị thay = sai. Import fallback ĐỘNG → happy-path không nạp OpenAI client.
- */
-const fallbackOn = (): boolean => (process.env.GEMMA_FALLBACK ?? "1") !== "0";
 const callerAborted = (cfg: LlmConfig): boolean => cfg.abortSignal?.aborted === true;
+
+/**
+ * HẾT QUOTA Gemini/Gemma (mọi key cạn 429/403) → TẮT công tắc AI tổng (bot_settings.global_ai=false)
+ * để bot DỪNG trả lời hẳn, chờ người vận hành nạp thêm quota rồi bật lại trong admin. Không còn
+ * fallback sang model khác. Best-effort, không chặn việc ném lỗi cho lượt hiện tại. Import ĐỘNG để
+ * happy-path không nạp module DB.
+ */
+async function disableAiOnQuota(src: string): Promise<void> {
+  try {
+    const { setGlobalEnabled } = await import("../../lib/botControl");
+    await setGlobalEnabled(false);
+    console.error(`[llm] HẾT QUOTA ${src} → ĐÃ TẮT công tắc AI tổng. Nạp quota rồi bật lại trong admin.`);
+  } catch (err) {
+    console.error("[llm] tắt AI khi hết quota thất bại:", (err as Error).message);
+  }
+}
 
 // ── Transport Gemini API ────────────────────────────────────────────────────
 /** Key hết rate-limit/quota (429/403) → xoay sang key kế. Không rời module này. */
@@ -336,10 +346,11 @@ export async function callChat(
       cfg,
     );
   } catch (e) {
-    if (callerAborted(cfg) || !fallbackOn()) throw e;
-    console.warn(`[${useGemini ? "gemini" : "gemma"}] GENERATE lỗi (${(e as Error)?.message}) → FALLBACK 5.4`);
-    const { fallbackChat } = await import("./fallback");
-    return fallbackChat(messages, { temperature: opts.temperature }, cfg.abortSignal);
+    // Không còn fallback: lỗi → lượt này bot IM (webhook nuốt lỗi). Hết quota thì tắt AI tổng.
+    if (!callerAborted(cfg) && e instanceof GeminiKeyExhaustedError) {
+      await disableAiOnQuota(useGemini ? "gemini" : "gemma");
+    }
+    throw e;
   }
 }
 
@@ -363,9 +374,10 @@ export async function callJson<T>(
     );
     return { value: JSON.parse(r.text) as T, seconds: r.seconds };
   } catch (e) {
-    if (callerAborted(cfg) || !fallbackOn()) throw e;
-    console.warn(`[${useGemini ? "gemini" : "gemma"}] CLASSIFY lỗi (${(e as Error)?.message}) → FALLBACK 5.4`);
-    const { fallbackJson } = await import("./fallback");
-    return fallbackJson<T>(messages, schema, cfg.abortSignal);
+    // Không còn fallback: lỗi → lượt này bot IM (webhook nuốt lỗi). Hết quota thì tắt AI tổng.
+    if (!callerAborted(cfg) && e instanceof GeminiKeyExhaustedError) {
+      await disableAiOnQuota(useGemini ? "gemini" : "gemma");
+    }
+    throw e;
   }
 }
