@@ -152,12 +152,7 @@ export async function appendGemmaHistory(
  * ("cứ nhắn 1 câu, chỉ im khi thật sự không nên nhắn") + góc nhìn cụ thể cho từng lần,
  * nếu không 3 lần nhắc sẽ ra 3 câu na ná nhau (đo được: cả 3 đều là "bể có mái che…").
  */
-function chiThiNhacGemma(knownLine: string, attempt: number): string {
-  const goc = [
-    "một chi tiết CỤ THỂ có ích bám đúng mạch vừa nói (thứ khách đang cân nhắc, điều gì tiện cho họ)",
-    "hỏi nhẹ MỘT câu xem mình còn băn khoăn gì để em giải đáp thêm",
-    "mời khách ghé qua xem cơ sở / tập thử một buổi, nhẹ nhàng, không giục",
-  ][Math.min(attempt, 2)];
+function chiThiNhacGemma(knownLine: string, goc: string): string {
   return (
     `${knownLine}` +
     `[VIỆC CỦA EM LÚC NÀY — khách chưa trả lời tin trước, em chủ động nhắn THÊM 1 TIN. ` +
@@ -177,11 +172,10 @@ export async function runGemmaFollowup(opts: {
   attempt: number;
 }): Promise<string | null> {
   const { mastra, threadId } = opts;
-  const chiThi = chiThiNhacGemma(opts.knownLine, opts.attempt);
   const { conv, history } = await loadGemma(mastra, threadId);
   const { callChat, resolveLlmConfig } = await import("./gemma/llm");
   const { buildDateBlock } = await import("./gemma/dates");
-  const { buildSystemPrompt } = await import("./gemma/prompt");
+  const { buildSystemPrompt, FU_GOC_1, FU_GOC_2, FU_GOC_3 } = await import("./gemma/prompt");
   const { stripMediaLine } = await import("./gemma/text");
   const { cleanReply } = await import("../lib/cleanReply");
   const { lockHonorific } = await import("../lib/replyGuards");
@@ -189,6 +183,13 @@ export async function runGemmaFollowup(opts: {
 
   const flow = conv.flow === "giai-co" ? "giai-co" : "fitness";
   const knowledge = await loadKnowledge();
+  // Góc nhắc theo lần (override admin sửa trên web, thiếu → default trong prompt.ts).
+  const pickGoc = (key: string, def: string) => {
+    const v = knowledge.blocks[key];
+    return typeof v === "string" && v.trim() ? v.trim() : def;
+  };
+  const gocList = [pickGoc("fu_goc_1", FU_GOC_1), pickGoc("fu_goc_2", FU_GOC_2), pickGoc("fu_goc_3", FU_GOC_3)];
+  const chiThi = chiThiNhacGemma(opts.knownLine, gocList[Math.min(opts.attempt, 2)]);
   const r = await callChat(
     [
       { role: "system", content: buildSystemPrompt(buildDateBlock(), flow, knowledge.blocks, knowledge.promos) },

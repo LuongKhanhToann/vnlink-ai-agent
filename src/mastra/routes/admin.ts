@@ -28,6 +28,7 @@ import {
 } from "../lib/botControl";
 import { cancelFollowup } from "../lib/followup";
 import { adminSnapshot, setBlock, setPrices, resetKey, listPromos, savePromo, deletePromo } from "../lib/knowledgeStore";
+import { validateClsKnob } from "../engine/gemma/classifier";
 import { listDocs, ingestDoc, deleteDoc } from "../lib/docStore";
 import { parseUpload } from "../lib/parseUpload";
 import {
@@ -337,8 +338,12 @@ adminWebhook.post("/admin/api/knowledge/block", async (c) => {
     if (typeof key !== "string" || typeof value !== "string") {
       return c.json({ error: "bad_request" }, 400);
     }
-    if (value.trim()) await setBlock(key, value);
-    else await resetKey(key);
+    // Cổng an toàn: knob phân loại phải giữ nguyên mã hệ thống (enum/slug) — thiếu là gãy schema.
+    if (value.trim()) {
+      const knobErr = validateClsKnob(key, value);
+      if (knobErr) return c.json({ error: knobErr }, 400);
+      await setBlock(key, value);
+    } else await resetKey(key);
     return c.json({ ok: true });
   } catch (e) {
     console.error("[admin] save block failed:", e);
@@ -600,8 +605,8 @@ input:checked + .slider:before{transform:translateX(20px)}
 .mthumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;background:rgba(0,0,0,.32)}
 .mmeta{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;gap:6px}
 .mfmt{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.del{background:var(--off-bg);color:var(--off-text);border:none;border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:13px;flex:none;line-height:1}
-.del:hover{opacity:.85}
+.del{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:13px;flex:none;line-height:1;transition:background .15s,color .15s,border-color .15s}
+.del:hover{background:var(--off-bg);color:var(--off-text);border-color:var(--off-bg)}
 .del:disabled{opacity:.5;cursor:default}
 .empty{color:var(--muted);font-size:13px;padding:6px 0}
 .uploading{opacity:.6;pointer-events:none}
@@ -619,10 +624,21 @@ input:checked + .slider:before{transform:translateX(20px)}
 .kgroup{font-size:14px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:22px 0 10px}
 .kcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px}
 .khead{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px}
+.khint{color:var(--muted);font-size:12.5px;line-height:1.5;margin:-2px 0 8px}
 .ktext{width:100%;min-height:180px;background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5;resize:vertical}
 .ktext-sm{min-height:90px}
 .kacts{display:flex;gap:8px;margin-top:10px}
 .kbtn{width:auto}
+/* ── Chọn bộ kịch bản (dropdown) — chỉ hiện cục của 1 nhóm, gọn hẳn màn ── */
+.kpick{display:flex;align-items:center;gap:10px;margin:2px 0 6px;flex-wrap:wrap}
+.kpick-lbl{font-size:13px;font-weight:650;color:var(--muted)}
+.kselect{flex:1;min-width:220px;max-width:560px;background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:11px 40px 11px 14px;font-size:14px;font-weight:600;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%238b93a1' stroke-width='1.6' d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+.kselect:focus{outline:none;border-color:var(--accent)}
+.kpick-count{font-size:13px;color:var(--muted);margin:0 0 16px}
+.kbanner{border-radius:10px;padding:11px 14px;margin:0 0 16px;font-size:13px;line-height:1.6;border:1px solid}
+.kbanner b{display:block;margin-bottom:3px;font-size:13.5px}
+.kbanner.info{background:rgba(59,130,246,.09);border-color:rgba(59,130,246,.38)}
+.kbanner.warn{background:rgba(234,179,8,.11);border-color:rgba(234,179,8,.5)}
 .ptable-wrap{overflow-x:auto}
 .ptable{border-collapse:collapse;width:100%;font-size:13px}
 .ptable th,.ptable td{border:1px solid var(--border);padding:6px 8px;text-align:left}
@@ -633,6 +649,35 @@ input:checked + .slider:before{transform:translateX(20px)}
 .prow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin-top:4px}
 .pdate{width:auto}
 .pchk{display:flex;align-items:center;gap:6px;font-size:13px;padding-bottom:8px}
+/* ── Nút lưu dính đáy (Bảng giá) ── */
+.savebar{position:sticky;bottom:0;margin-top:20px;padding:12px 0 14px;display:flex;justify-content:flex-end;background:linear-gradient(to top,var(--bg) 62%,transparent);z-index:5}
+.savebar .btn-primary{width:auto;padding:12px 26px}
+/* ── Tabs cuộn ngang khi màn hẹp (không tràn/khuất) ── */
+.tabs,.know-sub{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabs::-webkit-scrollbar,.know-sub::-webkit-scrollbar{display:none}
+.tab{white-space:nowrap}
+/* ── Người dùng: trên điện thoại đổi bảng → thẻ dọc (công tắc & xoá luôn thấy).
+     Chỉ nhắm bảng #list — KHÔNG đụng bảng giá .ptable (bảng giá vẫn cuộn ngang trong .ptable-wrap). ── */
+@media (max-width:640px){
+  .wrap{padding:20px 12px}
+  .master{flex-wrap:wrap}
+  #list .panel{border:none;background:transparent;box-shadow:none;border-radius:0;overflow:visible}
+  #list table,#list tbody{display:block;width:100%}
+  #list thead{display:none}
+  #list tbody tr{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:12px;box-shadow:var(--shadow);padding:4px 0}
+  #list tbody td{display:block;border-bottom:none;padding:6px 16px}
+  #list td.c-user{padding-top:12px}
+  #list td.c-user .name{font-size:15px}
+  #list td.c-msg{padding-bottom:11px;border-bottom:1px solid var(--border)}
+  #list td.msgcol{max-width:none}
+  #list td.c-act,#list td.c-ai,#list td.c-del{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
+  #list td.c-act{color:var(--text)}
+  #list td.c-act::before{content:"Hoạt động gần nhất"}
+  #list td.c-ai::before{content:"Trợ lý AI tự động"}
+  #list td.c-del::before{content:"Xoá dữ liệu chat"}
+  #list td.c-act::before,#list td.c-ai::before,#list td.c-del::before{color:var(--muted);font-size:13px;font-weight:600}
+  #list td.c-del{padding-bottom:14px}
+}
 </style>
 </head>
 <body>
@@ -752,7 +797,7 @@ function updateThemeBtn(){
   if(b) b.textContent = cur === "light" ? "Chế độ tối" : "Chế độ sáng";
 }
 
-function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour12:false}); } catch(e){ return iso; } }
+function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"2-digit",year:"numeric",hour12:false}); } catch(e){ return iso; } }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];}); }
 function cut(s,n){ s=(s==null?"":String(s)); return s.length>n ? s.slice(0,n)+"…" : s; }
 
@@ -855,7 +900,7 @@ function render(){
   if(PAGE < 1) PAGE = 1;
   var start = (PAGE - 1) * PAGE_SIZE;
   var pageRows = rows.slice(start, start + PAGE_SIZE);
-  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th>Trạng thái</th><th class="right">Trợ lý AI</th><th class="right">Xoá</th></tr></thead><tbody>';
+  var html = '<div class="panel"><table><thead><tr><th>Người dùng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th class="right">Trợ lý AI</th><th class="right">Xoá</th></tr></thead><tbody>';
   pageRows.forEach(function(u){
     var p = u.lastPair || {};
     var pairHtml = (!p.user && !p.bot)
@@ -865,13 +910,12 @@ function render(){
           + (p.bot  ? '<div class="msg-line"><span class="msg-who bot">Bot</span> '   + esc(cut(p.bot,140))  + '</div>' : '')
         + '</div>';
     html += '<tr>'
-      + '<td><div class="name">' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
-      + '<td class="msgcol">' + pairHtml + '</td>'
-      + '<td class="muted">' + fmt(u.last_active) + '</td>'
-      + '<td><span class="badge ' + (u.enabled?"on":"off") + '">' + (u.enabled?"Đang bật":"Đã tắt") + '</span></td>'
-      + '<td class="right"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
+      + '<td class="c-user"><div class="name">' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
+      + '<td class="msgcol c-msg">' + pairHtml + '</td>'
+      + '<td class="muted c-act">' + fmt(u.last_active) + '</td>'
+      + '<td class="right c-ai"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
       + ' onchange="toggle(\\'' + esc(u.sender_id) + '\\', this)"><span class="slider"></span></label></td>'
-      + '<td class="right"><button class="del" title="Xoá dữ liệu chat" onclick="delUser(\\'' + esc(u.sender_id) + '\\', this)">✕</button></td>'
+      + '<td class="right c-del"><button class="del" title="Xoá dữ liệu chat" onclick="delUser(\\'' + esc(u.sender_id) + '\\', this)">✕</button></td>'
       + '</tr>';
   });
   html += '</tbody></table></div>';
@@ -947,6 +991,7 @@ var DELITEMS = [];          // map index → {public_id, resource_type} cho nút
 
 // ── Kịch bản & Giá ──
 var KNOW = null;            // {blocks:[...], prices, defaultPrices}; null = chưa nạp
+var BLK_GROUP = null;       // nhóm kịch bản đang chọn (null = mặc định nhóm đầu); giữ qua các lần re-render
 var CARD_ORDER = ["FULL","GYM","YOGA","ZUMBA","BOI_LON","BOI_BE","ECO","FULL_HSSV","FULL_GV"];
 
 function switchKnow(sub){
@@ -971,21 +1016,44 @@ async function loadKnow(){
 
 function renderBlocks(){
   var box = document.getElementById("know-blocks");
-  var groups = {};
-  KNOW.blocks.forEach(function(bk){ (groups[bk.group]=groups[bk.group]||[]).push(bk); });
-  var html = "";
-  Object.keys(groups).forEach(function(g){
-    html += '<h3 class="kgroup">'+esc(g)+'</h3>';
-    groups[g].forEach(function(bk){
-      var badge = bk.overridden ? '<span class="badge on">Đã sửa</span>' : '<span class="badge">Mặc định</span>';
-      html += '<div class="kcard"><div class="khead"><b>'+esc(bk.label)+'</b> '+badge+'</div>'
-        + '<textarea id="blk-'+esc(bk.key)+'" class="ktext">'+esc(bk.value)+'</textarea>'
-        + '<div class="kacts"><button class="btn btn-primary kbtn" onclick="saveBlock(\\''+esc(bk.key)+'\\')">Lưu</button>'
-        + '<button class="btn kbtn" onclick="resetBlock(\\''+esc(bk.key)+'\\')">Về mặc định</button></div></div>';
-    });
+  // Gom cục theo nhóm, GIỮ thứ tự xuất hiện (Fitness → Giải cơ → Chung → Nội bộ).
+  var groups = {}, order = [];
+  KNOW.blocks.forEach(function(bk){ if(!groups[bk.group]){ groups[bk.group]=[]; order.push(bk.group); } groups[bk.group].push(bk); });
+  if(BLK_GROUP===null || !groups[BLK_GROUP]) BLK_GROUP = order[0];
+  var cur = groups[BLK_GROUP] || [];
+
+  // Dropdown chọn nhóm — chỉ hiện cục của nhóm đang chọn (thay vì đổ hết ~20 cục 1 lượt).
+  var html = '<div class="kpick"><span class="kpick-lbl">Bộ kịch bản</span>'
+    + '<select class="kselect" onchange="pickBlkGroup(this.value)">';
+  order.forEach(function(g){
+    var edited = groups[g].filter(function(b){ return b.overridden; }).length;
+    var tag = edited ? " • đã sửa " + edited : "";
+    html += '<option value="'+esc(g)+'"'+(g===BLK_GROUP?" selected":"")+'>'+esc(g)+" ("+groups[g].length+" mục"+tag+")</option>";
+  });
+  html += '</select></div>';
+  var editedCur = cur.filter(function(b){ return b.overridden; }).length;
+  html += '<p class="kpick-count">'+cur.length+' cục nội dung'+(editedCur?' · '+editedCur+' đã sửa':'')+'</p>';
+  html += groupNote(BLK_GROUP);
+
+  cur.forEach(function(bk){
+    var badge = bk.overridden ? '<span class="badge on">Đã sửa</span>' : '<span class="badge">Mặc định</span>';
+    var hint = bk.desc ? '<p class="khint">'+esc(bk.desc)+'</p>' : '';
+    html += '<div class="kcard"><div class="khead"><b>'+esc(bk.label)+'</b> '+badge+'</div>'+hint
+      + '<textarea id="blk-'+esc(bk.key)+'" class="ktext">'+esc(bk.value)+'</textarea>'
+      // Nút "Về mặc định" (resetBlock) ĐÃ ẨN khỏi UI theo yêu cầu — logic + endpoint giữ nguyên để sau tiện bật lại/fallback.
+      + '<div class="kacts"><button class="btn btn-primary kbtn" onclick="saveBlock(\\''+esc(bk.key)+'\\')">Lưu</button></div></div>';
   });
   box.innerHTML = html;
+  // Ô kịch bản tự co theo nội dung (bỏ chiều cao cố định 180px → bớt cuộn cho nội dung 1-2 dòng).
+  box.querySelectorAll(".ktext").forEach(function(t){ t.style.minHeight="60px"; autoGrow(t); t.addEventListener("input", function(){ autoGrow(t); }); });
 }
+function groupNote(g){
+  if(g.indexOf("Phân loại")>=0) return '<div class="kbanner warn"><b>⚠ Mục nâng cao — sửa cẩn thận</b>Đây là cách bot HIỂU tin khách: chọn đúng cơ sở (Fami hay Hoa Sen), tra đúng bảng giá, khi nào gửi ảnh và khi nào cảnh báo an toàn. Bạn chỉ nên chỉnh phần chữ mô tả nghiệp vụ. Những từ đặt trong "ngoặc kép" là mã hệ thống — hãy giữ nguyên; nếu lỡ xoá, nút Lưu sẽ báo lỗi và không lưu.</div>';
+  if(g.indexOf("nhắc")>=0) return '<div class="kbanner info"><b>Tin nhắc khi khách im</b>Khách đọc xong mà chưa trả lời thì bot chủ động nhắn thêm. Mỗi lần nhắc đi theo một "góc" khác nhau để không lặp — sửa nội dung 3 góc bên dưới cho hợp giọng của bạn.</div>';
+  return '';
+}
+function pickBlkGroup(g){ BLK_GROUP = g; renderBlocks(); }
+function autoGrow(el){ el.style.height="auto"; el.style.height=(el.scrollHeight+2)+"px"; }
 
 async function saveBlock(key){
   var ta = document.getElementById("blk-"+key);
@@ -1002,7 +1070,7 @@ async function saveBlock(key){
 }
 
 async function resetBlock(key){
-  if(!(await askConfirm("Đưa cục này về nội dung mặc định?","Về mặc định"))) return;
+  if(!(await askConfirm("Đưa khối này về nội dung mặc định?","Về mặc định"))) return;
   var r = await fetch("/admin/api/knowledge/block/reset",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:key})});
   if(handle401(r)) return;
   if(r.ok){ toast("Đã về mặc định","ok"); KNOW=null; loadKnow(); }
@@ -1036,7 +1104,8 @@ function renderPrices(){
   html += ptaCard("pgymthua","Gym tập thưa (theo buổi/tuần)", p.gymTapThua);
   html += ptaCard("pgcle","Giải cơ — buổi lẻ", p.giaiCoLe);
   html += ptaCard("pgclt","Giải cơ — liệu trình", p.giaiCoLieuTrinh);
-  html += '<div class="kacts"><button class="btn btn-primary" onclick="savePrices()">Lưu bảng giá</button><button class="btn" onclick="resetPrices()">Về mặc định</button></div>';
+  // Nút "Về mặc định" (resetPrices) ĐÃ ẨN khỏi UI theo yêu cầu — logic + endpoint giữ nguyên để sau tiện bật lại/fallback.
+  html += '<div class="savebar"><button class="btn btn-primary" onclick="savePrices()">Lưu bảng giá</button></div>';
   box.innerHTML = html;
 }
 

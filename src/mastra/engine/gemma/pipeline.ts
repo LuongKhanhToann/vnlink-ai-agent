@@ -105,8 +105,8 @@ export async function runGemmaTurn(opts: {
   // Chưa nạp tài liệu nào / lỗi → trả "" (fail-open), bot chạy y như chưa có RAG.
   const refDocsP = retrieveDocs(message);
 
-  // 1. classifier — hiểu khách + chọn bộ ảnh
-  const { cls, seconds: clsSeconds } = await classify(conv, prevBotReply, message, cfg, notes);
+  // 1. classifier — hiểu khách + chọn bộ ảnh (đọc knob nghiệp vụ admin sửa từ knowledge)
+  const { cls, seconds: clsSeconds } = await classify(conv, prevBotReply, message, cfg, notes, knowledgeP);
 
   // 2. FSM thuần code
   if (cls) updateState(conv, cls, resolveDayLabel(cls.ngay_hen_chuan ?? ""));
@@ -215,10 +215,14 @@ async function classify(
   message: string,
   cfg: LlmConfig,
   notes: string[],
+  /** Kiến thức động (đang nạp song song); chỉ cần `.blocks` cho knob classifier admin sửa. */
+  knowledgeP: Promise<Knowledge>,
 ): Promise<{ cls: Classification | null; seconds: number }> {
   try {
+    // Lỗi DB đã fail-open về DEFAULT_KNOWLEDGE (blocks rỗng) → classifier chạy prompt mặc định.
+    const { blocks } = await knowledgeP;
     const r = await callJson<Classification>(
-      buildClassifierMessages(conv, prevBotReply, message),
+      buildClassifierMessages(conv, prevBotReply, message, blocks),
       clsSchemaFor(conv, countMoneyMentions(prevBotReply) > 0),
       { maxTokens: MAX_CLS_TOKENS },
       cfg,

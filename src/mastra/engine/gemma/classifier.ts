@@ -183,7 +183,7 @@ export function clsSchemaFor(
   return them.length ? { ...CLS_SCHEMA, required: [...CLS_SCHEMA.required, ...them] } : CLS_SCHEMA;
 }
 
-const CLS_SYSTEM = `Bạn là bộ PHÂN LOẠI cho chatbot tư vấn 2 trung tâm: Fami (tập gym/yoga/zumba/bơi) và Hoa Sen (giải cơ trị đau mỏi cơ xương khớp). Đọc TRẠNG THÁI ĐÃ BIẾT + TIN BOT TRƯỚC ĐÓ + TIN KHÁCH MỚI rồi trả về DUY NHẤT một JSON đúng schema, không thêm chữ nào. MỌI trường đều quan trọng như nhau — đừng dồn chú ý vào vài trường đầu rồi trả bừa các trường sau.
+export const CLS_SYSTEM = `Bạn là bộ PHÂN LOẠI cho chatbot tư vấn 2 trung tâm: Fami (tập gym/yoga/zumba/bơi) và Hoa Sen (giải cơ trị đau mỏi cơ xương khớp). Đọc TRẠNG THÁI ĐÃ BIẾT + TIN BOT TRƯỚC ĐÓ + TIN KHÁCH MỚI rồi trả về DUY NHẤT một JSON đúng schema, không thêm chữ nào. MỌI trường đều quan trọng như nhau — đừng dồn chú ý vào vài trường đầu rồi trả bừa các trường sau.
 ⚡ JSON NGẮN GỌN: CHỈ xuất trường mà TIN KHÁCH MỚI cho giá trị THẬT ở lượt này. Trường KHÔNG có thông tin mới thì BỎ HẲN khỏi JSON — ĐỪNG ghi "", đừng ghi false thừa, đừng ghi "chưa rõ"/"không rõ"/"-"/"null". Hệ thống tự giữ giá trị cũ cho trường bạn bỏ qua. 8 trường LUÔN phải có (kể cả khi giữ giá trị cũ): flow, khach_xung, bo_mon, doi_tuong, khach_hoi_gia, gia_hoi_ve, an_toan, media. Với 4 trường STICKY này — khach_xung, bo_mon, doi_tuong (và flow) — nếu tin mới KHÔNG đổi thì LẶP LẠI ĐÚNG giá trị đang có trong TRẠNG THÁI ĐÃ BIẾT (chúng chọn bảng giá / xưng hô, bỏ sót hay đổi bừa là khách thấy lỗi ngay); chỉ đổi khi tin mới có bằng chứng THẬT. Cờ boolean chỉ nêu khi = true (đúng sự việc lượt này); cờ không xảy ra thì BỎ, không ghi false. Slot chuỗi khác (muc_tieu, the_trang, vùng đau, tính chất/thời gian đau, ngày/giờ hẹn, ten_khach, sdt…) chỉ nêu khi tin mới thực sự nhắc tới; tin mới không nhắc thì BỎ (đừng nhắc lại giá trị cũ).
 
 Cách điền từng trường:
@@ -257,7 +257,86 @@ Cách điền từng trường:
 - hai_nguoi_khac_mon: true KHI có 2 người (vợ-chồng, 2 bạn) mà mỗi người muốn MỘT MÔN KHÁC NHAU: "chồng tập gym còn vợ tập yoga", "mình gym, bạn mình bơi", "2 vợ chồng, người tập tạ người tập yoga". Đây KHÔNG mặc nhiên là doi_tuong="gia-dinh" (gói gia đình là thẻ FULL cho cả 2 dùng đủ 4 môn — không khớp khi mỗi người chỉ muốn 1 môn khác nhau) → để doi_tuong theo thực tế (thường "chua-ro"), và ⛔ ĐỪNG gộp 2 môn khác người thành bo_mon="full"/"eco" (2 môn ghép chỉ dành cho MỘT người muốn cả 2 môn). 2 người cùng muốn ĐỦ 4 môn, hay cả nhà cùng đăng ký trọn gói → false (lúc đó mới là "gia-dinh"/full).
 - khach_hoi_du_can: true KHI khách hỏi thẳng mình DƯ/THỪA hay THIẾU/GẦY bao nhiêu cân/kg so với chuẩn, hoặc mình có béo/gầy không — "vậy em dư mấy cân ạ", "thế em thừa bao nhiêu kg", "em dư nhiều không", "em có béo không", "so với chuẩn thì em thế nào", "em thiếu mấy cân nữa". BẬT kể cả khi câu rất ngắn ("dư mấy cân ạ", "thừa nhiều không"). CHỈ khi trong mạch đã/đang có số đo (chiều cao-cân nặng) của khách. Khách chưa cho số đo, hay hỏi chuyện khác → false.`;
 
-export function buildClassifierMessages(s: ConvState, prevBot: string, userMsg: string): ChatMsg[] {
+// ═════════════════════════════════════════════════════════════════════════════
+// KNOB NGHIỆP VỤ cho admin — bóc 4 đoạn NGHIỆP VỤ ra khỏi CLS_SYSTEM để admin sửa
+// được (định tuyến flow, nhóm đối tượng có giá riêng, cảnh báo an toàn, chọn bộ ảnh).
+// PHẦN CÒN LẠI (format JSON, luật sticky/omit, xưng hô chống-bịa, các slot giá) KHOÁ
+// CỨNG trong CLS_SYSTEM — admin không thấy, không sửa được.
+//
+// AN TOÀN: default = LÁT CẮT THẲNG từ CLS_SYSTEM (không chép tay) → buildClsSystem({})
+// TRẢ VỀ ĐÚNG CLS_SYSTEM từng byte, hành vi bot mặc định KHÔNG đổi. Override chỉ áp khi
+// admin thực sự sửa. Mỗi knob có danh sách "mã hệ thống bắt buộc" (enum/slug bot phải
+// xuất) — validateClsKnob chặn lưu nếu admin lỡ xoá mất mã → không gãy schema.
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Cắt đúng 1 bullet "- <field>:" ra khỏi CLS_SYSTEM (kỹ thuật thuần: indexOf/slice). */
+function cutBullet(startHead: string, endHead: string): string {
+  const i = CLS_SYSTEM.indexOf("\n" + startHead);
+  const j = CLS_SYSTEM.indexOf("\n" + endHead);
+  if (i < 0 || j < 0 || j <= i) {
+    console.error(`[classifier] cutBullet lỗi (${startHead} → ${endHead}) — knob này sẽ không override được`);
+    return startHead; // fallback vô hại: replace không tìm thấy → default giữ nguyên
+  }
+  return CLS_SYSTEM.slice(i + 1, j).replace(/\n+$/, "");
+}
+
+export const CLS_KNOB_FLOW = cutBullet("- flow:", "- khach_xung:");
+export const CLS_KNOB_DOI_TUONG = cutBullet("- doi_tuong:", "- bo_mon:");
+export const CLS_KNOB_AN_TOAN = cutBullet("- an_toan:", "- media:");
+export const CLS_KNOB_MEDIA = cutBullet("- media:", "- bot_truoc_moi_thu:");
+
+interface ClsKnob {
+  key: string;
+  def: string;
+  /** Mã hệ thống (enum/slug) đoạn này BẮT BUỘC còn chứa — xoá mất = gãy phân loại. */
+  must: readonly string[];
+}
+export const CLS_KNOBS: readonly ClsKnob[] = [
+  { key: "cls_flow", def: CLS_KNOB_FLOW, must: ["fitness", "giai-co", "chua-ro"] },
+  {
+    key: "cls_doi_tuong",
+    def: CLS_KNOB_DOI_TUONG,
+    must: ["hoc-sinh-sinh-vien", "giao-vien", "gia-dinh", "doanh-nghiep", "chua-ro"],
+  },
+  { key: "cls_an_toan", def: CLS_KNOB_AN_TOAN, must: ["khong", "bau", "sau-sinh", "benh-nen", "cap-tinh"] },
+  { key: "cls_media", def: CLS_KNOB_MEDIA, must: [...MEDIA_KEYS, "none"] },
+] as const;
+
+/**
+ * Ghép system prompt classifier từ CLS_SYSTEM + override 4 knob nghiệp vụ (nếu admin sửa).
+ * overrides rỗng/thiếu key → trả về CLS_SYSTEM y hệt (byte-identical) → hành vi không đổi.
+ */
+export function buildClsSystem(overrides: Record<string, string | undefined> = {}): string {
+  let s = CLS_SYSTEM;
+  for (const { key, def } of CLS_KNOBS) {
+    const v = overrides[key];
+    if (typeof v === "string" && v.trim() && v.trim() !== def) {
+      // Function-replacement để chuỗi override chứa "$" không bị hiểu là nhóm bắt.
+      s = s.replace(def, () => v.trim());
+    }
+  }
+  return s;
+}
+
+/**
+ * Kiểm 1 giá trị knob TRƯỚC khi lưu (cổng an toàn admin). Trả chuỗi lỗi nếu thiếu mã hệ
+ * thống bắt buộc; null = hợp lệ hoặc key không phải knob classifier (không cần kiểm).
+ */
+export function validateClsKnob(key: string, value: string): string | null {
+  const knob = CLS_KNOBS.find((k) => k.key === key);
+  if (!knob) return null;
+  const missing = knob.must.filter((t) => !value.includes(t));
+  return missing.length
+    ? `Đoạn này bắt buộc giữ nguyên các mã hệ thống (đừng xoá/đổi): ${missing.join(", ")}`
+    : null;
+}
+
+export function buildClassifierMessages(
+  s: ConvState,
+  prevBot: string,
+  userMsg: string,
+  overrides: Record<string, string | undefined> = {},
+): ChatMsg[] {
   const known = [
     `flow=${s.flow}`,
     `khách xưng=${s.xung}`,
@@ -273,7 +352,7 @@ export function buildClassifierMessages(s: ConvState, prevBot: string, userMsg: 
     `ảnh đã gửi=${s.mediaSent.length ? s.mediaSent.join(", ") : "(chưa gửi bộ nào)"}`,
   ].join(", ");
   return [
-    { role: "system", content: CLS_SYSTEM },
+    { role: "system", content: buildClsSystem(overrides) },
     {
       role: "user",
       content: `TRẠNG THÁI ĐÃ BIẾT: ${known}\n\nTIN BOT TRƯỚC ĐÓ: ${prevBot || "(chưa có — đây là tin đầu cuộc)"}\n\nTIN KHÁCH MỚI: ${userMsg}`,

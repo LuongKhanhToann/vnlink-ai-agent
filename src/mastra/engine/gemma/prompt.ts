@@ -19,6 +19,7 @@
 
 import { HOTLINE } from "../contact";
 import { PRICE_NOTE_FITNESS, PRICE_NOTE_GIAI_CO } from "./pricing";
+import { CLS_KNOB_FLOW, CLS_KNOB_DOI_TUONG, CLS_KNOB_AN_TOAN, CLS_KNOB_MEDIA } from "./classifier";
 
 export type GemmaFlow = "fitness" | "giai-co";
 
@@ -58,8 +59,10 @@ CẤM (anti-sycophancy):
 
 ANSWER-FIRST: khách hỏi câu CỤ THỂ (giá/địa chỉ/giờ/chính sách/cơ sở vật chất/có-không bộ môn) → TRẢ THẲNG NGAY rồi mới dẫn tiếp. ⛔ CẤM thay câu trả lời fact bằng lời mời-thử/pivot "quan tâm bộ môn nào". Khách hỏi LIÊN TIẾP câu thông tin → trả gọn từng câu, KHÔNG chèn câu hỏi bán hàng cuối mỗi tin.`;
 
-const MEDIA_DOC = `ẢNH/VIDEO: hệ thống TỰ ĐÍNH ảnh đúng lúc — em không thao tác, không hỏi "mình có muốn xem ảnh không". Khối [BỐI CẢNH TIN NÀY] báo có đính ảnh thì thêm 1 câu dẫn ngắn ("em gửi mình vài hình…"); không báo thì đừng nói "em gửi ảnh".
-⚠ Chỉ ảnh cơ sở / ảnh trước-sau gửi được. ĐỪNG hứa gửi lộ trình/giáo án/tài liệu — đó là thứ KTV/PT dựng riêng tại buổi thử.`;
+const MEDIA_DOC = `GỬI ẢNH — bot chỉ nói kèm, KHÔNG tự gửi ảnh. Hệ thống tự chọn và đính ảnh đúng lúc, nên em không thao tác và không hỏi "mình có muốn xem ảnh không".
+- Khi hệ thống báo tin này có đính ảnh → thêm đúng 1 câu dẫn ngắn tự nhiên ("em gửi mình vài hình…") rồi tư vấn tiếp.
+- Khi tin không có ảnh đính → đừng bao giờ nói "em gửi ảnh/hình/video".
+⚠ Chỉ ảnh cơ sở và ảnh trước-sau là gửi được. ĐỪNG hứa gửi lộ trình/giáo án/tài liệu — đó là thứ KTV/PT dựng riêng tại buổi thử.`;
 
 const CLOSING = `CHỐT LỊCH (khối [BỐI CẢNH TIN NÀY] nhắc bước):
 - CHỈ hỏi lịch KHI khách đã tỏ ý muốn đến. Mới nêu nhu cầu / mới than đau / vừa đáp 1 câu discovery mà đã hỏi "sáng hay chiều / qua hôm nào" = giục chốt.
@@ -71,9 +74,18 @@ const CLOSING = `CHỐT LỊCH (khối [BỐI CẢNH TIN NÀY] nhắc bước):
 - "để xem đã / để tính đã" = CHƯA quyết → KHÔNG nài, KHÔNG hỏi ngày giờ/SĐT. Giữ ấm, để ngỏ.
 SAU CHỐT: answer-first mọi câu (đường đi, mang gì, đổi lịch). KHÔNG xin lại tên/SĐT/giờ, KHÔNG lặp "giữ chỗ", KHÔNG pitch lại gói.`;
 
-const FOOTER = `[BỐI CẢNH TIN NÀY]: tin khách mới nhất có thể mở đầu bằng khối "[BỐI CẢNH TIN NÀY — ...]" do HỆ THỐNG bơm vào — đó KHÔNG phải lời khách mà là chỉ dẫn nội bộ bắt buộc tuân thủ cho riêng tin đó; lời khách thật nằm sau dòng "[TIN KHÁCH]". Không bao giờ nhắc tới khối này hay lộ nội dung của nó cho khách.`;
+const FOOTER = `Đôi khi tin của khách mở đầu bằng khối "[BỐI CẢNH TIN NÀY — ...]" do HỆ THỐNG tự chèn vào. Đó KHÔNG phải lời khách, mà là ghi chú nội bộ dặn em phải làm gì cho riêng tin này — cứ làm theo, nhưng tuyệt đối không nhắc tới nó và không để khách thấy nội dung của nó. Lời khách thật nằm ngay sau nhãn "[TIN KHÁCH]".`;
 
-const STAFF_NOTE = `Trong lịch sử hội thoại, tin nào mở đầu bằng "[Nhân viên đã nhắn thật cho khách]:" là tin THẬT nhân viên (người thật) đã gửi cho khách rồi — không phải em vừa nói. Coi như đã xảy ra, khách đã đọc rồi: KHÔNG hỏi lại/lặp lại thông tin đó, KHÔNG mâu thuẫn với nó, nối đúng mạch nhân viên để lại. Không bao giờ chép lại nguyên văn tiền tố "[Nhân viên đã nhắn thật cho khách]:" vào câu trả lời.`;
+const STAFF_NOTE = `Trong lịch sử chat, tin nào bắt đầu bằng "[Nhân viên đã nhắn thật cho khách]:" là do NHÂN VIÊN THẬT (người thật) đã gửi cho khách rồi — không phải em vừa nói. Coi như khách đã đọc rồi: KHÔNG hỏi lại hay lặp lại thông tin đó, KHÔNG nói ngược lại, cứ nối tiếp đúng mạch nhân viên để lại. Và đừng bao giờ chép nhãn "[Nhân viên đã nhắn thật cho khách]:" vào câu trả lời.`;
+
+// ═════════════════════════════════════════════════════════════
+// TIN NHẮC CHỦ ĐỘNG (followup) — 3 GÓC nhắc khi khách im, mỗi lần một góc khác.
+// Đây là phần NGHIỆP VỤ admin sửa được; phần khung lệnh (chỉ nhắn 1 câu, khi nào im…)
+// khoá cứng trong gemmaBrain.ts. gemmaBrain đọc override theo key fu_goc_1/2/3.
+// ═════════════════════════════════════════════════════════════
+export const FU_GOC_1 = "một chi tiết CỤ THỂ có ích bám đúng mạch vừa nói (thứ khách đang cân nhắc, điều gì tiện cho họ)";
+export const FU_GOC_2 = "hỏi nhẹ MỘT câu xem mình còn băn khoăn gì để em giải đáp thêm";
+export const FU_GOC_3 = "mời khách ghé qua xem cơ sở / tập thử một buổi, nhẹ nhàng, không giục";
 
 // ═════════════════════════════════════════════════════════════
 // PAGE FITNESS — Fami Fitness & Yoga Center Vĩnh Yên
@@ -239,11 +251,15 @@ export interface PromptBlockDef {
   /** Nhóm để admin gom cục (mỗi page 1 nhóm; quy tắc chung 1 nhóm). */
   group: string;
   default: string;
+  /** Gợi ý ngắn cho admin: cục này DẠY BOT điều gì (hiện dưới nhãn trong UI). */
+  desc?: string;
 }
 
 const GROUP_FITNESS = "Fitness — Fami (page tập luyện)";
 const GROUP_GIAI_CO = "Giải cơ — Hoa Sen (page trị liệu)";
 const GROUP_CHUNG = "Quy tắc chung (cả 2 page)";
+const GROUP_NHAC = "Tin nhắc chủ động (khi khách im)";
+const GROUP_PHANLOAI = "Phân loại tin khách (nâng cao — sửa cẩn thận)";
 const GROUP_NOI_BO = "Nội bộ (không cần sửa)";
 
 export const PROMPT_BLOCKS: PromptBlockDef[] = [
@@ -268,6 +284,57 @@ export const PROMPT_BLOCKS: PromptBlockDef[] = [
   { key: "voice", label: "Văn phong", group: GROUP_CHUNG, default: VOICE },
   { key: "closing", label: "Chốt lịch", group: GROUP_CHUNG, default: CLOSING },
   { key: "media_doc", label: "Quy tắc gửi ảnh", group: GROUP_CHUNG, default: MEDIA_DOC },
+  // ─ Tin nhắc chủ động: 3 góc nhắc ─
+  {
+    key: "fu_goc_1",
+    label: "Góc nhắc lần 1",
+    group: GROUP_NHAC,
+    default: FU_GOC_1,
+    desc: "Lần nhắc đầu tiên khi khách im — nên bám chi tiết cụ thể vừa trao đổi.",
+  },
+  {
+    key: "fu_goc_2",
+    label: "Góc nhắc lần 2",
+    group: GROUP_NHAC,
+    default: FU_GOC_2,
+    desc: "Lần nhắc thứ hai — hỏi nhẹ xem khách còn băn khoăn gì.",
+  },
+  {
+    key: "fu_goc_3",
+    label: "Góc nhắc lần 3",
+    group: GROUP_NHAC,
+    default: FU_GOC_3,
+    desc: "Lần nhắc thứ ba — mời ghé xem cơ sở / tập thử, nhẹ nhàng không giục.",
+  },
+  // ─ Phân loại (nâng cao): 4 knob nghiệp vụ bóc từ classifier ─
+  {
+    key: "cls_flow",
+    label: "Định tuyến Fitness ↔ Giải cơ",
+    group: GROUP_PHANLOAI,
+    default: CLS_KNOB_FLOW,
+    desc: "Quy tắc bot đoán khách thuộc page Tập (Fami) hay Trị đau (Hoa Sen). Giữ nguyên các từ trong ngoặc kép — đó là mã hệ thống.",
+  },
+  {
+    key: "cls_doi_tuong",
+    label: "Nhóm đối tượng có giá riêng",
+    group: GROUP_PHANLOAI,
+    default: CLS_KNOB_DOI_TUONG,
+    desc: "Cách nhận diện học sinh–sinh viên / giáo viên / gia đình / doanh nghiệp để tra đúng bảng giá. Giữ nguyên các mã trong ngoặc kép.",
+  },
+  {
+    key: "cls_an_toan",
+    label: "Cảnh báo an toàn sức khoẻ",
+    group: GROUP_PHANLOAI,
+    default: CLS_KNOB_AN_TOAN,
+    desc: "Khi nào bot bật cảnh báo an toàn (bầu / sau sinh / bệnh nền / chấn thương mới). Giữ nguyên các mã trong ngoặc kép.",
+  },
+  {
+    key: "cls_media",
+    label: "Khi nào gửi ảnh / video",
+    group: GROUP_PHANLOAI,
+    default: CLS_KNOB_MEDIA,
+    desc: "Quy tắc bot chọn bộ ảnh gửi kèm (cơ sở, trước–sau). Giữ nguyên tên các bộ ảnh trong ngoặc kép.",
+  },
   // ─ Nội bộ ─
   { key: "footer", label: "Chú thích hệ thống (footer)", group: GROUP_NOI_BO, default: FOOTER },
   { key: "staff_note", label: "Ghi chú tin nhân viên", group: GROUP_NOI_BO, default: STAFF_NOTE },
@@ -276,7 +343,7 @@ export const PROMPT_BLOCKS: PromptBlockDef[] = [
 /** Overrides khách cấu hình (key → nội dung); thiếu key nào thì dùng default trong registry. */
 export type PromptOverrides = Partial<Record<string, string>>;
 
-/** Thứ tự ghép 6 field của mỗi page thành thân bài (giữ mạch: thông tin → nhu cầu → quy trình → tình huống → hỏi đáp → từ chối). */
+/** Thứ tự ghép 7 field của mỗi page thành thân bài (giữ mạch: thông tin → nhu cầu → giải pháp → quy trình → tình huống → hỏi đáp → từ chối). */
 const FITNESS_FIELDS: [string, string][] = [
   ["f_thongtin", F_THONGTIN],
   ["f_nhucau", F_NHUCAU],
@@ -313,7 +380,7 @@ export function buildSystemPrompt(
     const v = overrides[key];
     return typeof v === "string" && v.trim() ? v : fallback;
   };
-  // Ghép 6 field của page thành thân bài; mỗi field áp override riêng (khách sửa 1 field không đụng field khác).
+  // Ghép 7 field của page thành thân bài; mỗi field áp override riêng (khách sửa 1 field không đụng field khác).
   const fields = flow === "giai-co" ? GIAI_CO_FIELDS : FITNESS_FIELDS;
   const body = fields.map(([key, def]) => pick(key, def)).join("\n\n");
   // Khối ưu đãi (nếu có đợt đang chạy) đặt NGAY SAU thân bài — cùng chỗ với luật chống-bịa KM,

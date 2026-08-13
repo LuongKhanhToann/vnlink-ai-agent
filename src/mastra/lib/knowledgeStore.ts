@@ -188,6 +188,8 @@ export interface AdminBlock {
   label: string;
   group: string;
   value: string;
+  /** Gợi ý ngắn cho admin cục này dạy bot gì (nếu có). */
+  desc?: string;
   /** true = khách đã sửa khác mặc định; false = đang dùng mặc định. */
   overridden: boolean;
 }
@@ -204,6 +206,7 @@ export async function adminSnapshot(): Promise<{
     label: b.label,
     group: b.group,
     value: k.blocks[b.key] ?? b.default,
+    desc: b.desc,
     overridden: typeof k.blocks[b.key] === "string",
   }));
   return { blocks, prices: k.prices, defaultPrices: DEFAULT_PRICE_DATA };
