@@ -2,12 +2,11 @@ import { Mastra } from "@mastra/core/mastra";
 import { ConsoleLogger } from "@mastra/core/logger";
 import { storage } from "./config/storage";
 import { facebookWebhook } from "./routes/facebook";
-import { telegramWebhook } from "./routes/telegram";
 import { adminWebhook } from "./routes/admin";
 
-// 10/08 — CHỈ CÒN 1 BỘ NÃO: engine/gemmaBrain.ts (Gemini API, xem engine/gemma/llm.ts).
-// Đã gỡ hẳn engine 5.4 (brain.ts + agents.ts + prompts.ts) — không còn ENGINE switch/fallback.
-// Không đăng ký agent: gemma đọc lịch sử qua config/memory + storage, không dùng mastra.getAgent().
+// LUỒNG MỚI (nhánh rebuild-fami-rag): bộ não engine/brain.ts = RAG basic + 1 call Gemini.
+// Không FSM/classifier, không semantic-recall OpenAI. Lịch sử = lib/history (bảng phẳng).
+// Đã gỡ telegram route legacy. storage của Mastra vẫn giữ để tương thích build.
 export const mastra = new Mastra({
   storage,
   logger: new ConsoleLogger({ name: "Vinalink", level: "info" }),
@@ -59,13 +58,9 @@ export const mastra = new Mastra({
           });
         }
 
-        // Webadmin (bật/tắt AI theo user) — /admin + /admin/api/*
+        // Webadmin (Khách / Tài liệu / Ảnh) — /admin + /admin/api/*
         const adminRes = await adminWebhook.fetch(c.req.raw);
         if (adminRes.status !== 404) return adminRes;
-
-        // Telegram webhook
-        const tgRes = await telegramWebhook.fetch(c.req.raw);
-        if (tgRes.status !== 404) return tgRes;
 
         // Facebook webhook
         const res = await facebookWebhook.fetch(c.req.raw);
