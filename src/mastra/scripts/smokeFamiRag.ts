@@ -5,7 +5,7 @@
  */
 import "dotenv/config";
 import { runTurn } from "../engine/brain";
-import { retrieveDocs } from "../rag/store";
+import { retrieveDocs } from "../rag/retrieve";
 import { clearHistory } from "../lib/history";
 
 const SENDER = "smoke-fami-rag";

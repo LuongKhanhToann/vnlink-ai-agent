@@ -6,6 +6,30 @@ Bot đang **golive trên page thật**. Trước khi sửa/cải thiện BẤT K
 2. **Sửa đúng điểm, KHÔNG ảnh hưởng luồng/logic khác.** Vá tối thiểu cho đúng case đang lỗi; không refactor lan man, không đổi hành vi bộ môn/flow khác.
 3. **Test KĨ, KHÔNG sơ sài — và phải test ĐÚNG cái khách thấy.** Sửa hành vi hội thoại thì BẮT BUỘC smoke chạy REPLY THẬT qua pipeline (routerWorkflow + LLM, đặt `STORAGE_BACKEND=libsql` để không đụng prod), rồi ĐỌC câu chữ bot thực sự trả. TUYỆT ĐỐI KHÔNG chỉ unit-test logic/FSM rồi tuyên bố xong — logic đúng ≠ câu tự nhiên. Reply là ngẫu nhiên → chạy VÀI LẦN xem có ổn định không. Smoke thông minh & vừa đủ (không hàng loạt tốn token) nhưng KHÔNG được bỏ bước đọc reply thật TRƯỚC khi deploy.
 
+# RAG hỏi-đáp tài liệu — kỹ thuật ĐÃ CÓ / CÒN THIẾU (audit 14/08/2026)
+
+Luồng RAG tài liệu Fami (`rag/` + `engine/brain.ts`) đã nâng lên **full best-practice** như document-Q&A của Claude/ChatGPT/Gemini. Audit toàn diện `npx -y tsx src/mastra/scripts/smokeRagAudit.ts` **22/22 PASS** (2 lần, ổn định) — phủ mọi loại giá, khuyến mại, địa chỉ/giờ, pilates, xông hơi, nối-tiếp-ngữ-cảnh, gõ-không-dấu, câu-ngắn-mơ-hồ, chào/cảm-ơn-bỏ-tra-cứu, basic mode, và reply thật (giá đúng + từ chối bịa).
+
+**ĐÃ CÓ (đủ chuẩn ở quy mô hiện tại: 3 doc / 31 đoạn):**
+- **Query rewrite theo hội thoại** (`rag/retrieve.ts` rewriteQuery, fastModels): giải đại từ "còn cái kia?"; chào hỏi/cảm ơn → sentinel NONE → bỏ tra cứu.
+- **Contextual Retrieval** (Anthropic — `rag/contextualize.ts`): mỗi chunk có câu định vị ghép trước khi embed.
+- **Hybrid** dense (pgvector cosine) + sparse full-text tiếng Việt (`unaccent`, OR-lexeme kiểu BM25 — KHÔNG dùng `websearch_to_tsquery` vì nó AND mọi từ).
+- **RRF** hợp nhất (k=60) + **LLM rerank** (fastModels) chỉ để SẮP XẾP, sau đó **BACKFILL top RRF** đủ FINAL_KEEP=5 → đoạn mạnh (bảng giá) không bao giờ bị reranker bỏ sót.
+- **Chunk bám cấu trúc** (`store.ts chunkText`): bảng markdown là khối NGUYÊN (không cắt cụt bảng giá), kèm heading mục.
+- Trích nguồn `[tên tài liệu]` + chốt chống bịa · **fail-open từng tầng** · công tắc `RAG_MODE=basic` (về dense top-k, không cần deploy lại) · KHÔNG cache.
+
+**CÒN THIẾU (chỉ đáng làm khi kho tài liệu PHÌNH TO — hiện chưa cần):**
+- Agentic / multi-hop retrieval (tự tra nhiều vòng). Hiện 1 vòng/lượt.
+- Cross-encoder reranker chuyên dụng (Cohere/Voyage) — hiện dùng LLM-rerank + backfill đỡ.
+- Bộ đo eval recall/precision trên tập test cố định.
+- Multi-query expansion.
+- Ở quy mô ~31 đoạn, phương án đơn giản hơn RAG là NHÉT CẢ tài liệu vào prompt (chính xác tuyệt đối) — cân nhắc nếu kho vẫn nhỏ.
+
+**VẬN HÀNH bắt buộc:**
+- Đổi schema RAG hoặc đổi `chunkText`/logic ingest → **PHẢI chạy lại** `npx -y tsx src/mastra/scripts/reindexAll.ts` (tuần tự, idempotent) rồi mới deploy.
+- Mọi tài liệu admin/khách upload đi qua `ingestDoc`/`updateDoc` → **tự động** vào chuẩn mới (contextualize + embed + full-text). Không có đường tắt.
+- Trước deploy: chạy `smokeRagAudit.ts` phải PASS hết. Xem thêm memory `rag-full-pipeline-upgrade`.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

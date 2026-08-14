@@ -1,16 +1,16 @@
 /**
  * engine/brain.ts — Một lượt hội thoại của luồng RAG mới (thay engine/gemma cũ).
  *
- * Luồng đơn giản, "basic RAG":
- *   1) Nạp N tin gần nhất (lib/history).
- *   2) RAG: embed câu khách → lấy đoạn tài liệu liên quan (rag/store).
+ * Luồng RAG "full best-practice" (viết-lại-query theo hội thoại → hybrid → RRF → rerank):
+ *   1) Nạp N tin gần nhất (lib/history) — CẦN cho bước viết lại query theo ngữ cảnh.
+ *   2) RAG: retrieveForTurn(message + history) → khối tài liệu đã rerank, có trích nguồn (rag/retrieve).
  *   3) Ghép system(FAMI_SYSTEM + tài liệu) + lịch sử + câu khách → 1 call Gemini (cascade + xoay key).
  *   4) Lưu câu khách + câu trả vào history.
  * Không FSM, không classifier, không tool media. Lỗi model → ném ra để webhook nuốt (bot im lượt đó).
  */
 
 import { generateReply, type ChatMsg } from "../llm/gemini";
-import { retrieveDocs } from "../rag/store";
+import { retrieveForTurn } from "../rag/retrieve";
 import { loadRecent, appendMessage } from "../lib/history";
 import { FAMI_SYSTEM } from "../prompts/fami";
 
@@ -23,8 +23,10 @@ export interface TurnInput {
 export async function runTurn(input: TurnInput): Promise<{ reply: string }> {
   const { senderId, message, abortSignal } = input;
 
-  // (1) + (2) chạy song song: lịch sử và RAG độc lập nhau.
-  const [history, docBlock] = await Promise.all([loadRecent(senderId), retrieveDocs(message)]);
+  // (1) lịch sử TRƯỚC — bước viết lại query cần nó để hiểu tham chiếu ("còn cái kia?").
+  const history = await loadRecent(senderId);
+  // (2) RAG theo ngữ cảnh hội thoại (fail-open "" bên trong).
+  const docBlock = await retrieveForTurn({ message, history });
 
   const systemContent = docBlock ? `${FAMI_SYSTEM}\n\n${docBlock}` : FAMI_SYSTEM;
   const messages: ChatMsg[] = [

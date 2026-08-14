@@ -31,6 +31,14 @@ export function chatModels(): string[] {
     : ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemma-4-31b-it"];
 }
 
+/** Cascade NHẸ cho call phụ (rewrite/rerank/contextualize): flash-lite trước cho nhanh, gemma sàn đỡ lưng.
+ *  Trả lời khách vẫn dùng chatModels() mạnh hơn. Override bằng GEMINI_FAST_MODELS. */
+export function fastModels(): string[] {
+  const raw = process.env.GEMINI_FAST_MODELS || "";
+  const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
+  return models.length ? models : ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemma-4-31b-it"];
+}
+
 const TIMEOUT_MS = 60_000;
 const MAX_TRANSIENT_ATTEMPTS = 3;
 const RETRY_BASE_MS = 1_000;
@@ -123,11 +131,13 @@ async function generateOnce(
  */
 export async function generateReply(
   messages: ChatMsg[],
-  opts: { temperature?: number; maxTokens?: number; abortSignal?: AbortSignal } = {},
+  opts: { temperature?: number; maxTokens?: number; abortSignal?: AbortSignal; models?: string[] } = {},
 ): Promise<string> {
   const keys = geminiKeys();
   if (!keys.length) throw new Error("Chưa cấu hình GEMINI_API_KEYS");
-  const models = chatModels();
+  // opts.models: cho phép các call PHỤ (rewrite/rerank/contextualize) ưu tiên model nhẹ→nhanh,
+  // không dùng cascade nặng của luồng trả lời chính. Rỗng → cascade mặc định chatModels().
+  const models = opts.models?.length ? opts.models : chatModels();
   const temperature = opts.temperature ?? 0.6;
   const maxTokens = opts.maxTokens ?? 700;
   const start = keyCursor++ % keys.length; // xoay điểm bắt đầu mỗi lượt
