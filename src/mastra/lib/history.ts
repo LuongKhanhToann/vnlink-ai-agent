@@ -19,7 +19,7 @@ function getPool(): Pool {
       password: process.env.PG_DATABASE_PASSWORD!,
       database: process.env.PG_DATABASE_NAME!,
       ssl: { rejectUnauthorized: false },
-      max: 2,
+      max: 8,
     });
     pool.on("error", (e) => console.error("[history] pool error:", e));
   }
@@ -116,20 +116,26 @@ function extractLegacyText(raw: string): string {
 // chỉ thấy tin thật. Chỉ so chuỗi cố định (parsing kỹ thuật), không phán đoán nghiệp vụ.
 const IMLANG = "__IMLANG__"; // reply "im lặng" — bot chọn không gửi gì
 
-/** "NGÀY: HÔM NAY …\n<tin khách thật>" → lấy phần tin thật sau khối ngày tiêm ở đầu. */
-function stripDatePrefix(t: string): string {
-  if (!t.startsWith("NGÀY:")) return t;
-  const nl = t.indexOf("\n");
-  return nl >= 0 ? t.slice(nl + 1).trim() : "";
-}
-
-/** Tin "khách" THẬT từ legacy — bỏ prompt hệ thống tiêm (nhắc chủ động, ngữ cảnh), bóc khối ngày. */
+/**
+ * Tin "khách" THẬT từ legacy. Bot golive tiêm nhiều thứ vào role=user:
+ *   - Nguyên khối prompt (bỏ hẳn): "[HON…][BƯỚC FUNNEL…]" chỉ dẫn humanize/funnel;
+ *     "[TIN NHẮC CHỦ ĐỘNG…]" trigger nhắc chủ động; "Đã biết về khách:" ngữ cảnh kèm trigger.
+ *   - Prefix ở ĐẦU tin (bóc bỏ, giữ phần sau): khối ngày "NGÀY: HÔM NAY…\n<tin>", ngữ cảnh slot
+ *     "[ĐÃ BIẾT: …] <tin>", ảnh đính kèm "[đính kèm/hình ảnh]" (bóc xong rỗng → bỏ).
+ */
 function realLegacyUser(raw: string): string | null {
   let t = extractLegacyText(raw);
   if (!t) return null;
-  if (t.includes("[TIN NHẮC CHỦ ĐỘNG")) return null; // trigger nhắc chủ động — không phải khách gõ
-  if (t.startsWith("Đã biết về khách:")) return null; // ngữ cảnh tiêm kèm trigger
-  t = stripDatePrefix(t);
+  if (t.startsWith("[HON")) return null; // prompt humanize/funnel — nguyên khối chỉ dẫn
+  if (t.includes("[TIN NHẮC CHỦ ĐỘNG")) return null; // trigger nhắc chủ động
+  if (t.startsWith("Đã biết về khách:")) return null; // ngữ cảnh kèm trigger
+  let prev = "";
+  while (t && t !== prev) {
+    prev = t;
+    if (t.startsWith("NGÀY:")) { const nl = t.indexOf("\n"); t = (nl >= 0 ? t.slice(nl + 1) : "").trim(); continue; }
+    if (t.startsWith("[")) { const close = t.indexOf("]"); if (close < 0) break; t = t.slice(close + 1).trim(); continue; }
+    break;
+  }
   return t || null;
 }
 
@@ -191,4 +197,48 @@ export async function lastPair(senderId: string): Promise<{ user: string | null;
     console.error(`[history] lastPair failed for ${senderId}:`, (e as Error).message);
     return { user: null, bot: null };
   }
+}
+
+/**
+ * Cặp tin gần nhất cho NHIỀU user một lượt — dùng cho danh sách admin (tránh N+1: 68 user × 1-2 query
+ * qua pool nhỏ = ~8s). Gom về ĐÚNG 2 query: 1 lần chat_history + 1 lần mastra_messages (chỉ cho user
+ * kho mới chưa có gì). Bảng nhỏ nên gom cả trong RAM rẻ hơn nhiều lần round-trip. Lỗi → map rỗng.
+ */
+export async function lastPairsBatch(
+  senderIds: string[],
+): Promise<Map<string, { user: string | null; bot: string | null }>> {
+  const out = new Map<string, { user: string | null; bot: string | null }>();
+  for (const id of senderIds) out.set(id, { user: null, bot: null });
+  if (!senderIds.length) return out;
+  try {
+    await ensureSchema();
+    // (1) Kho mới — mọi dòng gần đây của các sender này trong 1 query (ORDER id DESC → user/bot đầu tiên mỗi sender là mới nhất).
+    const { rows: newRows } = await getPool().query(
+      `SELECT sender_id, role, content FROM chat_history WHERE sender_id = ANY($1::text[]) ORDER BY id DESC`,
+      [senderIds],
+    );
+    for (const r of newRows as { sender_id: string; role: string; content: string }[]) {
+      const p = out.get(r.sender_id);
+      if (!p) continue;
+      if (!p.user && r.role !== "assistant") { const t = String(r.content ?? "").trim(); if (t) p.user = t; }
+      if (!p.bot && r.role === "assistant") { const t = String(r.content ?? "").trim(); if (t) p.bot = t; }
+    }
+    // (2) Kho legacy — chỉ cho sender còn trống hẳn ở kho mới.
+    const need = senderIds.filter((id) => { const p = out.get(id); return !!p && !p.user && !p.bot; });
+    if (need.length) {
+      const { rows: legRows } = await getPool().query(
+        `SELECT "resourceId" AS sid, role, content FROM mastra_messages WHERE "resourceId" = ANY($1::text[]) ORDER BY "createdAtZ" DESC`,
+        [need],
+      );
+      for (const r of legRows as { sid: string; role: string; content: string }[]) {
+        const p = out.get(r.sid);
+        if (!p) continue;
+        if (!p.user && r.role !== "assistant") { const u = realLegacyUser(r.content); if (u) p.user = u; }
+        if (!p.bot && r.role === "assistant") { const b = realLegacyBot(r.content); if (b) p.bot = b; }
+      }
+    }
+  } catch (e) {
+    console.error(`[history] lastPairsBatch failed:`, (e as Error).message);
+  }
+  return out;
 }

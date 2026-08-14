@@ -17,7 +17,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import "dotenv/config";
 
 import { listUsers, setBotEnabled, setGlobalEnabled, getGlobalEnabled, deleteBotUser } from "../lib/botControl";
-import { clearHistory, lastPair } from "../lib/history";
+import { clearHistory, lastPairsBatch } from "../lib/history";
 import { listDocs, ingestDoc, deleteDoc, getDoc, updateDoc } from "../rag/store";
 import { parseUpload } from "../lib/parseUpload";
 import {
@@ -75,11 +75,11 @@ adminWebhook.get("/admin/api/users", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   try {
     const [users, global] = await Promise.all([listUsers(), getGlobalEnabled()]);
-    // Đính cặp tin nhắn gần nhất (giới hạn 80 user mới nhất để khỏi quá tải DB).
-    const withMsgs = await Promise.all(
-      users.map(async (u, i) =>
-        i < 80 ? { ...u, lastPair: await lastPair(u.sender_id) } : { ...u, lastPair: null },
-      ),
+    // Đính cặp tin nhắn gần nhất — lấy 1 lượt (2 query) cho 80 user mới nhất để khỏi N+1 chậm.
+    const ids = users.slice(0, 80).map((u) => u.sender_id);
+    const pairs = await lastPairsBatch(ids);
+    const withMsgs = users.map((u, i) =>
+      i < 80 ? { ...u, lastPair: pairs.get(u.sender_id) ?? { user: null, bot: null } } : { ...u, lastPair: null },
     );
     return c.json({ users: withMsgs, global });
   } catch (e) {
@@ -492,6 +492,7 @@ function switchTab(name){
 
 // ── Khách hàng ──
 async function loadUsers(){
+  document.getElementById("list").innerHTML = '<p class="muted">Đang tải…</p>';
   try {
     var r = await fetch("/admin/api/users",{cache:"no-store"});
     if(handle401(r)) return;
