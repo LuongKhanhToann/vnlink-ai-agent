@@ -178,13 +178,13 @@ const SCENARIOS: Scenario[] = [
     ],
   },
   {
-    // ECO 2 môn tự chọn (trừ yoga). Khách muốn CHỈ gym + bơi → gợi ECO đúng giá 700k/2tr.
-    name: "A9 · ECO (chỉ muốn gym + bơi → gói ECO 2 môn)",
+    // Gói 2 dịch vụ (Gym/Yoga/Bơi). Khách muốn CHỈ gym + bơi → gợi gói 2 dịch vụ 700k/1.995tr.
+    name: "A9 · 2 DỊCH VỤ (chỉ muốn gym + bơi → gói 2 dịch vụ)",
     turns: [
       { msg: "Em không tập yoga zumba, chỉ muốn gym với bơi thôi thì có gói nào gọn không ạ" },
       {
         msg: "Gói đó 1 tháng với 3 tháng bao nhiêu ạ",
-        expect: { dung: ["700 nghìn", "2 triệu"], sai: ["giải cơ"] },
+        expect: { dung: ["700 nghìn", "1.995 triệu"], sai: ["giải cơ"] },
       },
     ],
   },
@@ -213,28 +213,28 @@ const SCENARIOS: Scenario[] = [
     ],
   },
   {
-    // ECO reroute: gym + zumba (2 môn, KHÔNG yoga) → gói ECO 700k, KHÔNG phải thẻ Gym 500k.
-    name: "A13 · ECO2 (gym + zumba → gói ECO, không phải thẻ Gym)",
+    // Zumba KHÔNG nằm trong gói 2 dịch vụ (bảng giá Vinalink): gym + zumba → thẻ FULL (800k), KHÔNG thẻ Gym 500k.
+    name: "A13 · ZUMBACOMBO (gym + zumba → thẻ Full, không phải thẻ Gym)",
     turns: [
       {
         msg: "Em chỉ muốn tập gym với zumba thôi, có gói nào cho 2 môn không ạ",
       },
       {
         msg: "Gói đó 1 tháng bao nhiêu ạ",
-        expect: { dung: ["700 nghìn"], sai: ["500 nghìn"] },
+        expect: { dung: ["800 nghìn"], sai: ["500 nghìn"] },
       },
     ],
   },
   {
-    // Ranh giới ECO: gym + YOGA → KHÔNG được ECO (ECO trừ yoga) → phải là Full hoặc tách môn.
-    name: "A14 · ECOYOGA (gym + yoga → full/tách, TUYỆT ĐỐI không ECO)",
+    // Bảng giá Vinalink: gym + YOGA LÀ gói 2 dịch vụ (700k/tháng) — rẻ hơn Full, KHÔNG ép lên Full.
+    name: "A14 · GYMYOGA (gym + yoga → gói 2 dịch vụ 700k)",
     turns: [
       {
         msg: "Em muốn tập gym với yoga thôi thì có gói nào không ạ",
       },
       {
         msg: "Gói đó 1 tháng bao nhiêu ạ",
-        expect: { sai: ["ECO", "eco", "700 nghìn"] },
+        expect: { dung: ["700 nghìn"], sai: ["800 nghìn"] },
       },
     ],
   },
@@ -551,7 +551,7 @@ const FAQ2: Scenario[] = [
       { msg: "Em cao 1m58 mà nặng 68kg rồi ạ", expect: { sai: ["zumba giảm mỡ nhanh"] } },
       {
         msg: "Vậy chi phí tập thế nào em",
-        expect: { dung: ["800 nghìn", "2.1 triệu", "3.8 triệu", "7 triệu"], sai: ["500 nghìn"] },
+        expect: { dung: ["800 nghìn", "2.28 triệu", "4.08 triệu", "7.2 triệu", "3.9 triệu"], sai: ["500 nghìn"] },
       },
     ],
   },

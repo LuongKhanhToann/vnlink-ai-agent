@@ -131,6 +131,7 @@ function mergePrices(raw: unknown): PriceData {
     giaiCoLe: asStr(r.giaiCoLe, d.giaiCoLe),
     giaiCoLieuTrinh: asStr(r.giaiCoLieuTrinh, d.giaiCoLieuTrinh),
     gymTapThua: asStr(r.gymTapThua, d.gymTapThua),
+    giamCanGoi: asStr(r.giamCanGoi, d.giamCanGoi),
   };
 }
 
@@ -140,7 +141,7 @@ function formatPromoBlock(promos: { title: string; content: string }[]): string 
   const lines = promos.map((p) => `- ${p.title}: ${p.content}`.trim()).join("\n");
   return `═══ CHƯƠNG TRÌNH ƯU ĐÃI ĐANG ÁP DỤNG (admin cấu hình — CÓ THẬT, em ĐƯỢC PHÉP nói cho khách) ═══
 ${lines}
-⚠ Chỉ nêu khi khách hỏi ưu đãi/khuyến mãi hoặc khi thật sự phù hợp; giá gói vẫn theo BẢNG GIÁ. Ngoài các ưu đãi liệt kê ở đây (và các ưu đãi cố định: gói dài đơn giá tốt hơn, đi nhóm/gia đình, khoá học bơi tặng 1 tháng), TUYỆT ĐỐI KHÔNG tự bịa thêm quà/giá/chương trình nào khác.`;
+⚠ Chỉ nêu khi khách hỏi ưu đãi/khuyến mãi hoặc khi thật sự phù hợp; giá gói vẫn theo BẢNG GIÁ. Ngoài các ưu đãi liệt kê ở đây (và các ưu đãi cố định: gói dài đơn giá tốt hơn, đi nhóm/gia đình, quà kèm theo mốc gói, khoá học bơi tặng 2 tháng), TUYỆT ĐỐI KHÔNG tự bịa thêm quà/giá/chương trình nào khác.`;
 }
 
 /**

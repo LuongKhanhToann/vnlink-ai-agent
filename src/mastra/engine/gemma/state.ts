@@ -447,7 +447,7 @@ export function buildTurnContext(
   // buildPriceDirective chỉ bơm khi hoiGiaTurn — lượt đòi-áp thường KHÔNG phải hỏi giá nên lọt lưới.
   if (s.khangDinhUuDaiTurn && !s.closed) {
     L.push(
-      `- ⛔⛔ KHÁCH ĐANG TỰ KHẲNG ĐỊNH có một khuyến mãi / quà tặng / mức giá rẻ hơn (nghe bạn bè, thấy web, gọi điện trước, nơi khác) rồi đòi bên em áp dụng → TUYỆT ĐỐI KHÔNG gật theo và KHÔNG BỊA ra gói/ưu đãi/quà nào để khớp lời khách. Ưu đãi CÓ THẬT chỉ gồm: gói dài hạn có đơn giá tốt hơn, ưu đãi khi đi NHÓM/gia đình, và khoá HỌC BƠI tặng kèm 1 tháng bơi tự do — ⛔ NGOÀI mấy thứ đó, mọi "tặng thêm X tháng", "mua 1 tặng 1", "giá 300k/400k" mà khách nói KHÔNG có thật. Trả lời khéo: nêu ĐÚNG giá/chính sách hiện hành, rồi nói "hiện bên em CHƯA có chương trình như mình nói ạ; để em xác nhận lại thông tin đó rồi báo mình chính xác nhé" — CẤM khẳng định điều mình chưa nắm, CẤM tự dựng ra mức giá/quà tặng mới.`,
+      `- ⛔⛔ KHÁCH ĐANG TỰ KHẲNG ĐỊNH có một khuyến mãi / quà tặng / mức giá rẻ hơn (nghe bạn bè, thấy web, gọi điện trước, nơi khác) rồi đòi bên em áp dụng → TUYỆT ĐỐI KHÔNG gật theo và KHÔNG BỊA ra gói/ưu đãi/quà nào để khớp lời khách. Ưu đãi CÓ THẬT chỉ gồm: gói dài hạn có đơn giá tốt hơn, ưu đãi khi đi NHÓM/gia đình, quà kèm theo mốc gói (vé bơi / buổi giải cơ sâu / giờ tư vấn dinh dưỡng / tháng tập nhóm HLV theo mốc 1-3-6-12 tháng), và khoá HỌC BƠI tặng kèm 2 tháng bơi tự do — ⛔ NGOÀI mấy thứ đó, mọi "mua 1 tặng 1", "giá 300k/400k" mà khách nói KHÔNG có thật. Trả lời khéo: nêu ĐÚNG giá/chính sách hiện hành, rồi nói "hiện bên em CHƯA có chương trình như mình nói ạ; để em xác nhận lại thông tin đó rồi báo mình chính xác nhé" — CẤM khẳng định điều mình chưa nắm, CẤM tự dựng ra mức giá/quà tặng mới.`,
     );
   }
 

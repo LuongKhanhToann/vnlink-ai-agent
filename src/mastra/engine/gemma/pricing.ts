@@ -69,6 +69,8 @@ export interface PriceData {
   giaiCoLe: string;
   giaiCoLieuTrinh: string;
   gymTapThua: string;
+  /** Gói giải pháp giảm cân trọn gói (cam kết 6-10kg) — bơm khi khách mục tiêu giảm cân hỏi giá. */
+  giamCanGoi: string;
 }
 
 const THANG = ["1 tháng", "3 tháng", "6 tháng", "12 tháng"];
@@ -77,13 +79,13 @@ const card = (ten: string, ...gia: string[]): Card => ({
   moc: gia.map((g, i) => [THANG[i], g] as [string, string]),
 });
 
-const FULL = card("FULL 4 môn (Gym+Bơi+Yoga+Zumba)", "800 nghìn", "2.1 triệu", "3.8 triệu", "7 triệu");
-const GYM = card("Gym", "500 nghìn", "1.5 triệu", "2.5 triệu", "4.5 triệu");
-const YOGA = card("Yoga", "650 nghìn", "1.8 triệu", "3.3 triệu", "5.8 triệu");
+const FULL = card("FULL 4 môn (Gym+Bơi+Yoga+Zumba)", "800 nghìn", "2.28 triệu", "4.08 triệu", "7.2 triệu");
+const GYM = card("Gym", "500 nghìn", "1.45 triệu", "2.55 triệu", "4.5 triệu");
+const YOGA = card("Yoga", "650 nghìn", "1.85 triệu", "3.35 triệu", "5.8 triệu");
 const ZUMBA = card("Zumba", "500 nghìn", "1.8 triệu", "3.3 triệu", "5.8 triệu");
 const BOI_LON = card("Bơi người lớn", "700 nghìn", "1.8 triệu", "2.5 triệu", "4.5 triệu");
 const BOI_BE = card("Bơi trẻ em", "600 nghìn", "1.5 triệu", "2 triệu", "3.6 triệu");
-const ECO = card("Fami ECO (2 môn tự chọn, trừ Yoga)", "700 nghìn", "2 triệu", "3.5 triệu", "6.3 triệu");
+const ECO = card("Gói 2 dịch vụ (chọn 2 trong Gym/Yoga/Bơi)", "700 nghìn", "1.995 triệu", "3.57 triệu", "6.3 triệu");
 const FULL_HSSV = card("FULL học sinh - sinh viên (14-22 tuổi, cả 4 dịch vụ)", "500 nghìn", "1.2 triệu", "2.1 triệu", "3.6 triệu");
 const FULL_GV = card("FULL giáo viên (cả 4 dịch vụ)", "700 nghìn", "1.8 triệu", "2.8 triệu", "4.8 triệu");
 /** Dòng NEO: chỉ mốc 12 tháng của một gói, để model không bị cám dỗ đọc cả bảng. */
@@ -92,13 +94,21 @@ const neo = (c: Card, ten = c.ten) => `${ten} | ${c.moc[3][0]} = ${c.moc[3][1]}`
 const fullNeo = (full: Card) =>
   `${neo(full, "FULL 4 môn (nâng cấp dùng cả Gym+Bơi+Yoga+Zumba)")}  ← chỉ nêu khi khách muốn NÂNG CẤP; khách xin gói RẺ HƠN thì CẤM lôi dòng này ra`;
 const GYM_TAP_THUA = "Gym tập thưa | 3 buổi mỗi tuần = 60% · 4 buổi mỗi tuần = 80% giá gym ở trên (chỉ nêu khi khách hỏi tập mấy buổi một tuần)";
+/** Gói giải pháp giảm cân trọn gói (bảng giá Vinalink mục 8) — cam kết giảm 6-10kg khi làm đúng. */
+const GIAM_CAN_GOI = [
+  "Gói Giảm cân 1 | 3.9 triệu — bơi giảm cân 3 tháng + dạy 1 kiểu bơi + tặng 1 sản phẩm VHealth + tư vấn dinh dưỡng 3 buổi + kèm cặp hằng ngày",
+  "Gói Giảm cân 2 | 5.4 triệu — như Giảm cân 1 nhưng thực hành 6 tháng",
+  "Gói Giảm cân 3 | 6.3 triệu — Gym và bơi 12 tháng + 2 tháng tập nhóm cùng HLV Gym + tư vấn dinh dưỡng 3 buổi",
+  "Gói Giảm cân 4 | giá theo nhu cầu (khách muốn giảm từ 20kg trở lên, có hỗ trợ riêng từ trung tâm)",
+  "(mọi gói cam kết giảm 6-10kg khi khách làm ĐÚNG hướng dẫn)",
+].join("\n");
 
 /** Các bảng KHÔNG theo mốc tháng — giữ nguyên văn, chỉ bơm khi khách hỏi đúng nhóm. */
 const BANG_KHAC: Record<BangKhacKey, string> = {
   "pt-1-1":
     "PT 1 kèm 1 | 10 buổi = 3 triệu\nPT 1 kèm 1 | 15 buổi = 4 triệu\nPT 1 kèm 1 | 20 buổi = 6 triệu\nPT 1 kèm 1 | 30 buổi = 8 triệu\nPT 1 kèm 1 | 40 buổi = 10 triệu\nPT 1 kèm 1 | 50 buổi = 12 triệu\nPT cho học sinh - sinh viên | 10 buổi = 3 triệu · 20 buổi = 6 triệu",
   "hoc-boi":
-    "Học bơi lớp nhóm | 12 buổi = 1.5 triệu MỖI NGƯỜI  ← MẶC ĐỊNH báo mức này\nHọc bơi 1 kèm 1 | 12 buổi = 3 triệu mỗi người\nHọc bơi 1 kèm 1 cho CẶP 2 người (2 khách học cùng 1 HLV) | 5 triệu cả cặp\nHọc bơi 1 kèm 1 HAI KIỂU BƠI | 20 buổi = 5 triệu mỗi người\n(mọi gói học bơi đều tặng 1 tháng bơi tự do + cam kết biết bơi)\n➤ ÁP DỤNG CHUNG CẢ NGƯỜI LỚN VÀ TRẺ EM/BÉ: khách hỏi \"gói/khoá trẻ em\", \"học bơi cho bé\", \"gói cho cháu\" thì VẪN dùng đúng các mức khoá học trên (lớp nhóm 1.5 triệu / 1 kèm 1 3 triệu), KHÔNG có bảng khoá học riêng đắt hơn cho trẻ em.\n➤ NHIỀU NGƯỜI CÙNG HỌC (hai mẹ con, hai bà cháu, 2-3 người nhà): mặc định vẫn là LỚP NHÓM 1.5 triệu MỖI NGƯỜI → 2 người = 3 triệu, 3 người = 4.5 triệu (nhân lên, nói rõ \"mỗi người 1.5 triệu\"). ⛔ CHỈ nêu mức 1 kèm 1 (3 triệu/người, hoặc 5 triệu cho cặp 2 người) khi khách HỎI ĐÍCH DANH hình thức kèm riêng — khách chưa chọn hình thức mà báo luôn mức đắt nhất là ép giá, mất khách.\n➤ Khách TỰ NHẨM ra một con số tổng (\"hai bà cháu là 2.400 nghìn đúng không\"): đối chiếu bảng rồi nói RÕ số đúng, không gật bừa theo và cũng không lờ đi. Mẫu: \"Dạ lớp nhóm 1.5 triệu mỗi người nên hai bà cháu là 3 triệu ạ\".",
+    "Học bơi lớp nhóm | 12 buổi = 1.5 triệu MỖI NGƯỜI  ← MẶC ĐỊNH báo mức này\nHọc bơi 1 kèm 1 | 12 buổi = 3 triệu mỗi người\nHọc bơi 1 kèm 1 cho CẶP 2 người (2 khách học cùng 1 HLV) | 5 triệu cả cặp\nHọc bơi 1 kèm 1 HAI KIỂU BƠI | 20 buổi = 5 triệu mỗi người\n(mọi gói học bơi đều tặng 2 tháng bơi tự do + cam kết biết bơi)\n➤ ÁP DỤNG CHUNG CẢ NGƯỜI LỚN VÀ TRẺ EM/BÉ: khách hỏi \"gói/khoá trẻ em\", \"học bơi cho bé\", \"gói cho cháu\" thì VẪN dùng đúng các mức khoá học trên (lớp nhóm 1.5 triệu / 1 kèm 1 3 triệu), KHÔNG có bảng khoá học riêng đắt hơn cho trẻ em.\n➤ NHIỀU NGƯỜI CÙNG HỌC (hai mẹ con, hai bà cháu, 2-3 người nhà): mặc định vẫn là LỚP NHÓM 1.5 triệu MỖI NGƯỜI → 2 người = 3 triệu, 3 người = 4.5 triệu (nhân lên, nói rõ \"mỗi người 1.5 triệu\"). ⛔ CHỈ nêu mức 1 kèm 1 (3 triệu/người, hoặc 5 triệu cho cặp 2 người) khi khách HỎI ĐÍCH DANH hình thức kèm riêng — khách chưa chọn hình thức mà báo luôn mức đắt nhất là ép giá, mất khách.\n➤ Khách TỰ NHẨM ra một con số tổng (\"hai bà cháu là 2.400 nghìn đúng không\"): đối chiếu bảng rồi nói RÕ số đúng, không gật bừa theo và cũng không lờ đi. Mẫu: \"Dạ lớp nhóm 1.5 triệu mỗi người nên hai bà cháu là 3 triệu ạ\".",
   "ve-boi-le":
     "Vé bơi lẻ - cao dưới 1m | 20 nghìn mỗi lượt\nVé bơi lẻ - cao 1m đến 1m5 | 30 nghìn mỗi lượt\nVé bơi lẻ - cao trên 1m5 | 40 nghìn mỗi lượt",
   pilates:
@@ -130,6 +140,7 @@ export const DEFAULT_PRICE_DATA: PriceData = {
   giaiCoLe: GIAI_CO_LE,
   giaiCoLieuTrinh: GIAI_CO_LIEU_TRINH,
   gymTapThua: GYM_TAP_THUA,
+  giamCanGoi: GIAM_CAN_GOI,
 };
 
 function render(cards: Card[]): string {
@@ -176,14 +187,14 @@ function tableForSport(pd: PriceData, boMon: string, mucTieu = "", coSoDo = fals
     case "boi":
       return [render([BOI_LON]), render([BOI_BE]), fullNeo(FULL)].join("\n");
     case "eco":
-      // Khách muốn ĐÚNG 2 bộ môn KHÔNG có yoga → gói Fami ECO là câu trả lời (rẻ hơn Full). Neo
-      // ECO trước; Full chỉ là cửa nâng cấp. (classifier chỉ set bo_mon="eco" khi 2 môn & không yoga.)
+      // Khách muốn ĐÚNG 2 bộ môn trong Gym/Yoga/Bơi → gói 2 dịch vụ là câu trả lời (rẻ hơn Full). Neo
+      // 2-dịch-vụ trước; Full chỉ là cửa nâng cấp. (classifier set bo_mon="eco" khi 2 môn thuộc gym/yoga/bơi.)
       return [render([ECO]), fullNeo(FULL)].join("\n");
     default:
       return [
         render([FULL]),
         neo(ECO),
-        `⛔ Fami ECO KHÔNG gồm Yoga: khách muốn tập CÓ yoga (vd "bơi và yoga", "gym + yoga") thì CẤM đề xuất ECO cho họ — trường hợp đó báo thẻ FULL (dùng cả 4 dịch vụ) hoặc giá TÁCH từng môn, KHÔNG có gói ghép 2 môn rẻ hơn nếu 1 trong 2 môn là yoga.`,
+        `⚠ Gói 2 dịch vụ (700 nghìn/tháng) áp dụng cho ĐÚNG 2 môn trong Gym/Yoga/Bơi (gồm cả Gym+Yoga, Yoga+Bơi). Khách muốn ĐỦ 4 dịch vụ, từ 3 môn trở lên, hoặc combo có Zumba → báo thẻ FULL. Zumba KHÔNG nằm trong gói 2 dịch vụ.`,
       ].join("\n");
   }
 }
@@ -332,6 +343,15 @@ export function buildPriceDirective(
     luat = `⚠ Khách hỏi VÉ BƠI LẺ (bơi tự do theo LƯỢT/BUỔI) → giá tính theo CHIỀU CAO, lấy từ bảng VÉ BƠI LẺ ở đầu. Nếu khách ĐÃ cho chiều cao → báo ĐÚNG 1 mốc của họ (dưới 1m 20 nghìn / 1m-1m5 30 nghìn / trên 1m5 40 nghìn). Nếu CHƯA biết chiều cao → nêu GỌN 2 mốc người lớn (1m-1m5 30 nghìn, trên 1m5 40 nghìn) rồi có thể hỏi chiều cao cho chính xác. ⛔ CẤM báo quá 2 mốc trong 1 tin. ⛔ CẤM lấy 700 nghìn (thẻ bơi THÁNG) làm câu trả lời cho vé lẻ. ⛔ Chiều cao ở đây CHỈ để chọn mức vé — KHÔNG phải số đo để nhận định giảm cân / vóc dáng.`;
   } else if (bucket && bucket !== "the-tap") {
     rows.push(pd.bangKhac[bucket as BangKhacKey]);
+  }
+  // Khách mục tiêu GIẢM CÂN: kèm bảng GÓI GIẢI PHÁP GIẢM CÂN trọn gói (cam kết 6-10kg) để bot có
+  // số trả lời khi khách hỏi "gói giảm cân trọn gói / cam kết" — nếu khách chỉ hỏi thẻ thường thì
+  // vẫn báo thẻ ở trên. (muc_tieu do classifier LLM quyết, không phải heuristic trên chữ khách.)
+  if (s.mucTieu === "giam-can" && pd.giamCanGoi) {
+    rows.push(
+      `─ (GÓI GIẢI PHÁP GIẢM CÂN trọn gói — CHỈ dùng làm câu trả lời khi khách hỏi gói giảm cân TRỌN GÓI / CAM KẾT giảm cân; chọn ĐÚNG 1 gói hợp nhất, đừng xổ cả bảng):\n${pd.giamCanGoi}`,
+    );
+    luat = `⚠ Khách mục tiêu GIẢM CÂN. Khách hỏi gói giảm cân TRỌN GÓI / CAM KẾT giảm cân → câu trả lời là một GÓI GIẢI PHÁP GIẢM CÂN dưới đây (Giảm cân 1 = 3.9 triệu là mức khởi điểm hay nêu), KHÔNG lấy thẻ tháng thường làm câu trả lời. Khách chỉ hỏi thẻ tập thường → báo thẻ như bình thường. ${luat}`;
   }
   return table(luat, rows.join("\n"));
 }

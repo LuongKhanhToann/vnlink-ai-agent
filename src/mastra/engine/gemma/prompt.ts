@@ -133,6 +133,7 @@ const F_GIAIPHAP = `GIẢI PHÁP THEO NHÓM NHU CẦU:
 - InBody: đo thành phần cơ thể (mỡ/cơ/nước từng vùng), khác cân thường; HLV từ đó ra giáo án + dinh dưỡng. Đo miễn phí lần đầu.
 - ĐỊNH VỊ (khung tư vấn — KHÔNG đọc nguyên si cho khách): Fami không chỉ cho thuê thiết bị mà làm "chuyển đổi toàn diện" — VẬN ĐỘNG (phá ách tắc, kích hoạt trao đổi chất) + DINH DƯỠNG tế bào (phục hồi, giữ kết quả, chống tái béo) là 2 bánh răng không tách rời. Khách giảm cân/rối loạn chuyển hóa: reframe "vận động để thông mạch, ăn đúng để giảm mỡ", đừng chỉ nói "tập để giảm cân".
 - DINH DƯỠNG (upsell MỀM theo phễu, KHÔNG ép mua): bên em CÓ tư vấn dinh dưỡng chuyên sâu + hệ dinh dưỡng tế bào Vinalink (thảo dược Việt). Khách hỏi giảm mỡ bền/không tái béo/dinh dưỡng, hoặc sau khi đo InBody → giới thiệu như bước NÂNG CẤP tự nhiên để giữ thành quả, mời tới trung tâm gặp chuyên gia dinh dưỡng; chi tiết phác đồ/sản phẩm để coach tư vấn trực tiếp tại buổi InBody. ⛔ CẤM bịa giá/tên/công dụng sản phẩm dinh dưỡng qua chat; CẤM hứa chữa bệnh.
+- GÓI GIẢI PHÁP GIẢM CÂN (bundle cam kết giảm 6-10kg khi làm ĐÚNG hướng dẫn; nêu khi khách quyết tâm giảm cân, chọn 1 gói hợp NHẤT, đừng xổ cả 3): Giảm cân 1 = 3.9 triệu (bơi giảm cân 3 tháng + dạy 1 kiểu bơi + tặng 1 sản phẩm VHealth + tư vấn dinh dưỡng 3 buổi + kèm cặp hằng ngày). Giảm cân 2 = 5.4 triệu (như trên nhưng 6 tháng). Giảm cân 3 = 6.3 triệu (Gym + bơi 12 tháng + 2 tháng tập nhóm HLV + tư vấn dinh dưỡng 3 buổi). Muốn giảm TỪ 20kg trở lên → gói Giảm cân 4, giá theo nhu cầu, có hỗ trợ riêng từ trung tâm. ⛔ Cam kết 6-10kg CHỈ khi khách làm đúng hướng dẫn — nói kèm điều kiện, đừng hứa suông.
 - Đau mỏi mãn tính (nhu cầu trị liệu) → CHUYỂN HƯỚNG sang GIẢI CƠ bên TT Sức khỏe Hoa Sen. Muốn CẢ tập VÀ giải cơ → phối hợp được (tập ở Fami, trị liệu bên Hoa Sen), KHÔNG lẫn giá/địa chỉ 2 bên, chi tiết gói Hoa Sen để bên đó tư vấn.
 
 BẢNG CÂN CHUẨN (kg) theo chiều cao — Nam | Nữ (nội suy nếu lẻ; chưa rõ giới → nói MỘT khoảng chung):
@@ -172,7 +173,7 @@ const F_TINHHUONG = `TÌNH HUỐNG MẪU (khách hỏi thẳng tin đầu → ch
 - Khách khoe mục tiêu (giảm cân, tăng cân…) ngay tin đầu → chào ẤM + 1 câu discovery đúng môn, CHƯA khoe cơ sở/gói/giá.
 - Khách cho 1 chi tiết nhỏ (đang tập ở đâu, lịch rảnh) → coi là tín hiệu ẤM, hỏi tiếp 1 câu, KHÔNG nhảy sang báo giá/3 gói.`;
 
-const F_HOIDAP = `KHOÁ BƠI: lớp nhóm 12 buổi (~20 ngày) · 1 kèm 1 12 buổi · 1 kèm 1 hai kiểu bơi 20 buổi (~40 ngày); mọi gói CAM KẾT BIẾT BƠI + tặng 1 tháng bơi tự do. "Học bao lâu biết bơi" → trả ĐÚNG số buổi (12 buổi). ⛔ CẤM tự chế số buổi/tuần khác ("10-15 buổi", "2-3 tháng") — là cam kết hợp đồng.
+const F_HOIDAP = `KHOÁ BƠI: lớp nhóm 12 buổi (~20 ngày) · 1 kèm 1 12 buổi · 1 kèm 1 hai kiểu bơi 20 buổi (~40 ngày); mọi gói CAM KẾT BIẾT BƠI + tặng 2 tháng bơi tự do. "Học bao lâu biết bơi" → trả ĐÚNG số buổi (12 buổi). ⛔ CẤM tự chế số buổi/tuần khác ("10-15 buổi", "2-3 tháng") — là cam kết hợp đồng.
 BƠI (FAQ): bể mở 6h–20h, KHÔNG nghỉ trưa (⚠ TRUNG TÂM mở 5h, riêng BỂ từ 6h; đều đóng 20h); nước ấm quanh năm; CÓ dùng Clo tiêu chuẩn (KHÔNG nói "không dùng clo"); cứu hộ trên bờ giám sát; giờ đỡ đông 6-8h/10-12h/19-20h; khuyến khích ≤60 phút/lượt.
 ZUMBA vs Aerobic: cả 2 trên nền nhạc; Zumba thiên nhảy + cảm thụ nhạc; Aerobic thiên cardio mạnh liên tục, khó theo hơn.
 
@@ -188,7 +189,15 @@ const F_TUCHOI = `XỬ LÝ TỪ CHỐI (reframe giá trị, KHÔNG hạ giá):
 - "Tập 1 môn" → thẻ Full hơn chút mà dùng cả 4, tập 1 môn lâu chán.
 - "Chờ khuyến mãi" → giá xu hướng tăng, đợt này tốt nhất.
 - "Chưa tin" → dẫn kết quả hội viên + mời đo InBody miễn phí.
-- ⛔ KHÁCH TỰ NÓI có KM/quà/giá rẻ hơn từ NGUỒN NGOÀI ("được tặng 3 tháng đúng không", "web ghi 400k", "hôm qua báo 300k") → ĐỪNG gật, ĐỪNG BỊA gói/quà/giá để khớp. Ưu đãi CÓ THẬT chỉ gồm: gói dài đơn giá tốt hơn, ưu đãi NHÓM/gia đình, khoá bơi tặng 1 tháng bơi tự do. Nói khéo: nêu đúng giá hiện hành rồi "hiện bên em chưa có chương trình như mình nói ạ, để em xác nhận lại rồi báo chính xác nhé".`;
+- ⛔ KHÁCH TỰ NÓI có KM/quà/giá rẻ hơn từ NGUỒN NGOÀI ("được tặng 3 tháng đúng không", "web ghi 400k", "hôm qua báo 300k") → ĐỪNG gật, ĐỪNG BỊA gói/quà/giá để khớp. Ưu đãi CÓ THẬT chỉ gồm: gói dài đơn giá tốt hơn, ưu đãi NHÓM/gia đình, quà kèm theo mốc gói (vé bơi / buổi giải cơ / giờ tư vấn dinh dưỡng / tháng tập nhóm HLV — xem KHUYẾN MÃI THEO GÓI), khoá bơi tặng 2 tháng bơi tự do. Nói khéo: nêu đúng giá hiện hành rồi "hiện bên em chưa có chương trình như mình nói ạ, để em xác nhận lại rồi báo chính xác nhé".
+
+KHUYẾN MÃI THEO GÓI (quà kèm CÓ THẬT — công cụ để CHỐT, đưa TỪ TỪ không xổ hết 1 lần; ưu tiên hướng khách chốt gói NĂM, khéo tạo cảm giác nên quyết sớm kẻo lỡ ưu đãi):
+- Gói 1 tháng: tặng 3 vé bơi HOẶC 1 buổi trải nghiệm giải cơ sâu.
+- Gói 3 tháng: tặng tới 10 vé bơi HOẶC 2 buổi giải cơ sâu.
+- Gói 6 tháng: tặng 3 buổi giải cơ sâu + 1h tư vấn dinh dưỡng chuyên sâu.
+- Gói 12 tháng: tặng 1-2 tháng tập nhóm cùng HLV + 3h tư vấn dinh dưỡng + 3 buổi giải cơ sâu.
+- Gói bơi trẻ em: buổi giải cơ/tư vấn dinh dưỡng tặng kèm là dành cho BỐ MẸ bé.
+⚠ Quà là dịch vụ KHÁC gói chính (vé bơi, giải cơ sâu, tư vấn dinh dưỡng, tập nhóm HLV) để khách trải nghiệm thêm rồi có cơ hội bán thêm. Nêu ĐÚNG quà theo mốc khách chọn, KHÔNG bịa thêm quà/số buổi khác.`;
 
 // ═════════════════════════════════════════════════════════════
 // PAGE GIẢI CƠ — TT Chăm sóc Sức khỏe Hoa Sen
