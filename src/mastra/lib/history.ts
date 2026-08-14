@@ -91,3 +91,28 @@ export async function clearHistory(senderId: string): Promise<void> {
   await ensureSchema();
   await getPool().query(`DELETE FROM chat_history WHERE sender_id = $1`, [senderId]);
 }
+
+/**
+ * Cặp tin gần nhất (tin khách mới nhất + tin bot mới nhất) để admin xem nhanh trong danh sách.
+ * Best-effort — lỗi → {user:null, bot:null}.
+ */
+export async function lastPair(senderId: string): Promise<{ user: string | null; bot: string | null }> {
+  try {
+    await ensureSchema();
+    const { rows } = await getPool().query(
+      `SELECT role, content FROM chat_history WHERE sender_id = $1 ORDER BY id DESC LIMIT 20`,
+      [senderId],
+    );
+    let user: string | null = null;
+    let bot: string | null = null;
+    for (const r of rows as { role: string; content: string }[]) {
+      if (!user && r.role !== "assistant") user = String(r.content ?? "").trim() || null;
+      if (!bot && r.role === "assistant") bot = String(r.content ?? "").trim() || null;
+      if (user && bot) break;
+    }
+    return { user, bot };
+  } catch (e) {
+    console.error(`[history] lastPair failed for ${senderId}:`, (e as Error).message);
+    return { user: null, bot: null };
+  }
+}

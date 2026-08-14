@@ -1,8 +1,11 @@
 /**
  * routes/admin.ts — Webadmin luồng mới (basic), 3 trang dạng tab client-side:
- *   1) Khách hàng   — danh sách user + bật/tắt AT/tổng + xoá (tái dùng lib/botControl).
- *   2) Tài liệu     — danh sách tài liệu RAG + upload (PDF/Word/text hoặc dán text) + xoá.
- *   3) Ảnh/Video    — thư viện Cloudinary theo danh mục + upload + xoá.
+ *   1) Khách hàng   — danh sách user + tin nhắn gần nhất + bật/tắt AI (lẻ/tổng) + xoá (lib/botControl).
+ *   2) Tài liệu     — danh sách tài liệu RAG + upload (PDF/Word/text) + XEM/SỬA trực tiếp + xoá.
+ *   3) Ảnh/Video    — thư viện Cloudinary theo danh mục + upload (kèm dung lượng/giới hạn) + xoá.
+ *
+ * Giao diện + chức năng bám sát webadmin cũ (dark/light, bảng khách có cột tin nhắn, media hiện
+ * dung lượng file + giới hạn), màu dịu.
  *
  * Auth: cookie ký HMAC bằng AUTH_SECRET, so username/password với ADMIN_USERNAME/ADMIN_PASSWORD.
  * Mọi API /admin/api/* đều qua isAuthed → 401 nếu chưa đăng nhập.
@@ -14,8 +17,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import "dotenv/config";
 
 import { listUsers, setBotEnabled, setGlobalEnabled, getGlobalEnabled, deleteBotUser } from "../lib/botControl";
-import { clearHistory } from "../lib/history";
-import { listDocs, ingestDoc, deleteDoc } from "../rag/store";
+import { clearHistory, lastPair } from "../lib/history";
+import { listDocs, ingestDoc, deleteDoc, getDoc, updateDoc } from "../rag/store";
 import { parseUpload } from "../lib/parseUpload";
 import {
   MEDIA_CATEGORIES,
@@ -72,7 +75,13 @@ adminWebhook.get("/admin/api/users", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   try {
     const [users, global] = await Promise.all([listUsers(), getGlobalEnabled()]);
-    return c.json({ users, global });
+    // Đính cặp tin nhắn gần nhất (giới hạn 80 user mới nhất để khỏi quá tải DB).
+    const withMsgs = await Promise.all(
+      users.map(async (u, i) =>
+        i < 80 ? { ...u, lastPair: await lastPair(u.sender_id) } : { ...u, lastPair: null },
+      ),
+    );
+    return c.json({ users: withMsgs, global });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
   }
@@ -139,6 +148,27 @@ adminWebhook.post("/admin/api/docs/upload", async (c) => {
   }
 });
 
+adminWebhook.post("/admin/api/docs/get", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  const b = await c.req.json().catch(() => ({}));
+  const doc = await getDoc(Number(b.id));
+  if (!doc) return c.json({ error: "Không tìm thấy tài liệu" }, 404);
+  return c.json({ doc });
+});
+
+adminWebhook.post("/admin/api/docs/update", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const b = await c.req.json().catch(() => ({}));
+    const id = Number(b.id);
+    if (!id) return c.json({ error: "Thiếu id tài liệu" }, 400);
+    const r = await updateDoc(id, { title: String(b.title ?? ""), text: String(b.text ?? "") });
+    return c.json({ ok: true, chunks: r.chunks });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400);
+  }
+});
+
 adminWebhook.post("/admin/api/docs/delete", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   const b = await c.req.json().catch(() => ({}));
@@ -152,7 +182,7 @@ adminWebhook.get("/admin/api/media", async (c) => {
   const cats = await Promise.all(
     MEDIA_CATEGORIES.map(async (cat) => ({ ...cat, ...(await listCategoryMedia(cat.base)) })),
   );
-  return c.json({ categories: cats });
+  return c.json({ categories: cats, limits: { image: IMAGE_MAX_BYTES, video: VIDEO_MAX_BYTES } });
 });
 
 adminWebhook.post("/admin/api/media/upload", async (c) => {
@@ -181,186 +211,613 @@ adminWebhook.post("/admin/api/media/delete", async (c) => {
   return c.json({ ok });
 });
 
-// ── UI (single page, 3 tab) ──
+// ── UI (single page, 3 tab). Không dùng ${...} / backtick trong <script> (đang nằm trong template literal). ──
 const PAGE_HTML = `<!doctype html>
-<html lang="vi"><head>
+<html lang="vi">
+<head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Fami Fitness — Admin</title>
+<script>(function(){var t=localStorage.getItem("theme");if(!t){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches)?"light":"dark";}document.documentElement.setAttribute("data-theme",t);})();</script>
 <style>
-  :root{--bg:#0f1420;--card:#171e2e;--line:#26304a;--fg:#e7ecf5;--mut:#95a2bd;--acc:#3b82f6;--ok:#16a34a;--danger:#dc2626}
-  *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg)}
-  header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-  header h1{font-size:16px;margin:0}
-  .tabs{display:flex;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line);overflow-x:auto}
-  .tabs button{flex:0 0 auto;background:transparent;color:var(--mut);border:1px solid var(--line);padding:8px 14px;border-radius:999px;font-size:14px;cursor:pointer}
-  .tabs button.active{background:var(--acc);color:#fff;border-color:var(--acc)}
-  main{padding:14px;max-width:960px;margin:0 auto}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
-  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
-  .row:last-child{border-bottom:0}
-  .muted{color:var(--mut);font-size:13px}
-  button.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:14px}
-  button.btn.gray{background:#31405f}
-  button.btn.danger{background:var(--danger)}
-  input,select,textarea{background:#0e1524;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:14px;width:100%}
-  textarea{min-height:120px;resize:vertical}
-  label{display:block;font-size:13px;color:var(--mut);margin:10px 0 5px}
-  .switch{position:relative;width:46px;height:26px;flex:0 0 auto}
-  .switch input{opacity:0;width:0;height:0}
-  .slider{position:absolute;inset:0;background:#3a4763;border-radius:999px;transition:.15s;cursor:pointer}
-  .slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
-  .switch input:checked + .slider{background:var(--ok)}
-  .switch input:checked + .slider:before{transform:translateX(20px)}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:10px}
-  .thumb{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;aspect-ratio:1}
-  .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block}
-  .thumb .x{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:6px;padding:2px 7px;cursor:pointer}
-  .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#111827;border:1px solid var(--line);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.2s;z-index:20}
-  .toast.show{opacity:1}
-  .login{max-width:340px;margin:12vh auto}
-  .hidden{display:none}
-  h3{margin:6px 0 2px;font-size:15px}
+:root{--radius:10px;--shadow:0 1px 3px rgba(0,0,0,.14)}
+[data-theme="dark"]{
+  --bg:#13161d; --surface:#1a1e27; --field:#1e222c; --border:#2a2f3a;
+  --text:#e3e6ec; --muted:#8b93a1; --mono:#98a1b0;
+  --accent:#4f7cc9; --accent-h:#4571be; --accent-text:#fff;
+  --btn:#232833; --btn-border:#333a47; --btn-h:#2b313d;
+  --on-bg:#193626; --on-text:#5fd493; --off-bg:#3a1e1e; --off-text:#ec8a8a;
+  --sw-off:#4b5563; --sw-on:#3fb56f;
+}
+[data-theme="light"]{
+  --bg:#f5f7fa; --surface:#ffffff; --field:#fbfcfe; --border:#e6eaf0;
+  --text:#2a3441; --muted:#6b7480; --mono:#6b7480;
+  --accent:#4a72c0; --accent-h:#3f63ac; --accent-text:#fff;
+  --btn:#ffffff; --btn-border:#dde2e9; --btn-h:#f0f3f7;
+  --on-bg:#e3f5ea; --on-text:#2f9d63; --off-bg:#fdeaea; --off-text:#c85a5a;
+  --sw-off:#cdd5df; --sw-on:#3fb56f;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);transition:background .2s,color .2s}
+.wrap{max-width:920px;margin:0 auto;padding:28px 16px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.topbar h1{font-size:20px;font-weight:650;margin:0}
+.subtitle{color:var(--muted);font-size:14px;margin:0 0 20px;line-height:1.5}
+.actions{display:flex;gap:8px}
+.btn{background:var(--btn);color:var(--text);border:1px solid var(--btn-border);border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-size:14px;transition:background .15s}
+.btn:hover{background:var(--btn-h)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.btn-primary:hover{background:var(--accent-h)}
+.btn-danger{background:var(--off-bg);border-color:var(--off-bg);color:var(--off-text)}
+.btn-sm{padding:6px 10px;font-size:13px}
+.input{width:100%;padding:11px 13px;margin-top:6px;background:var(--field);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px;outline:none}
+.input:focus{border-color:var(--accent)}
+.search{max-width:340px;margin-bottom:16px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--border)}
+tbody tr:last-child td{border-bottom:none}
+th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.03em;text-transform:uppercase}
+.name{font-weight:550}
+.mono{font-family:ui-monospace,SFMono-Regular,monospace;color:var(--mono);font-size:12px;margin-top:2px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--field);color:var(--muted)}
+.badge.on{background:var(--on-bg);color:var(--on-text)}
+.badge.off{background:var(--off-bg);color:var(--off-text)}
+.switch{position:relative;display:inline-block;width:46px;height:26px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;cursor:pointer;background:var(--sw-off);border-radius:999px;transition:.2s}
+.slider:before{content:"";position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+input:checked + .slider{background:var(--sw-on)}
+input:checked + .slider:before{transform:translateX(20px)}
+.master{display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:15px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+.master.off{border-color:var(--off-text)}
+.master h2{font-size:15px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:9px}
+.master-desc{color:var(--muted);font-size:13px;margin:0;line-height:1.45}
+.dimmed{opacity:.5;transition:opacity .15s}
+.card{max-width:370px;margin:9vh auto;background:var(--surface);padding:30px;border-radius:16px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.card h1{font-size:21px;margin:0 0 4px}
+.label{font-size:13px;color:var(--muted)}
+.error{color:var(--off-text);font-size:13px;margin-top:12px;min-height:16px}
+.muted{color:var(--muted);font-size:13px}
+.msgcol{max-width:380px}
+.msg-pair{display:flex;flex-direction:column;gap:4px}
+.msg-line{font-size:13px;line-height:1.4;color:var(--text);overflow-wrap:anywhere}
+.msg-who{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;margin-right:6px;vertical-align:1px}
+.msg-who.user{background:var(--off-bg);color:var(--off-text)}
+.msg-who.bot{background:var(--on-bg);color:var(--on-text)}
+.note{color:var(--muted);font-size:13px;margin-top:16px;line-height:1.5}
+.pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px}
+.pager .btn:disabled{opacity:.45;cursor:default}
+.pager .pageinfo{color:var(--muted);font-size:13px}
+.hidden{display:none}
+.right{text-align:right}
+.tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{background:none;border:none;color:var(--muted);padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.kgroup{font-size:14px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:22px 0 10px}
+.kcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:var(--shadow)}
+.khead{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:14px}
+.plbl{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+.ktext{width:100%;min-height:180px;background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.5;resize:vertical}
+.ktext-sm{min-height:90px}
+.kacts{display:flex;gap:8px;margin-top:10px}
+.kbtn{width:auto}
+.cat{margin-bottom:26px}
+.cat-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.cat-head h2{font-size:16px;margin:0;font-weight:600}
+.cat-count{color:var(--muted);font-size:13px;font-weight:400;margin-left:8px}
+.up-actions{display:flex;gap:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
+.mcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.mthumb{display:block;position:relative;aspect-ratio:1;background:var(--field)}
+.mthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mthumb .play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;color:#fff;background:rgba(0,0,0,.32)}
+.mmeta{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;gap:6px}
+.mfmt{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.del{background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:13px;flex:none;line-height:1;transition:background .15s,color .15s,border-color .15s}
+.del:hover{background:var(--off-bg);color:var(--off-text);border-color:var(--off-bg)}
+.empty{color:var(--muted);font-size:13px;padding:6px 0}
+.uploading{opacity:.6;pointer-events:none}
+.toast-wrap{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{background:var(--surface);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:11px 16px;font-size:14px;box-shadow:var(--shadow);max-width:90vw}
+.toast.ok{border-left-color:var(--sw-on)}
+.toast.err{border-left-color:var(--off-text)}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:70;padding:16px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;max-width:340px;width:100%;box-shadow:var(--shadow)}
+.modal p{margin:0 0 18px;font-size:15px;line-height:1.5}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+@media (max-width:640px){
+  .wrap{padding:20px 12px}
+  .master{flex-wrap:wrap}
+  #list .panel{border:none;background:transparent;box-shadow:none;border-radius:0;overflow:visible}
+  #list table,#list tbody{display:block;width:100%}
+  #list thead{display:none}
+  #list tbody tr{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:12px;box-shadow:var(--shadow);padding:4px 0}
+  #list tbody td{display:block;border-bottom:none;padding:6px 16px}
+  #list td.c-user{padding-top:12px}
+  #list td.c-user .name{font-size:15px}
+  #list td.c-msg{padding-bottom:11px;border-bottom:1px solid var(--border)}
+  #list td.msgcol{max-width:none}
+  #list td.c-act,#list td.c-ai,#list td.c-del{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left}
+  #list td.c-act::before{content:"Hoạt động gần nhất"}
+  #list td.c-ai::before{content:"Trợ lý AI"}
+  #list td.c-del::before{content:"Xoá dữ liệu chat"}
+  #list td.c-act::before,#list td.c-ai::before,#list td.c-del::before{color:var(--muted);font-size:13px;font-weight:600}
+  #list td.c-del{padding-bottom:14px}
+}
 </style>
-</head><body>
-
-<div id="loginView" class="login hidden">
-  <div class="card">
-    <h1 style="margin-top:0">Fami Fitness — Admin</h1>
-    <label>Tài khoản</label><input id="u" autocomplete="username"/>
-    <label>Mật khẩu</label><input id="p" type="password" autocomplete="current-password"/>
-    <button class="btn" style="margin-top:14px;width:100%" onclick="login()">Đăng nhập</button>
-    <div id="loginErr" class="muted" style="color:#f87171;margin-top:8px"></div>
-  </div>
+</head>
+<body>
+<div id="login" class="card hidden">
+  <h1>Fami Fitness — Admin</h1>
+  <p class="subtitle">Đăng nhập để quản lý trợ lý AI</p>
+  <label class="label">Tài khoản</label>
+  <input id="u" class="input" autofocus/>
+  <div style="height:14px"></div>
+  <label class="label">Mật khẩu</label>
+  <input id="p" class="input" type="password" onkeydown="if(event.key==='Enter')doLogin()"/>
+  <div style="height:22px"></div>
+  <button class="btn btn-primary" style="width:100%;padding:11px" onclick="doLogin()">Đăng nhập</button>
+  <div id="loginErr" class="error"></div>
 </div>
 
-<div id="appView" class="hidden">
-  <header><h1>Fami Fitness — Admin</h1><button class="btn gray" onclick="logout()">Đăng xuất</button></header>
+<div id="app" class="wrap hidden">
+  <div class="topbar">
+    <h1>Fami Fitness — Admin</h1>
+    <div class="actions">
+      <button id="themeBtn" class="btn" onclick="toggleTheme()"></button>
+      <button class="btn" onclick="doLogout()">Đăng xuất</button>
+    </div>
+  </div>
+
   <div class="tabs">
-    <button data-tab="users" class="active" onclick="showTab('users')">Khách hàng</button>
-    <button data-tab="docs" onclick="showTab('docs')">Tài liệu</button>
-    <button data-tab="media" onclick="showTab('media')">Ảnh / Video</button>
+    <button id="tab-users" class="tab active" onclick="switchTab('users')">Khách hàng</button>
+    <button id="tab-docs" class="tab" onclick="switchTab('docs')">Tài liệu</button>
+    <button id="tab-media" class="tab" onclick="switchTab('media')">Ảnh / Video</button>
   </div>
-  <main>
-    <section id="tab-users"></section>
-    <section id="tab-docs" class="hidden"></section>
-    <section id="tab-media" class="hidden"></section>
-  </main>
+
+  <div id="view-users">
+    <div id="master" class="master">
+      <div>
+        <h2>Trợ lý AI tự động <span id="masterBadge" class="badge on">Đang bật</span></h2>
+        <p id="masterDesc" class="master-desc"></p>
+      </div>
+      <label class="switch"><input id="masterSw" type="checkbox" onchange="toggleGlobal(this)"/><span class="slider"></span></label>
+    </div>
+    <div id="usersWrap">
+      <p class="subtitle">Bật hoặc tắt việc trợ lý AI tự động trả lời từng người.</p>
+      <input id="q" class="input search" placeholder="Tìm theo tên hoặc ID…" oninput="render()"/>
+      <div id="list"></div>
+      <p id="userNote" class="note">Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo.</p>
+    </div>
+  </div>
+
+  <div id="view-docs" class="hidden">
+    <p class="subtitle">Tài liệu bot đọc để tư vấn (RAG). Nạp PDF, Word (.docx), text/.md — hoặc dán nội dung trực tiếp. Nạp/sửa xong bot dùng được ngay ở tin kế tiếp.</p>
+    <div class="kcard">
+      <div class="khead"><b>Nạp tài liệu mới</b></div>
+      <label class="plbl">Tên tài liệu (để trống sẽ lấy tên file)</label>
+      <input id="doc-title" class="input" placeholder="VD: Bảng giá Fami"/>
+      <label class="plbl">Cách 1 — Chọn file (PDF / Word / text)</label>
+      <input id="doc-file" type="file" accept=".pdf,.doc,.docx,.txt,.md,.markdown" class="input"/>
+      <label class="plbl">Cách 2 — Hoặc dán nội dung text</label>
+      <textarea id="doc-text" class="ktext ktext-sm" placeholder="Dán nội dung tài liệu vào đây nếu không có file."></textarea>
+      <div class="kacts"><button id="doc-up-btn" class="btn btn-primary kbtn" onclick="uploadDoc()">Nạp tài liệu</button></div>
+      <p class="note">File scan (ảnh) không đọc được chữ — hãy dán text.</p>
+    </div>
+    <h3 class="kgroup">Tài liệu hiện có</h3>
+    <div id="docList"><p class="muted">Đang tải…</p></div>
+  </div>
+
+  <div id="view-media" class="hidden">
+    <p class="subtitle" id="mediaSub">Ảnh/video gửi cho khách qua Facebook. Giới hạn: ảnh ≤ 8MB, video ≤ 25MB.</p>
+    <div id="mediaList"><p class="muted">Đang tải…</p></div>
+  </div>
 </div>
 
-<div id="toast" class="toast"></div>
+<input id="fileInput" type="file" class="hidden"/>
+<div id="toasts" class="toast-wrap"></div>
 
 <script>
-const $ = (s)=>document.querySelector(s);
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2200);}
-async function api(path, opts){const r=await fetch(path,opts);let j={};try{j=await r.json()}catch(e){}if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
+var USERS = [];
+var GLOBAL_ON = true;
+var PAGE = 1;
+var PAGE_SIZE = 20;
+var LAST_Q = null;
+var MEDIA = null;
+var LIMITS = { image: 8388608, video: 26214400 };
+var DELITEMS = [];
+
+function show(id){ document.getElementById(id).classList.remove("hidden"); }
+function hide(id){ document.getElementById(id).classList.add("hidden"); }
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];}); }
+function cut(s,n){ s=(s==null?"":String(s)); return s.length>n ? s.slice(0,n)+"…" : s; }
+function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"2-digit",year:"numeric",hour12:false}); } catch(e){ return iso; } }
+function fmtBytes(n){ if(!n) return "0 B"; var u=["B","KB","MB","GB"]; var i=Math.floor(Math.log(n)/Math.log(1024)); return (n/Math.pow(1024,i)).toFixed(i?1:0)+" "+u[i]; }
+
+function toggleTheme(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  var next = cur === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  updateThemeBtn();
+}
+function updateThemeBtn(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  var b = document.getElementById("themeBtn");
+  if(b) b.textContent = cur === "light" ? "Chế độ tối" : "Chế độ sáng";
+}
+
+async function doLogin(){
+  document.getElementById("loginErr").textContent = "";
+  var r = await fetch("/admin/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({username:document.getElementById("u").value, password:document.getElementById("p").value})});
+  if(r.ok){ hide("login"); boot(); }
+  else { var d = await r.json().catch(function(){return {};}); document.getElementById("loginErr").textContent = d.error || "Đăng nhập thất bại"; }
+}
+async function doLogout(){ await fetch("/admin/api/logout",{method:"POST"}); location.reload(); }
+
+function forceLogin(msg){
+  hide("app");
+  document.querySelectorAll(".modal-bg").forEach(function(b){ b.remove(); });
+  show("login");
+  var le = document.getElementById("loginErr");
+  if(le) le.textContent = msg || "";
+}
+function handle401(r){
+  if(r && r.status===401){ forceLogin("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại."); return true; }
+  return false;
+}
 
 async function boot(){
-  const me=await fetch("/admin/api/me").then(r=>r.json()).catch(()=>({authed:false}));
-  if(me.authed){$("#loginView").classList.add("hidden");$("#appView").classList.remove("hidden");showTab("users");}
-  else{$("#appView").classList.add("hidden");$("#loginView").classList.remove("hidden");}
+  updateThemeBtn();
+  try {
+    var me = await fetch("/admin/api/me",{cache:"no-store"}).then(function(r){return r.json();}).catch(function(){return {authed:false};});
+    if(!me.authed){ hide("app"); show("login"); return; }
+    hide("login"); show("app"); switchTab("users");
+  } catch(e){ forceLogin("Có lỗi xảy ra, vui lòng đăng nhập lại."); }
 }
-async function login(){
-  try{await api("/admin/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#u").value,password:$("#p").value})});boot();}
-  catch(e){$("#loginErr").textContent=e.message;}
-}
-async function logout(){await fetch("/admin/api/logout",{method:"POST"});boot();}
 
-function showTab(name){
-  document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===name));
-  ["users","docs","media"].forEach(n=>$("#tab-"+n).classList.toggle("hidden",n!==name));
-  if(name==="users")loadUsers();if(name==="docs")loadDocs();if(name==="media")loadMedia();
+function switchTab(name){
+  ["users","docs","media"].forEach(function(t){
+    var tb = document.getElementById("tab-"+t); if(tb) tb.classList.toggle("active", t===name);
+    var vw = document.getElementById("view-"+t); if(vw) vw.classList.toggle("hidden", t!==name);
+  });
+  if(name==="users") loadUsers();
+  if(name==="docs") loadDocs();
+  if(name==="media") loadMedia();
 }
 
 // ── Khách hàng ──
 async function loadUsers(){
-  const el=$("#tab-users");el.innerHTML='<div class="muted">Đang tải…</div>';
-  try{
-    const {users,global}=await api("/admin/api/users");
-    let h='<div class="card"><div class="row"><div><b>Công tắc tổng</b><div class="muted">Tắt = AI im với mọi người</div></div>'
-      +switchHtml("g",global,'toggleGlobal(this.checked)')+'</div></div>';
-    h+='<div class="card"><h3>Danh sách khách ('+users.length+')</h3>';
-    if(!users.length)h+='<div class="muted">Chưa có khách nào nhắn.</div>';
-    users.forEach(u=>{
-      h+='<div class="row"><div><b>'+esc(u.name||"(chưa rõ tên)")+'</b><div class="muted">'+u.sender_id+' · '+fmt(u.last_active)+'</div></div>'
-        +'<div style="display:flex;gap:10px;align-items:center">'
-        +switchHtml("u_"+u.sender_id,u.enabled,'toggleUser("'+u.sender_id+'",this.checked)')
-        +'<button class="btn danger" onclick="delUser(\\''+u.sender_id+'\\')">Xoá</button></div></div>';
-    });
-    h+='</div>';el.innerHTML=h;
-  }catch(e){el.innerHTML='<div class="card muted">Lỗi: '+esc(e.message)+'</div>';}
+  try {
+    var r = await fetch("/admin/api/users",{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ document.getElementById("list").innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+    var d = await r.json();
+    USERS = d.users || [];
+    GLOBAL_ON = d.global !== false;
+    renderGlobal(); render();
+  } catch(e){ document.getElementById("list").innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; }
 }
-function switchHtml(id,on,handler){return '<label class="switch"><input type="checkbox" '+(on?"checked":"")+' onchange="'+handler+'"><span class="slider"></span></label>';}
-async function toggleGlobal(v){await api("/admin/api/global",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:v})});toast(v?"Đã BẬT AI tổng":"Đã TẮT AI tổng");}
-async function toggleUser(id,v){await api("/admin/api/users/toggle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({senderId:id,enabled:v})});toast("Đã cập nhật");}
-async function delUser(id){if(!confirm("Xoá khách này và toàn bộ lịch sử chat?"))return;await api("/admin/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({senderId:id})});toast("Đã xoá");loadUsers();}
+
+function renderGlobal(){
+  var on = GLOBAL_ON;
+  document.getElementById("masterSw").checked = on;
+  document.getElementById("master").className = "master" + (on ? "" : " off");
+  var b = document.getElementById("masterBadge");
+  b.className = "badge " + (on ? "on" : "off");
+  b.textContent = on ? "Đang bật" : "Đã tắt";
+  document.getElementById("masterDesc").textContent = on
+    ? "AI đang tự động trả lời mọi người nhắn đến — trừ những người bạn tắt riêng ở bảng dưới."
+    : "AI đang TẮT với tất cả mọi người, kể cả khách mới. Tin nhắn khách vẫn được lưu, bật lại là bot có đủ ngữ cảnh.";
+  document.getElementById("usersWrap").className = on ? "" : "dimmed";
+  document.getElementById("userNote").textContent = on
+    ? "Khi tắt, trợ lý AI sẽ ngừng trả lời người này. Thay đổi có hiệu lực ngay ở tin nhắn tiếp theo."
+    : "Công tắc tổng đang TẮT nên AI không trả lời ai. Cài đặt riêng từng người dưới đây vẫn được giữ và sẽ có hiệu lực lại khi bật tổng.";
+}
+
+async function toggleGlobal(el){
+  var next = el.checked;
+  if(!next){
+    var yes = await askConfirm("Tắt trợ lý AI với TẤT CẢ mọi người? Bot sẽ ngừng tự động trả lời mọi khách nhắn đến cho tới khi bạn bật lại.", "Tắt tất cả", true);
+    if(!yes){ el.checked = true; return; }
+  }
+  el.disabled = true;
+  var r = await fetch("/admin/api/global",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:next})});
+  el.disabled = false;
+  if(handle401(r)){ el.checked = !next; return; }
+  if(r.ok){ GLOBAL_ON = next; renderGlobal(); toast(next ? "Đã bật AI cho tất cả mọi người." : "Đã tắt AI với tất cả mọi người.", "ok"); }
+  else { el.checked = !next; toast("Cập nhật thất bại, thử lại.", "err"); }
+}
+
+function changePage(delta){ PAGE += delta; render(); }
+
+function render(){
+  var q = (document.getElementById("q").value||"").trim().toLowerCase();
+  if(q !== LAST_Q){ PAGE = 1; LAST_Q = q; }
+  var rows = USERS.filter(function(u){
+    if(!q) return true;
+    return (u.name||"").toLowerCase().indexOf(q)>=0 || String(u.sender_id).indexOf(q)>=0;
+  });
+  if(rows.length===0){ document.getElementById("list").innerHTML = '<p class="muted">Chưa có khách nào nhắn.</p>'; return; }
+  var total = rows.length;
+  var pages = Math.ceil(total / PAGE_SIZE);
+  if(PAGE > pages) PAGE = pages;
+  if(PAGE < 1) PAGE = 1;
+  var start = (PAGE - 1) * PAGE_SIZE;
+  var pageRows = rows.slice(start, start + PAGE_SIZE);
+  var html = '<div class="panel"><table><thead><tr><th>Khách hàng</th><th>Tin nhắn gần nhất</th><th>Hoạt động gần nhất</th><th class="right">Trợ lý AI</th><th class="right">Xoá</th></tr></thead><tbody>';
+  pageRows.forEach(function(u){
+    var p = u.lastPair || {};
+    var pairHtml = (!p.user && !p.bot)
+      ? '<span class="muted">—</span>'
+      : '<div class="msg-pair">'
+          + (p.user ? '<div class="msg-line"><span class="msg-who user">Khách</span> ' + esc(cut(p.user,140)) + '</div>' : '')
+          + (p.bot  ? '<div class="msg-line"><span class="msg-who bot">Bot</span> '   + esc(cut(p.bot,140))  + '</div>' : '')
+        + '</div>';
+    html += '<tr>'
+      + '<td class="c-user"><div class="name">' + esc(u.name || "(chưa rõ tên)") + '</div><div class="mono">' + esc(u.sender_id) + '</div></td>'
+      + '<td class="msgcol c-msg">' + pairHtml + '</td>'
+      + '<td class="muted c-act">' + fmt(u.last_active) + '</td>'
+      + '<td class="right c-ai"><label class="switch"><input type="checkbox" ' + (u.enabled?"checked":"")
+      + ' onchange="toggle(\\'' + esc(u.sender_id) + '\\', this)"><span class="slider"></span></label></td>'
+      + '<td class="right c-del"><button class="del" title="Xoá dữ liệu chat" onclick="delUser(\\'' + esc(u.sender_id) + '\\', this)">✕</button></td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div>';
+  if(pages > 1){
+    var from = start + 1, to = start + pageRows.length;
+    html += '<div class="pager">'
+      + '<button class="btn" onclick="changePage(-1)"' + (PAGE<=1?" disabled":"") + '>‹ Trước</button>'
+      + '<span class="pageinfo">' + from + '–' + to + ' / ' + total + ' · Trang ' + PAGE + '/' + pages + '</span>'
+      + '<button class="btn" onclick="changePage(1)"' + (PAGE>=pages?" disabled":"") + '>Sau ›</button>'
+      + '</div>';
+  }
+  document.getElementById("list").innerHTML = html;
+}
+
+async function toggle(senderId, el){
+  el.disabled = true;
+  var next = el.checked;
+  var r = await fetch("/admin/api/users/toggle",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({senderId:senderId, enabled:next})});
+  el.disabled = false;
+  if(handle401(r)){ el.checked = !next; return; }
+  if(r.ok){ var u = USERS.find(function(x){return x.sender_id===senderId;}); if(u) u.enabled = next; }
+  else { el.checked = !next; toast("Cập nhật thất bại, thử lại.", "err"); }
+}
+
+async function delUser(senderId, btn){
+  var yes = await askConfirm("Xoá toàn bộ dữ liệu chat của người này? Gồm tin nhắn và lịch sử hội thoại — KHÔNG thể hoàn tác.", "Xoá", true);
+  if(!yes) return;
+  if(btn) btn.disabled = true;
+  var r = await fetch("/admin/api/users/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({senderId:senderId})});
+  if(handle401(r)){ if(btn) btn.disabled = false; return; }
+  if(r.ok){ USERS = USERS.filter(function(x){ return x.sender_id !== senderId; }); render(); toast("Đã xoá dữ liệu chat.", "ok"); }
+  else { if(btn) btn.disabled = false; toast("Xoá thất bại, thử lại.", "err"); }
+}
 
 // ── Tài liệu ──
 async function loadDocs(){
-  const el=$("#tab-docs");el.innerHTML='<div class="muted">Đang tải…</div>';
-  try{
-    const {docs}=await api("/admin/api/docs");
-    let h='<div class="card"><h3>Nạp tài liệu</h3>'
-      +'<label>Tên tài liệu</label><input id="docTitle" placeholder="VD: Bảng giá Fami"/>'
-      +'<label>Chọn file (PDF / Word / .txt / .md)</label><input id="docFile" type="file" accept=".pdf,.doc,.docx,.txt,.md"/>'
-      +'<label>… hoặc dán nội dung text</label><textarea id="docText" placeholder="Dán nội dung tài liệu vào đây"></textarea>'
-      +'<button class="btn" style="margin-top:12px" onclick="uploadDoc()">Nạp tài liệu</button></div>';
-    h+='<div class="card"><h3>Tài liệu hiện có ('+docs.length+')</h3>';
-    if(!docs.length)h+='<div class="muted">Chưa có tài liệu nào.</div>';
-    docs.forEach(d=>{h+='<div class="row"><div><b>'+esc(d.title)+'</b><div class="muted">'+d.chunk_count+' đoạn · '+fmt(d.created_at)+'</div></div>'
-      +'<button class="btn danger" onclick="delDoc('+d.id+')">Xoá</button></div>';});
-    h+='</div>';el.innerHTML=h;
-  }catch(e){el.innerHTML='<div class="card muted">Lỗi: '+esc(e.message)+'</div>';}
+  var box = document.getElementById("docList");
+  try {
+    var r = await fetch("/admin/api/docs",{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ box.innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+    var d = await r.json();
+    renderDocs(d.docs || []);
+  } catch(e){ box.innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; }
 }
+
+function renderDocs(docs){
+  var box = document.getElementById("docList");
+  if(!docs.length){ box.innerHTML = '<p class="muted">Chưa có tài liệu nào.</p>'; return; }
+  var html = "";
+  docs.forEach(function(d){
+    var when = (d.created_at||"").slice(0,10);
+    html += '<div class="kcard"><div class="khead"><b>'+esc(d.title)+'</b>'
+      + '<span class="muted" style="margin-left:auto">'+d.chunk_count+' đoạn · '+esc(when)+'</span></div>'
+      + '<div class="kacts"><button class="btn kbtn" onclick="editDoc('+d.id+')">Xem / Sửa</button>'
+      + '<button class="btn btn-danger kbtn" onclick="delDoc('+d.id+')">Xoá</button></div>'
+      + '<div id="docedit-'+d.id+'" class="hidden" style="margin-top:12px"></div></div>';
+  });
+  box.innerHTML = html;
+}
+
+async function editDoc(id){
+  var box = document.getElementById("docedit-"+id);
+  if(box.getAttribute("data-loaded")==="1"){ box.classList.toggle("hidden"); return; }
+  box.classList.remove("hidden");
+  box.innerHTML = '<p class="muted">Đang tải…</p>';
+  var r = await fetch("/admin/api/docs/get",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(!r.ok){ box.innerHTML = '<p class="muted">'+esc(d.error||"Lỗi tải")+'</p>'; return; }
+  var doc = d.doc;
+  box.innerHTML =
+    '<label class="plbl">Tên tài liệu</label>'
+    + '<input id="doctitle-'+id+'" class="input" value="'+esc(doc.title)+'"/>'
+    + '<label class="plbl">Nội dung (sửa xong bấm Lưu — bot cắt đoạn + học lại ngay)</label>'
+    + '<textarea id="doctext-'+id+'" class="ktext">'+esc(doc.content)+'</textarea>'
+    + '<div class="kacts"><button class="btn btn-primary kbtn" onclick="saveDoc('+id+')">Lưu tài liệu</button>'
+    + '<button class="btn kbtn" onclick="editDoc('+id+')">Đóng</button></div>';
+  box.setAttribute("data-loaded","1");
+}
+
+async function saveDoc(id){
+  var title = document.getElementById("doctitle-"+id).value;
+  var text = document.getElementById("doctext-"+id).value;
+  if(!title.trim() || !text.trim()){ toast("Cần tên và nội dung","err"); return; }
+  var r = await fetch("/admin/api/docs/update",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,title:title,text:text})});
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(r.ok){ toast("Đã lưu ("+d.chunks+" đoạn), bot dùng được ngay","ok"); loadDocs(); }
+  else { toast(d.error || "Lưu thất bại","err"); }
+}
+
 async function uploadDoc(){
-  const title=$("#docTitle").value.trim();const file=$("#docFile").files[0];const text=$("#docText").value.trim();
-  try{
-    toast("Đang nạp…");
-    if(file){const fd=new FormData();fd.append("title",title);fd.append("file",file);await api("/admin/api/docs/upload",{method:"POST",body:fd});}
-    else{if(!title||!text){toast("Cần tên + file hoặc text");return;}await api("/admin/api/docs/upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title,text})});}
-    toast("Đã nạp tài liệu");loadDocs();
-  }catch(e){toast("Lỗi: "+e.message);}
+  var btn = document.getElementById("doc-up-btn");
+  var title = document.getElementById("doc-title").value;
+  var fileEl = document.getElementById("doc-file");
+  var text = document.getElementById("doc-text").value;
+  var hasFile = fileEl.files && fileEl.files.length;
+  if(!hasFile && !text.trim()){ toast("Chọn file hoặc dán nội dung","err"); return; }
+  btn.disabled = true; btn.textContent = "Đang xử lý…";
+  var r;
+  try {
+    if(hasFile){
+      var fd = new FormData();
+      fd.append("file", fileEl.files[0]); fd.append("title", title);
+      r = await fetch("/admin/api/docs/upload",{method:"POST",body:fd});
+    } else {
+      r = await fetch("/admin/api/docs/upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:title,text:text})});
+    }
+  } catch(e){ toast("Tải lên lỗi","err"); btn.disabled=false; btn.textContent="Nạp tài liệu"; return; }
+  btn.disabled = false; btn.textContent = "Nạp tài liệu";
+  if(handle401(r)) return;
+  var d = await r.json().catch(function(){return {};});
+  if(r.ok){
+    toast("Đã nạp tài liệu ("+d.chunks+" đoạn), bot dùng được ngay","ok");
+    document.getElementById("doc-title").value=""; fileEl.value=""; document.getElementById("doc-text").value="";
+    loadDocs();
+  } else { toast(d.error || "Nạp thất bại","err"); }
 }
-async function delDoc(id){if(!confirm("Xoá tài liệu này?"))return;await api("/admin/api/docs/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});toast("Đã xoá");loadDocs();}
 
-// ── Ảnh/Video ──
+async function delDoc(id){
+  if(!(await askConfirm("Xoá hẳn tài liệu này khỏi kiến thức bot?","Xoá",true))) return;
+  var r = await fetch("/admin/api/docs/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã xoá","ok"); loadDocs(); }
+  else { toast("Xoá thất bại","err"); }
+}
+
+// ── Ảnh / Video ──
+function imgThumb(url){ return url.indexOf("/upload/")>=0 ? url.replace("/upload/","/upload/c_fill,w_260,h_260,q_auto,f_auto/") : url; }
+function videoPoster(url){
+  var u = url.indexOf("/upload/")>=0 ? url.replace("/upload/","/upload/so_0,c_fill,w_260,h_260/") : url;
+  var dot = u.lastIndexOf("."); return dot>=0 ? u.slice(0,dot) + ".jpg" : u;
+}
+
 async function loadMedia(){
-  const el=$("#tab-media");el.innerHTML='<div class="muted">Đang tải…</div>';
-  try{
-    const {categories}=await api("/admin/api/media");
-    let h="";
-    categories.forEach(cat=>{
-      h+='<div class="card"><h3>'+esc(cat.label)+'</h3>';
-      h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">'
-        +'<button class="btn gray" onclick="pickUpload(\\''+cat.base+'\\',\\'img\\')">+ Ảnh</button>'
-        +'<button class="btn gray" onclick="pickUpload(\\''+cat.base+'\\',\\'video\\')">+ Video</button></div>';
-      h+='<div class="grid">';
-      (cat.images||[]).forEach(m=>{h+=thumb(m,"image");});
-      (cat.videos||[]).forEach(m=>{h+=thumb(m,"video");});
-      if(!(cat.images||[]).length&&!(cat.videos||[]).length)h+='<div class="muted">Trống</div>';
-      h+='</div></div>';
-    });
-    el.innerHTML=h+'<input id="mediaFile" type="file" class="hidden"/>';
-  }catch(e){el.innerHTML='<div class="card muted">Lỗi: '+esc(e.message)+'</div>';}
+  var box = document.getElementById("mediaList");
+  box.innerHTML = '<p class="muted">Đang tải…</p>';
+  try {
+    var r = await fetch("/admin/api/media",{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ box.innerHTML = '<p class="muted">Không tải được thư viện. Thử lại sau.</p>'; return; }
+    var d = await r.json();
+    MEDIA = d.categories || [];
+    if(d.limits) LIMITS = d.limits;
+    document.getElementById("mediaSub").textContent =
+      "Ảnh/video gửi cho khách qua Facebook. Giới hạn: ảnh ≤ " + fmtBytes(LIMITS.image) + ", video ≤ " + fmtBytes(LIMITS.video) + ".";
+    renderMedia();
+  } catch(e){ box.innerHTML = '<p class="muted">Không tải được thư viện. Thử lại sau.</p>'; }
 }
-function thumb(m,rt){
-  const media=rt==="video"?'<video src="'+m.url+'" muted></video>':'<img src="'+m.url+'"/>';
-  return '<div class="thumb">'+media+'<button class="x" onclick="delMedia(\\''+m.public_id+'\\',\\''+rt+'\\')">✕</button></div>';
-}
-let _up={base:"",kind:"img"};
-function pickUpload(base,kind){_up={base,kind};const f=$("#mediaFile");f.accept=kind==="video"?"video/*":"image/*";f.onchange=doUpload;f.click();}
-async function doUpload(){
-  const file=$("#mediaFile").files[0];if(!file)return;
-  try{toast("Đang tải lên…");const fd=new FormData();fd.append("base",_up.base);fd.append("kind",_up.kind);fd.append("file",file);
-    await api("/admin/api/media/upload",{method:"POST",body:fd});toast("Đã tải lên");loadMedia();}
-  catch(e){toast("Lỗi: "+e.message);}
-  $("#mediaFile").value="";
-}
-async function delMedia(publicId,rt){if(!confirm("Xoá media này?"))return;await api("/admin/api/media/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({publicId,resourceType:rt})});toast("Đã xoá");loadMedia();}
 
-function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function fmt(t){try{return new Date(t).toLocaleString("vi-VN")}catch(e){return t}}
+function renderMedia(){
+  DELITEMS = [];
+  var box = document.getElementById("mediaList");
+  var html = "";
+  MEDIA.forEach(function(cat){
+    var items = (cat.images||[]).concat(cat.videos||[]);
+    html += '<div class="cat">';
+    html += '<div class="cat-head"><h2>' + esc(cat.label)
+      + '<span class="cat-count">' + (cat.images||[]).length + ' ảnh · ' + (cat.videos||[]).length + ' video</span></h2>';
+    html += '<div class="up-actions">'
+      + '<button class="btn btn-sm up" data-base="' + esc(cat.base) + '" data-kind="img">+ Ảnh</button>'
+      + '<button class="btn btn-sm up" data-base="' + esc(cat.base) + '" data-kind="video">+ Video</button>'
+      + '</div></div>';
+    if(items.length===0){
+      html += '<p class="empty">Chưa có ảnh/video nào.</p>';
+    } else {
+      html += '<div class="grid">';
+      items.forEach(function(it){
+        var idx = DELITEMS.length;
+        DELITEMS.push({ public_id: it.public_id, resource_type: it.resource_type });
+        var isVideo = it.resource_type === "video";
+        var thumb = isVideo
+          ? '<img src="' + esc(videoPoster(it.url)) + '" onerror="this.remove()"/><span class="play">▶</span>'
+          : '<img src="' + esc(imgThumb(it.url)) + '" loading="lazy"/>';
+        html += '<div class="mcard">'
+          + '<a class="mthumb" href="' + esc(it.url) + '" target="_blank" rel="noopener">' + thumb + '</a>'
+          + '<div class="mmeta"><span class="mfmt">' + esc((it.format||"").toUpperCase()) + ' · ' + fmtBytes(it.bytes) + '</span>'
+          + '<button class="del" data-i="' + idx + '" title="Xoá">✕</button></div>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+  box.innerHTML = html;
+  box.querySelectorAll(".up").forEach(function(b){
+    b.addEventListener("click", function(){ pickFile(b.getAttribute("data-base"), b.getAttribute("data-kind")); });
+  });
+  box.querySelectorAll(".del").forEach(function(b){
+    b.addEventListener("click", function(){ var t = DELITEMS[+b.getAttribute("data-i")]; if(t) deleteItem(t, b); });
+  });
+}
+
+function pickFile(base, kind){
+  var inp = document.getElementById("fileInput");
+  inp.accept = kind === "video" ? "video/*" : "image/*";
+  inp.onchange = function(){ if(inp.files && inp.files[0]) uploadFile(base, kind, inp.files[0]); inp.value = ""; };
+  inp.click();
+}
+
+async function uploadFile(base, kind, f){
+  var max = kind === "video" ? LIMITS.video : LIMITS.image;
+  if(f.size > max){ toast("File quá lớn (" + fmtBytes(f.size) + "). Tối đa " + fmtBytes(max) + " theo giới hạn Facebook.", "err"); return; }
+  var yes = await askConfirm("Tải " + (kind === "video" ? "video" : "ảnh") + " '" + f.name + "' (" + fmtBytes(f.size) + ") lên mục này?", "Tải lên");
+  if(!yes) return;
+  var box = document.getElementById("mediaList");
+  box.classList.add("uploading");
+  var fd = new FormData();
+  fd.append("base", base); fd.append("kind", kind); fd.append("file", f);
+  var r = await fetch("/admin/api/media/upload",{ method:"POST", body: fd });
+  box.classList.remove("uploading");
+  if(handle401(r)) return;
+  if(r.ok){ toast("Đã tải lên.", "ok"); await loadMedia(); }
+  else { var d = await r.json().catch(function(){ return {}; }); toast(d.error || "Tải lên thất bại, thử lại.", "err"); }
+}
+
+async function deleteItem(t, btn){
+  if(!(await askConfirm("Xoá media này?","Xoá",true))) return;
+  if(btn) btn.disabled = true;
+  var r = await fetch("/admin/api/media/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({publicId:t.public_id, resourceType:t.resource_type})});
+  if(handle401(r)){ if(btn) btn.disabled = false; return; }
+  if(r.ok){ toast("Đã xoá.", "ok"); await loadMedia(); }
+  else { if(btn) btn.disabled = false; toast("Xoá thất bại, thử lại.", "err"); }
+}
+
+// ── Toast + hộp xác nhận ──
+function toast(msg, kind){
+  var wrap = document.getElementById("toasts");
+  var el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 3000);
+}
+function askConfirm(msg, okLabel, danger){
+  return new Promise(function(resolve){
+    var bg = document.createElement("div"); bg.className = "modal-bg";
+    var box = document.createElement("div"); box.className = "modal";
+    var p = document.createElement("p"); p.textContent = msg; box.appendChild(p);
+    var acts = document.createElement("div"); acts.className = "modal-actions";
+    var cancel = document.createElement("button"); cancel.className = "btn"; cancel.textContent = "Huỷ";
+    var ok = document.createElement("button"); ok.className = "btn " + (danger ? "btn-danger" : "btn-primary"); ok.textContent = okLabel || "Đồng ý";
+    acts.appendChild(cancel); acts.appendChild(ok); box.appendChild(acts); bg.appendChild(box);
+    document.body.appendChild(bg);
+    function done(v){ bg.remove(); resolve(v); }
+    cancel.onclick = function(){ done(false); };
+    ok.onclick = function(){ done(true); };
+    bg.onclick = function(e){ if(e.target === bg) done(false); };
+  });
+}
+
 boot();
 </script>
-</body></html>`;
+</body>
+</html>`;

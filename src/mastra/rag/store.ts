@@ -43,6 +43,8 @@ function ensureSchema(): Promise<void> {
            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
          )`,
       );
+      // Lưu NGUYÊN VĂN nội dung để admin xem/sửa lại (chunks có overlap nên không ghép ngược chuẩn).
+      await p.query(`ALTER TABLE rag_docs ADD COLUMN IF NOT EXISTS content TEXT`);
       await p.query(
         `CREATE TABLE IF NOT EXISTS rag_chunks (
            id        BIGSERIAL PRIMARY KEY,
@@ -105,8 +107,8 @@ export async function ingestDoc(input: { title: string; text: string }): Promise
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO rag_docs (title, chunk_count) VALUES ($1,$2) RETURNING id`,
-      [title, chunks.length],
+      `INSERT INTO rag_docs (title, chunk_count, content) VALUES ($1,$2,$3) RETURNING id`,
+      [title, chunks.length, input.text ?? ""],
     );
     const docId = Number(rows[0].id);
     for (let i = 0; i < chunks.length; i++) {
@@ -197,4 +199,52 @@ export async function listDocs(): Promise<DocMeta[]> {
 export async function deleteDoc(id: number): Promise<void> {
   await ensureSchema();
   await getPool().query(`DELETE FROM rag_docs WHERE id=$1`, [id]);
+}
+
+/** Lấy nguyên văn 1 tài liệu để admin xem/sửa. Tài liệu cũ (chưa có cột content) → ghép tạm từ chunks. */
+export async function getDoc(id: number): Promise<{ id: number; title: string; content: string } | null> {
+  await ensureSchema();
+  const { rows } = await getPool().query(`SELECT id, title, content FROM rag_docs WHERE id=$1`, [id]);
+  if (!rows.length) return null;
+  let content = String(rows[0].content ?? "");
+  if (!content) {
+    const ch = await getPool().query(`SELECT content FROM rag_chunks WHERE doc_id=$1 ORDER BY idx ASC`, [id]);
+    content = ch.rows.map((r: any) => String(r.content ?? "")).join("\n\n");
+  }
+  return { id: Number(rows[0].id), title: String(rows[0].title ?? ""), content };
+}
+
+/** Sửa 1 tài liệu: cập nhật tên + nội dung, cắt lại đoạn + embed lại (thay toàn bộ chunk cũ). */
+export async function updateDoc(id: number, input: { title: string; text: string }): Promise<{ chunks: number }> {
+  const title = (input.title ?? "").trim();
+  if (!title) throw new Error("Thiếu tên tài liệu");
+  const chunks = chunkText(input.text ?? "");
+  if (!chunks.length) throw new Error("Tài liệu rỗng hoặc không đọc được nội dung");
+
+  const vectors = await embedTexts(chunks, "RETRIEVAL_DOCUMENT");
+
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rowCount } = await client.query(
+      `UPDATE rag_docs SET title=$2, content=$3, chunk_count=$4 WHERE id=$1`,
+      [id, title, input.text ?? "", chunks.length],
+    );
+    if (!rowCount) throw new Error("Không tìm thấy tài liệu");
+    await client.query(`DELETE FROM rag_chunks WHERE doc_id=$1`, [id]);
+    for (let i = 0; i < chunks.length; i++) {
+      await client.query(
+        `INSERT INTO rag_chunks (doc_id, idx, content, embedding) VALUES ($1,$2,$3,$4)`,
+        [id, i, chunks[i], toVectorLiteral(vectors[i])],
+      );
+    }
+    await client.query("COMMIT");
+    return { chunks: chunks.length };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
