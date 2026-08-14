@@ -8,9 +8,9 @@
     "dev": "mastra dev",
     "build": "mastra build",
     "start": "mastra start",
-    "test:engine": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokeEngine.ts",
-    "test:engine2": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokeEngine2.ts",
-    "test:price": "STORAGE_BACKEND=libsql npx -y tsx src/mastra/scripts/smokePriceCheck.ts"
+    "ingest": "npx -y tsx src/mastra/scripts/ingestFami.ts",
+    "smoke": "npx -y tsx src/mastra/scripts/smokeFamiRag.ts",
+    "smoke:routes": "npx -y tsx src/mastra/scripts/smokeRoutes.ts"
   },
   "keywords": [],
   "author": "",
