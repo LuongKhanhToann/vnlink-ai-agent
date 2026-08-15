@@ -1,0 +1,982 @@
+[
+  {
+    "file": "21-001-chuong-1-cong-thuc-slow-carb-don-gian.md",
+    "title": "Giảm cân – Chương 1: Công Thức Slow-Carb Đơn Giản",
+    "chars": 7344
+  },
+  {
+    "file": "21-002-chuong-2-sua-chua-thuong-xuyen-la-tot-nhat.md",
+    "title": "Giảm cân – Chương 2: Sửa Chữa Thường Xuyên Là Tốt Nhất",
+    "chars": 6680
+  },
+  {
+    "file": "21-003-chuong-3-nhom-hoa-chat-moi.md",
+    "title": "Giảm cân – Chương 3: Nhóm Hóa Chất Mới",
+    "chars": 6688
+  },
+  {
+    "file": "21-004-chuong-4-chi-so-duong-huyet-phuc-tap.md",
+    "title": "Giảm cân – Chương 4: Chỉ Số Đường Huyết Phức Tạp",
+    "chars": 6501
+  },
+  {
+    "file": "21-005-chuong-5-suc-manh-cua-nuoc-da.md",
+    "title": "Giảm cân – Chương 5: Sức Mạnh Của Nước Đá",
+    "chars": 6391
+  },
+  {
+    "file": "21-006-chuong-6-tang-toc-do-dot-mo.md",
+    "title": "Giảm cân – Chương 6: Tăng Tốc Độ Đốt Mỡ",
+    "chars": 6512
+  },
+  {
+    "file": "21-007-chuong-7-tu-bo-cam-giac-toi-loi.md",
+    "title": "Giảm cân – Chương 7: Từ Bỏ Cảm Giác Tội Lỗi",
+    "chars": 6448
+  },
+  {
+    "file": "21-008-chuong-8-luyen-tap-suc-manh-trong-12-phut.md",
+    "title": "Giảm cân – Chương 8: Luyện Tập Sức Mạnh Trong 12 Phút",
+    "chars": 6455
+  },
+  {
+    "file": "21-009-chuong-9-nguyen-tac-tang-can-nhanh.md",
+    "title": "Giảm cân – Chương 9: Nguyên Tắc Tăng Cân Nhanh",
+    "chars": 6617
+  },
+  {
+    "file": "21-010-chuong-10-vuot-qua-gioi-han-di-truyen.md",
+    "title": "Giảm cân – Chương 10: Vượt Qua Giới Hạn Di Truyền",
+    "chars": 6568
+  },
+  {
+    "file": "21-011-chuong-11-ngu-2-gio-ma-van-tinh-tao.md",
+    "title": "Giảm cân – Chương 11: Ngủ 2 Giờ Mà Vẫn Tỉnh Táo",
+    "chars": 6015
+  },
+  {
+    "file": "21-012-chuong-12-dao-nguoc-chan-thuong-man-tinh.md",
+    "title": "Giảm cân – Chương 12: Đảo Ngược Chấn Thương Mạn Tính",
+    "chars": 6102
+  },
+  {
+    "file": "21-013-chuong-13-suc-chiu-dung-lau-dai.md",
+    "title": "Giảm cân – Chương 13: Sức Chịu Đựng Lâu Dài",
+    "chars": 6185
+  },
+  {
+    "file": "21-014-chuong-14-tang-cuong-kha-nang-nhan-thuc.md",
+    "title": "Giảm cân – Chương 14: Tăng Cường Khả Năng Nhận Thức",
+    "chars": 6415
+  },
+  {
+    "file": "21-015-chuong-15-tang-cuong-kha-nang-tinh-duc.md",
+    "title": "Giảm cân – Chương 15: Tăng Cường Khả Năng Tình Dục",
+    "chars": 6077
+  },
+  {
+    "file": "21-016-chuong-16-tang-cuong-suc-khoe-lau-dai.md",
+    "title": "Giảm cân – Chương 16: Tăng Cường Sức Khỏe Lâu Dài",
+    "chars": 5507
+  },
+  {
+    "file": "21-017-chuong-17-nhung-dieu-tho-thien.md",
+    "title": "Giảm cân – Chương 17: Những Điều Thô Thiển",
+    "chars": 6424
+  },
+  {
+    "file": "21-018-chuong-18-tuyen-ngon-hanh-dong.md",
+    "title": "Giảm cân – Chương 18: Tuyên Ngôn Hành Động",
+    "chars": 5878
+  },
+  {
+    "file": "21-019-bo-khai-niem-cot-loi-the-4-hour-body.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: The 4-Hour Body",
+    "chars": 3532
+  },
+  {
+    "file": "21-020-tom-tat-phan-tich-chuong-1-beo-phi-mot-benh-dich-da-pha.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 1: Béo phì – Một Bệnh Dịch Đã Phát Triển",
+    "chars": 6295
+  },
+  {
+    "file": "21-021-tom-tat-phan-tich-chuong-2-dinh-menh-tang-can-the-vicio.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 2: Định Mệnh Tăng Cân (The Vicious Cycle)",
+    "chars": 6991
+  },
+  {
+    "file": "21-022-tom-tat-phan-tich-chuong-3-khai-niem-sai-lam-ve-calo.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 3: Khái Niệm Sai Lầm về Calo",
+    "chars": 6766
+  },
+  {
+    "file": "21-023-tom-tat-phan-tich-chuong-4-loi-cua-ngu-coc-toan-phan-th.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 4: Lỗi của Ngũ cốc Toàn phần (The Triumvir",
+    "chars": 6638
+  },
+  {
+    "file": "21-024-tom-tat-phan-tich-chuong-5-do-loi-cho-chat-beo-the-big.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 5: Đổ Lỗi cho Chất béo (The Big Fat Lie)",
+    "chars": 6628
+  },
+  {
+    "file": "21-025-tom-tat-phan-tich-chuong-6-loi-cua-do-an-vat-the-calori.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 6: Lỗi của Đồ ăn Vặt (The Calorie Conspira",
+    "chars": 7228
+  },
+  {
+    "file": "21-026-tom-tat-phan-tich-chuong-7-loi-ich-cua-protein-the-grea.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 7: Lợi ích của Protein (The Great Protein",
+    "chars": 5800
+  },
+  {
+    "file": "21-027-tom-tat-phan-tich-chuong-8-insulin-vai-tro-trung-tam.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 8: Insulin – Vai Trò Trung Tâm",
+    "chars": 6006
+  },
+  {
+    "file": "21-028-tom-tat-phan-tich-chuong-9-fructose-va-glucose.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 9: Fructose và Glucose",
+    "chars": 6765
+  },
+  {
+    "file": "21-029-tom-tat-phan-tich-chuong-10-nam-diem-gay-beo-cua-fructo.md",
+    "title": "Giảm cân – Tóm Tắt & Phân Tích Chương 10: Năm Điểm Gây Béo của Fructose",
+    "chars": 7136
+  },
+  {
+    "file": "21-030-chuong-11-vai-tro-cua-cortisol.md",
+    "title": "Giảm cân – Chương 11: Vai trò của Cortisol",
+    "chars": 6982
+  },
+  {
+    "file": "21-031-chuong-12-su-doi-va-con-khat-nang-luong.md",
+    "title": "Giảm cân – Chương 12: Sự Đói và Cơn Khát Năng lượng",
+    "chars": 6585
+  },
+  {
+    "file": "21-032-chuong-13-khang-insulin.md",
+    "title": "Giảm cân – Chương 13: Kháng Insulin",
+    "chars": 6863
+  },
+  {
+    "file": "21-033-chuong-14-buoc-1-giam-duong.md",
+    "title": "Giảm cân – Chương 14: Bước 1: Giảm Đường",
+    "chars": 6221
+  },
+  {
+    "file": "21-034-chuong-15-buoc-2-giam-carbohydrate-tinh-che.md",
+    "title": "Giảm cân – Chương 15: Bước 2: Giảm Carbohydrate Tinh chế",
+    "chars": 6526
+  },
+  {
+    "file": "21-035-chuong-16-buoc-3-giam-protein-vua-phai.md",
+    "title": "Giảm cân – Chương 16: Bước 3: Giảm Protein Vừa phải",
+    "chars": 6353
+  },
+  {
+    "file": "21-036-chuong-17-buoc-4-tang-chat-beo-tu-nhien.md",
+    "title": "Giảm cân – Chương 17: Bước 4: Tăng Chất béo Tự nhiên",
+    "chars": 6259
+  },
+  {
+    "file": "21-037-chuong-18-buoc-5-tang-chat-xo-va-giam.md",
+    "title": "Giảm cân – Chương 18: Bước 5: Tăng Chất xơ và Giấm",
+    "chars": 6472
+  },
+  {
+    "file": "21-038-chuong-19-suc-manh-cua-nhin-an.md",
+    "title": "Giảm cân – Chương 19: Sức Mạnh của Nhịn Ăn",
+    "chars": 6331
+  },
+  {
+    "file": "21-039-chuong-20-nhin-an-so-hai-va-su-that.md",
+    "title": "Giảm cân – Chương 20: Nhịn Ăn – Sợ Hãi và Sự Thật",
+    "chars": 5971
+  },
+  {
+    "file": "21-040-chuong-21-bat-dau-nhin-an.md",
+    "title": "Giảm cân – Chương 21: Bắt Đầu Nhịn Ăn",
+    "chars": 6749
+  },
+  {
+    "file": "21-041-chuong-22-nhin-an-keo-dai.md",
+    "title": "Giảm cân – Chương 22: Nhịn Ăn Kéo Dài",
+    "chars": 6642
+  },
+  {
+    "file": "21-042-bo-khai-niem-cot-loi-the-obesity-code.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: The Obesity Code",
+    "chars": 5407
+  },
+  {
+    "file": "21-043-chuong-1-an-uong-trong-thoi-dai-cua-bang-chung.md",
+    "title": "Giảm cân – Chương 1: Ăn Uống Trong Thời Đại Của Bằng Chứng",
+    "chars": 6785
+  },
+  {
+    "file": "21-044-chuong-2-loi-sai-trong-kim-tu-thap-thuc-pham.md",
+    "title": "Giảm cân – Chương 2: Lỗi Sai Trong Kim Tự Tháp Thực Phẩm",
+    "chars": 6901
+  },
+  {
+    "file": "21-045-chuong-3-nen-tang-kiem-soat-can-nang-va-hoat-dong-the-c.md",
+    "title": "Giảm cân – Chương 3: Nền Tảng: Kiểm Soát Cân Nặng và Hoạt Động Thể Chất",
+    "chars": 7032
+  },
+  {
+    "file": "21-046-chuong-4-chat-beo-la-ban.md",
+    "title": "Giảm cân – Chương 4: Chất Béo Là Bạn",
+    "chars": 6804
+  },
+  {
+    "file": "21-047-chuong-5-suc-manh-cua-carbohydrate-tot.md",
+    "title": "Giảm cân – Chương 5: Sức Mạnh Của Carbohydrate Tốt",
+    "chars": 6410
+  },
+  {
+    "file": "21-048-chuong-6-protein-su-can-bang-cua-thit-ca-va-cac-loai-da.md",
+    "title": "Giảm cân – Chương 6: Protein: Sự Cân Bằng Của Thịt, Cá và Các Loại Đậu",
+    "chars": 6192
+  },
+  {
+    "file": "21-049-chuong-7-rau-qua-va-trai-cay-mau-sac-va-so-luong.md",
+    "title": "Giảm cân – Chương 7: Rau Quả và Trái Cây: Màu Sắc và Số Lượng",
+    "chars": 6750
+  },
+  {
+    "file": "21-050-chuong-8-canxi-sua-va-cac-chat-bo-sung-can-thiet.md",
+    "title": "Giảm cân – Chương 8: Canxi, Sữa và Các Chất Bổ Sung Cần Thiết",
+    "chars": 6779
+  },
+  {
+    "file": "21-051-chuong-9-nuoc-vitamin-tong-hop-va-thuoc-mo.md",
+    "title": "Giảm cân – Chương 9: Nước, Vitamin Tổng Hợp và Thuốc Mỡ",
+    "chars": 6037
+  },
+  {
+    "file": "21-052-chuong-10-xay-dung-che-do-an-ca-nhan.md",
+    "title": "Giảm cân – Chương 10: Xây Dựng Chế Độ Ăn Cá Nhân",
+    "chars": 6745
+  },
+  {
+    "file": "21-053-chuong-11-mua-sam-nau-nuong-va-an-uong-ngoai.md",
+    "title": "Giảm cân – Chương 11: Mua Sắm, Nấu Nướng và Ăn Uống Ngoài",
+    "chars": 6541
+  },
+  {
+    "file": "21-054-chuong-12-dinh-duong-cho-cac-giai-doan-cuoc-doi-dac-bie.md",
+    "title": "Giảm cân – Chương 12: Dinh Dưỡng Cho Các Giai Đoạn Cuộc Đời Đặc Biệt",
+    "chars": 5743
+  },
+  {
+    "file": "21-055-chuong-13-che-do-an-uong-va-benh-tat.md",
+    "title": "Giảm cân – Chương 13: Chế Độ Ăn Uống và Bệnh Tật",
+    "chars": 6807
+  },
+  {
+    "file": "21-056-chuong-14-cuoc-chien-tiep-theo.md",
+    "title": "Giảm cân – Chương 14: Cuộc Chiến Tiếp Theo",
+    "chars": 6323
+  },
+  {
+    "file": "21-057-bo-khai-niem-cot-loi-huong-dan-an-uong-lanh-manh-tu-har.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Hướng Dẫn Ăn Uống Lành Mạnh Từ Harvard",
+    "chars": 4612
+  },
+  {
+    "file": "21-058-chuong-1-an-uong-la-mot-dao-luat.md",
+    "title": "Giảm cân – Chương 1: Ăn Uống Là Một Đạo Luật",
+    "chars": 6496
+  },
+  {
+    "file": "21-059-chuong-2-can-bang-calo-sai-lam.md",
+    "title": "Giảm cân – Chương 2: Cân Bằng Calo Sai Lầm",
+    "chars": 6891
+  },
+  {
+    "file": "21-060-chuong-3-con-thinh-no-cua-insulin.md",
+    "title": "Giảm cân – Chương 3: Cơn Thịnh Nộ Của Insulin",
+    "chars": 6152
+  },
+  {
+    "file": "21-061-chuong-4-roi-loan-leptin.md",
+    "title": "Giảm cân – Chương 4: Rối Loạn Leptin",
+    "chars": 6552
+  },
+  {
+    "file": "21-062-chuong-5-phan-tu-nao-moi-la-van-de.md",
+    "title": "Giảm cân – Chương 5: Phân Tử Nào Mới Là Vấn Đề",
+    "chars": 6682
+  },
+  {
+    "file": "21-063-chuong-6-duong-doc-tinh-cua-moi-thu.md",
+    "title": "Giảm cân – Chương 6: Đường – Độc Tính Của Mọi Thứ",
+    "chars": 6565
+  },
+  {
+    "file": "21-064-chuong-7-ruou-va-duong.md",
+    "title": "Giảm cân – Chương 7: Rượu Và Đường",
+    "chars": 5926
+  },
+  {
+    "file": "21-065-chuong-8-chat-xo-yeu-to-chong-doc.md",
+    "title": "Giảm cân – Chương 8: Chất Xơ – Yếu Tố Chống Độc",
+    "chars": 6513
+  },
+  {
+    "file": "21-066-chuong-9-thuc-pham-che-bien-va-su-thao-tung.md",
+    "title": "Giảm cân – Chương 9: Thực Phẩm Chế Biến và Sự Thao Túng",
+    "chars": 6468
+  },
+  {
+    "file": "21-067-chuong-10-thach-thuc-quan-ly-duong.md",
+    "title": "Giảm cân – Chương 10: Thách Thức Quản Lý Đường",
+    "chars": 6284
+  },
+  {
+    "file": "21-068-chuong-11-can-bang-cac-chat-dinh-duong-da-luong.md",
+    "title": "Giảm cân – Chương 11: Cân Bằng Các Chất Dinh Dưỡng Đa Lượng",
+    "chars": 6283
+  },
+  {
+    "file": "21-069-chuong-12-danh-gia-chan-doan.md",
+    "title": "Giảm cân – Chương 12: Đánh Giá Chẩn Đoán",
+    "chars": 6329
+  },
+  {
+    "file": "21-070-chuong-13-moi-quan-he-voi-chinh-phu.md",
+    "title": "Giảm cân – Chương 13: Mối Quan Hệ Với Chính Phủ",
+    "chars": 6372
+  },
+  {
+    "file": "21-071-chuong-14-cuoc-chien-dinh-duong.md",
+    "title": "Giảm cân – Chương 14: Cuộc Chiến Dinh Dưỡng",
+    "chars": 6948
+  },
+  {
+    "file": "21-072-chuong-15-con-duong-phia-truoc.md",
+    "title": "Giảm cân – Chương 15: Con Đường Phía Trước",
+    "chars": 5684
+  },
+  {
+    "file": "21-073-bo-khai-niem-cot-loi-fat-chance.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Fat Chance",
+    "chars": 4520
+  },
+  {
+    "file": "21-074-chuong-1-nhung-dich-benh-cua-su-giau-co.md",
+    "title": "Giảm cân – Chương 1: Những Dịch Bệnh Của Sự Giàu Có",
+    "chars": 6997
+  },
+  {
+    "file": "21-075-chuong-2-dot-ngot-beo-phi.md",
+    "title": "Giảm cân – Chương 2: Đột Ngột Béo Phì",
+    "chars": 7066
+  },
+  {
+    "file": "21-076-chuong-3-cau-hoi-lon.md",
+    "title": "Giảm cân – Chương 3: Câu Hỏi Lớn",
+    "chars": 7034
+  },
+  {
+    "file": "21-077-chuong-4-lap-luan-tu-the-ky-19.md",
+    "title": "Giảm cân – Chương 4: Lập Luận Từ Thế Kỷ 19",
+    "chars": 6586
+  },
+  {
+    "file": "21-078-chuong-5-gia-tang-noi-so-hai.md",
+    "title": "Giảm cân – Chương 5: Gia Tăng Nỗi Sợ Hãi",
+    "chars": 6536
+  },
+  {
+    "file": "21-079-chuong-6-chat-beo-bi-do-loi.md",
+    "title": "Giảm cân – Chương 6: Chất Béo Bị Đổ Lỗi",
+    "chars": 6641
+  },
+  {
+    "file": "21-080-chuong-7-mo-dong-vat-bi-bat-giu.md",
+    "title": "Giảm cân – Chương 7: Mỡ Động Vật Bị Bắt Giữ",
+    "chars": 6556
+  },
+  {
+    "file": "21-081-chuong-8-cholesterol-ke-thu-bi-do-loi.md",
+    "title": "Giảm cân – Chương 8: Cholesterol – Kẻ Thù Bị Đổ Lỗi",
+    "chars": 6813
+  },
+  {
+    "file": "21-082-chuong-9-thu-nghiem-that-bai.md",
+    "title": "Giảm cân – Chương 9: Thử Nghiệm Thất Bại",
+    "chars": 6616
+  },
+  {
+    "file": "21-083-chuong-10-tinh-hoa-cua-van-de.md",
+    "title": "Giảm cân – Chương 10: Tinh Hoa của Vấn Đề",
+    "chars": 6316
+  },
+  {
+    "file": "21-084-chuong-11-noi-long-cua-omega-6.md",
+    "title": "Giảm cân – Chương 11: Nỗi Lòng Của Omega-6",
+    "chars": 6518
+  },
+  {
+    "file": "21-085-chuong-12-vai-tro-cua-insulin.md",
+    "title": "Giảm cân – Chương 12: Vai Trò Của Insulin",
+    "chars": 6600
+  },
+  {
+    "file": "21-086-chuong-13-vong-lap-phan-hoi.md",
+    "title": "Giảm cân – Chương 13: Vòng Lặp Phản Hồi",
+    "chars": 6691
+  },
+  {
+    "file": "21-087-chuong-14-protein-va-chat-xo.md",
+    "title": "Giảm cân – Chương 14: Protein và Chất Xơ",
+    "chars": 6168
+  },
+  {
+    "file": "21-088-chuong-15-carbohydrate-va-tich-tru-mo.md",
+    "title": "Giảm cân – Chương 15: Carbohydrate và Tích Trữ Mỡ",
+    "chars": 6471
+  },
+  {
+    "file": "21-089-chuong-16-vai-tro-cua-fructose.md",
+    "title": "Giảm cân – Chương 16: Vai Trò Của Fructose",
+    "chars": 5414
+  },
+  {
+    "file": "21-090-chuong-17-beo-phi-va-tieu-duong.md",
+    "title": "Giảm cân – Chương 17: Béo Phì và Tiểu Đường",
+    "chars": 6287
+  },
+  {
+    "file": "21-091-chuong-18-benh-tim-mach-ke-thu-that-su.md",
+    "title": "Giảm cân – Chương 18: Bệnh Tim Mạch – Kẻ Thù Thật Sự",
+    "chars": 6555
+  },
+  {
+    "file": "21-092-chuong-19-ung-thu-va-moi-thu-khac.md",
+    "title": "Giảm cân – Chương 19: Ung Thư và Mọi Thứ Khác",
+    "chars": 5768
+  },
+  {
+    "file": "21-093-chuong-20-tu-huy-hoai.md",
+    "title": "Giảm cân – Chương 20: Tự Hủy Hoại",
+    "chars": 6175
+  },
+  {
+    "file": "21-094-chuong-21-bang-chung-giam-can.md",
+    "title": "Giảm cân – Chương 21: Bằng Chứng Giảm Cân",
+    "chars": 6643
+  },
+  {
+    "file": "21-095-chuong-22-thu-nghiem-dang-dien-ra.md",
+    "title": "Giảm cân – Chương 22: Thử Nghiệm Đang Diễn Ra",
+    "chars": 6442
+  },
+  {
+    "file": "21-096-chuong-23-tuyen-bo-cuoi-cung.md",
+    "title": "Giảm cân – Chương 23: Tuyên Bố Cuối Cùng",
+    "chars": 5447
+  },
+  {
+    "file": "21-097-bo-khai-niem-cot-loi-good-calories-bad-calories.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Good Calories, Bad Calories",
+    "chars": 4972
+  },
+  {
+    "file": "21-098-chuong-1-loi-tien-tri-cua-mot-nha-bao.md",
+    "title": "Giảm cân – Chương 1: Lời Tiên Tri Của Một Nhà Báo",
+    "chars": 7518
+  },
+  {
+    "file": "21-099-chuong-2-sai-lam-cua-chu-nghia-dinh-duong.md",
+    "title": "Giảm cân – Chương 2: Sai Lầm Của Chủ Nghĩa Dinh Dưỡng",
+    "chars": 7058
+  },
+  {
+    "file": "21-100-chuong-3-chien-dich-chong-lai-mo.md",
+    "title": "Giảm cân – Chương 3: Chiến Dịch Chống Lại Mỡ",
+    "chars": 7283
+  },
+  {
+    "file": "21-101-chuong-4-su-chua-lanh-cua-khoa-hoc-thuc-pham.md",
+    "title": "Giảm cân – Chương 4: Sự Chữa Lành của Khoa học Thực phẩm",
+    "chars": 7506
+  },
+  {
+    "file": "21-102-chuong-5-ket-thuc-cua-bua-an.md",
+    "title": "Giảm cân – Chương 5: Kết Thúc Của Bữa Ăn",
+    "chars": 7337
+  },
+  {
+    "file": "21-103-chuong-6-an-thuc-pham.md",
+    "title": "Giảm cân – Chương 6: Ăn Thực Phẩm",
+    "chars": 7123
+  },
+  {
+    "file": "21-104-chuong-7-moi-quan-he-giua-suc-khoe-va-thuc-pham-toan-ph.md",
+    "title": "Giảm cân – Chương 7: Mối Quan Hệ Giữa Sức Khỏe và Thực phẩm Toàn phần",
+    "chars": 6614
+  },
+  {
+    "file": "21-105-chuong-8-canh-bao-ve-thuc-pham-che-bien.md",
+    "title": "Giảm cân – Chương 8: Cảnh Báo về Thực phẩm Chế biến",
+    "chars": 6787
+  },
+  {
+    "file": "21-106-chuong-9-nguyen-tac-cua-ba-ngoai.md",
+    "title": "Giảm cân – Chương 9: Nguyên Tắc Của Bà Ngoại",
+    "chars": 6982
+  },
+  {
+    "file": "21-107-chuong-10-quy-tac-tham-dinh.md",
+    "title": "Giảm cân – Chương 10: Quy Tắc Thẩm Định",
+    "chars": 6824
+  },
+  {
+    "file": "21-108-chuong-11-quy-tac-van-hoa.md",
+    "title": "Giảm cân – Chương 11: Quy Tắc Văn Hóa",
+    "chars": 6694
+  },
+  {
+    "file": "21-109-chuong-12-quy-tac-thuc-vat.md",
+    "title": "Giảm cân – Chương 12: Quy Tắc Thực Vật",
+    "chars": 6895
+  },
+  {
+    "file": "21-110-chuong-13-quy-tac-nong-nghiep.md",
+    "title": "Giảm cân – Chương 13: Quy Tắc Nông Nghiệp",
+    "chars": 6346
+  },
+  {
+    "file": "21-111-chuong-14-quy-tac-ca-nhan.md",
+    "title": "Giảm cân – Chương 14: Quy Tắc Cá Nhân",
+    "chars": 6889
+  },
+  {
+    "file": "21-112-bo-khai-niem-cot-loi-in-defense-of-food.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: In Defense of Food",
+    "chars": 4202
+  },
+  {
+    "file": "21-113-chuong-1-bat-dau-getting-started.md",
+    "title": "Giảm cân – Chương 1: Bắt Đầu (Getting Started)",
+    "chars": 6833
+  },
+  {
+    "file": "21-114-chuong-2-chu-ky-an-kieng.md",
+    "title": "Giảm cân – Chương 2: Chu Kỳ Ăn Kiêng",
+    "chars": 6666
+  },
+  {
+    "file": "21-115-chuong-3-kham-pha-tri-tue-cua-co-the.md",
+    "title": "Giảm cân – Chương 3: Khám Phá Trí Tuệ Của Cơ Thể",
+    "chars": 7075
+  },
+  {
+    "file": "21-116-chuong-4-nguyen-tac-1-bo-qua-tu-duy-an-kieng.md",
+    "title": "Giảm cân – Chương 4: Nguyên Tắc 1 – Bỏ Qua Tư Duy Ăn Kiêng",
+    "chars": 7205
+  },
+  {
+    "file": "21-117-chuong-5-nguyen-tac-2-ton-trong-con-doi-cua-ban.md",
+    "title": "Giảm cân – Chương 5: Nguyên Tắc 2 – Tôn Trọng Cơn Đói Của Bạn",
+    "chars": 6710
+  },
+  {
+    "file": "21-118-chuong-6-nguyen-tac-3-lam-hoa-voi-thuc-an.md",
+    "title": "Giảm cân – Chương 6: Nguyên Tắc 3 – Làm Hòa Với Thức Ăn",
+    "chars": 7087
+  },
+  {
+    "file": "21-119-chuong-7-nguyen-tac-4-thach-thuc-canh-sat-thuc-an.md",
+    "title": "Giảm cân – Chương 7: Nguyên Tắc 4 – Thách Thức \"Cảnh Sát Thức Ăn\"",
+    "chars": 7029
+  },
+  {
+    "file": "21-120-chuong-8-nguyen-tac-5-kham-pha-yeu-to-thoa-man.md",
+    "title": "Giảm cân – Chương 8: Nguyên Tắc 5 – Khám Phá Yếu Tố Thỏa Mãn",
+    "chars": 6352
+  },
+  {
+    "file": "21-121-chuong-9-nguyen-tac-6-cam-nhan-su-no-cua-ban.md",
+    "title": "Giảm cân – Chương 9: Nguyên Tắc 6 – Cảm Nhận Sự No Của Bạn",
+    "chars": 6465
+  },
+  {
+    "file": "21-122-chuong-10-nguyen-tac-7-doi-pho-voi-cam-xuc-ma-khong-dun.md",
+    "title": "Giảm cân – Chương 10: Nguyên Tắc 7 – Đối Phó Với Cảm Xúc Mà Không Dùng Thức Ăn",
+    "chars": 7305
+  },
+  {
+    "file": "21-123-chuong-11-nguyen-tac-8-ton-trong-co-the-cua-ban.md",
+    "title": "Giảm cân – Chương 11: Nguyên Tắc 8 – Tôn Trọng Cơ Thể Của Bạn",
+    "chars": 6845
+  },
+  {
+    "file": "21-124-chuong-12-nguyen-tac-9-van-dong-cam-nhan-su-khac-biet.md",
+    "title": "Giảm cân – Chương 12: Nguyên Tắc 9 – Vận Động: Cảm Nhận Sự Khác Biệt",
+    "chars": 6212
+  },
+  {
+    "file": "21-125-chuong-13-nguyen-tac-10-dinh-duong-lanh-manh-cham-soc-n.md",
+    "title": "Giảm cân – Chương 13: Nguyên Tắc 10 – Dinh Dưỡng Lành Mạnh (Chăm Sóc Nhẹ Nhàng)",
+    "chars": 6516
+  },
+  {
+    "file": "21-126-chuong-14-xay-dung-co-the-khoe-manh.md",
+    "title": "Giảm cân – Chương 14: Xây Dựng Cơ Thể Khỏe Mạnh",
+    "chars": 6812
+  },
+  {
+    "file": "21-127-bo-khai-niem-cot-loi-intuitive-eating.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Intuitive Eating",
+    "chars": 4765
+  },
+  {
+    "file": "21-128-chuong-1-an-uong-vo-thuc-la-gi.md",
+    "title": "Giảm cân – Chương 1: Ăn Uống Vô Thức Là Gì?",
+    "chars": 7036
+  },
+  {
+    "file": "21-129-chuong-2-loi-cua-doi-mat.md",
+    "title": "Giảm cân – Chương 2: Lỗi Của Đôi Mắt",
+    "chars": 6409
+  },
+  {
+    "file": "21-130-chuong-3-loi-cua-bao-bi-va-thung-chua.md",
+    "title": "Giảm cân – Chương 3: Lỗi Của Bao Bì và Thùng Chứa",
+    "chars": 6318
+  },
+  {
+    "file": "21-131-chuong-4-loi-cua-ten-goi-va-nhan-mac.md",
+    "title": "Giảm cân – Chương 4: Lỗi Của Tên Gọi và Nhãn Mác",
+    "chars": 6832
+  },
+  {
+    "file": "21-132-chuong-5-loi-cua-thuc-pham-da-nau.md",
+    "title": "Giảm cân – Chương 5: Lỗi Của Thực Phẩm Đã Nấu",
+    "chars": 6416
+  },
+  {
+    "file": "21-133-chuong-6-loi-cua-so-dong.md",
+    "title": "Giảm cân – Chương 6: Lỗi Của Số Đông",
+    "chars": 7150
+  },
+  {
+    "file": "21-134-chuong-7-loi-cua-khoang-cach-va-vi-tri.md",
+    "title": "Giảm cân – Chương 7: Lỗi Của Khoảng Cách và Vị Trí",
+    "chars": 6585
+  },
+  {
+    "file": "21-135-chuong-8-phat-trien-kha-nang-an-uong-tu-chu.md",
+    "title": "Giảm cân – Chương 8: Phát Triển Khả Năng Ăn Uống Tự Chủ",
+    "chars": 7085
+  },
+  {
+    "file": "21-136-chuong-9-nguyen-tac-thiet-ke-bep-an-thong-minh.md",
+    "title": "Giảm cân – Chương 9: Nguyên Tắc Thiết Kế Bếp Ăn Thông Minh",
+    "chars": 6327
+  },
+  {
+    "file": "21-137-chuong-10-nguyen-tac-an-uong-tai-nha-hang.md",
+    "title": "Giảm cân – Chương 10: Nguyên Tắc Ăn Uống Tại Nhà Hàng",
+    "chars": 6627
+  },
+  {
+    "file": "21-138-chuong-11-nguyen-tac-mua-sam-thong-minh.md",
+    "title": "Giảm cân – Chương 11: Nguyên Tắc Mua Sắm Thông Minh",
+    "chars": 6385
+  },
+  {
+    "file": "21-139-chuong-12-dat-ra-cac-quy-tac-tich-cuc.md",
+    "title": "Giảm cân – Chương 12: Đặt Ra Các Quy Tắc Tích Cực",
+    "chars": 5766
+  },
+  {
+    "file": "21-140-bo-khai-niem-cot-loi-mindless-eating.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Mindless Eating",
+    "chars": 4243
+  },
+  {
+    "file": "21-141-chuong-1-sai-lam-co-ban-the-fundamental-mistake.md",
+    "title": "Giảm cân – Chương 1: Sai Lầm Cơ Bản (The Fundamental Mistake)",
+    "chars": 6048
+  },
+  {
+    "file": "21-142-chuong-2-thu-pham-da-tron-thoat-the-escaped-culprit.md",
+    "title": "Giảm cân – Chương 2: Thủ phạm Đã Trốn Thoát (The Escaped Culprit)",
+    "chars": 7029
+  },
+  {
+    "file": "21-143-chuong-3-lap-luan-nguoc.md",
+    "title": "Giảm cân – Chương 3: Lập Luận Ngược",
+    "chars": 8326
+  },
+  {
+    "file": "21-144-chuong-4-su-sai-lam-cua-calo.md",
+    "title": "Giảm cân – Chương 4: Sự Sai Lầm của Calo",
+    "chars": 7666
+  },
+  {
+    "file": "21-145-chuong-5-gia-tang-noi-so-hai.md",
+    "title": "Giảm cân – Chương 5: Gia Tăng Nỗi Sợ Hãi",
+    "chars": 8227
+  },
+  {
+    "file": "21-146-chuong-6-chat-beo-bi-do-loi.md",
+    "title": "Giảm cân – Chương 6: Chất Béo Bị Đổ Lỗi",
+    "chars": 7923
+  },
+  {
+    "file": "21-147-chuong-7-ly-thuyet-moi.md",
+    "title": "Giảm cân – Chương 7: Lý Thuyết Mới",
+    "chars": 6880
+  },
+  {
+    "file": "21-148-chuong-8-hormone-tich-tru-mo.md",
+    "title": "Giảm cân – Chương 8: Hormone Tích Trữ Mỡ",
+    "chars": 6744
+  },
+  {
+    "file": "21-149-chuong-9-carbohydrate-va-insulin.md",
+    "title": "Giảm cân – Chương 9: Carbohydrate và Insulin",
+    "chars": 7775
+  },
+  {
+    "file": "21-150-chuong-10-khang-insulin-va-vong-lap.md",
+    "title": "Giảm cân – Chương 10: Kháng Insulin và Vòng lặp",
+    "chars": 7831
+  },
+  {
+    "file": "21-151-chuong-11-beo-phi-va-di-truyen.md",
+    "title": "Giảm cân – Chương 11: Béo phì và Di truyền",
+    "chars": 7970
+  },
+  {
+    "file": "21-152-chuong-12-cau-hoi-ve-thit.md",
+    "title": "Giảm cân – Chương 12: Câu Hỏi về Thịt",
+    "chars": 6637
+  },
+  {
+    "file": "21-153-chuong-13-dieu-can-lam.md",
+    "title": "Giảm cân – Chương 13: Điều Cần Làm",
+    "chars": 6962
+  },
+  {
+    "file": "21-154-bo-khai-niem-cot-loi-why-we-get-fat-tai-sao-chung-ta-be.md",
+    "title": "Giảm cân – Bộ Khái Niệm Cốt Lõi: Why We Get Fat (Tại sao chúng ta béo: Và phải l",
+    "chars": 4490
+  },
+  {
+    "file": "21-155-chuong-2-su-khac-biet-giua-tieu-duong-type-1-va-type-2.md",
+    "title": "Giảm cân – Chương 2: Sự Khác Biệt Giữa Tiểu Đường Type 1 và Type 2",
+    "chars": 5769
+  },
+  {
+    "file": "21-156-chuong-3-anh-huong-len-toan-bo-co-the-the-whole-body-ef.md",
+    "title": "Giảm cân – Chương 3: Ảnh Hưởng Lên Toàn Bộ Cơ Thể (The Whole Body Effect)",
+    "chars": 4663
+  },
+  {
+    "file": "21-157-chuong-4-tieu-duong-beo-phi-su-lua-doi-ve-calo-diabesit.md",
+    "title": "Giảm cân – Chương 4: Tiểu Đường Béo Phì: Sự Lừa Dối Về Calo (Diabesity: The Calo",
+    "chars": 5245
+  },
+  {
+    "file": "21-158-chuong-5-vai-tro-cua-insulin-trong-viec-luu-tru-nang-lu.md",
+    "title": "Giảm cân – Chương 5: Vai Trò Của Insulin Trong Việc Lưu Trữ Năng Lượng (The Role",
+    "chars": 5137
+  },
+  {
+    "file": "21-159-chuong-6-khang-insulin-hien-tuong-tran-ngap-insulin-res.md",
+    "title": "Giảm cân – Chương 6: Kháng Insulin: Hiện Tượng Tràn Ngập (Insulin Resistance: Th",
+    "chars": 4879
+  },
+  {
+    "file": "21-160-chuong-7-tieu-duong-mot-can-benh-co-hai-khiem-khuyet-di.md",
+    "title": "Giảm cân – Chương 7: Tiểu Đường, Một Căn Bệnh Có Hai Khiếm Khuyết (Diabetes, a D",
+    "chars": 4605
+  },
+  {
+    "file": "21-161-chuong-8-moi-lien-he-giua-fructose-va-khang-insulin-the.md",
+    "title": "Giảm cân – Chương 8: Mối Liên Hệ Giữa Fructose và Kháng Insulin (The Fructose-In",
+    "chars": 4629
+  },
+  {
+    "file": "21-162-chuong-9-moi-lien-he-voi-hoi-chung-chuyen-hoa-the-metab.md",
+    "title": "Giảm cân – Chương 9: Mối Liên Hệ Với Hội Chứng Chuyển Hóa (The Metabolic Syndrom",
+    "chars": 4507
+  },
+  {
+    "file": "21-163-chuong-10-insulin-khong-phai-la-cau-tra-loi-cho-tieu-du.md",
+    "title": "Giảm cân – Chương 10: Insulin: Không Phải Là Câu Trả Lời Cho Tiểu Đường Type 2 (",
+    "chars": 4141
+  },
+  {
+    "file": "21-164-chuong-11-thuoc-ha-duong-huyet-duong-uong-khong-phai-la.md",
+    "title": "Giảm cân – Chương 11: Thuốc Hạ Đường Huyết Đường Uống: Không Phải Là Câu Trả Lời",
+    "chars": 4344
+  },
+  {
+    "file": "21-165-chuong-12-che-do-an-it-calo-va-tap-the-duc-khong-phai-l.md",
+    "title": "Giảm cân – Chương 12: Chế Độ Ăn Ít Calo và Tập Thể Dục: Không Phải Là Câu Trả Lờ",
+    "chars": 4589
+  },
+  {
+    "file": "21-166-chuong-13-bai-hoc-tu-phau-thuat-da-day-giam-can-lessons.md",
+    "title": "Giảm cân – Chương 13: Bài Học Từ Phẫu Thuật Dạ Dày Giảm Cân (Lessons from Bariat",
+    "chars": 4499
+  },
+  {
+    "file": "21-167-chuong-14-dieu-tri-tieu-duong-type-2-bang-che-do-an-uon.md",
+    "title": "Giảm cân – Chương 14: Điều Trị Tiểu Đường Type 2 Bằng Chế Độ Ăn Uống (Dietary Tr",
+    "chars": 3913
+  },
+  {
+    "file": "21-168-chuong-15-nhin-an-bi-mat-co-xua-fasting-the-ancient-sec.md",
+    "title": "Giảm cân – Chương 15: Nhịn Ăn: Bí Mật Cổ Xưa (Fasting: The Ancient Secret)",
+    "chars": 4410
+  },
+  {
+    "file": "21-169-bo-suon-ly-thuyet-cot-loi-cua-the-diabetes-code.md",
+    "title": "Giảm cân – Bộ Sườn Lý Thuyết Cốt Lõi Của \"The Diabetes Code\"",
+    "chars": 5950
+  },
+  {
+    "file": "21-170-chuong-1-giam-can-song-lau-hon-khoe-manh-hon.md",
+    "title": "Giảm cân – Chương 1: Giảm Cân, Sống Lâu Hơn, Khỏe Mạnh Hơn",
+    "chars": 8772
+  },
+  {
+    "file": "21-171-chuong-2-ban-co-khang-leptin-khong-hay-lam-bai-trac-ngh.md",
+    "title": "Giảm cân – Chương 2: Bạn Có Kháng Leptin Không? Hãy Làm Bài Trắc Nghiệm Này",
+    "chars": 7911
+  },
+  {
+    "file": "21-172-chuong-3-vong-luan-quan-tu-beo-den-beo-hon.md",
+    "title": "Giảm cân – Chương 3: Vòng Luẩn Quẩn: Từ Béo đến Béo Hơn",
+    "chars": 8001
+  },
+  {
+    "file": "21-173-chuong-4-che-do-an-rosedale-co-the-giup-ban-tre-hoa-nhu-a.md",
+    "title": "Giảm cân – Chương 4: Chế Độ Ăn Rosedale Có Thể Giúp Bạn Trẻ Hóa Như Thế Nào",
+    "chars": 10916
+  },
+  {
+    "file": "21-174-chuong-4-che-do-an-rosedale-co-the-giup-ban-tre-hoa-nhu-b.md",
+    "title": "Giảm cân – Chương 4: Chế Độ Ăn Rosedale Có Thể Giúp Bạn Trẻ Hóa Như Thế Nào",
+    "chars": 5308
+  },
+  {
+    "file": "21-175-chuong-6-huong-dan-an-uong-khoe-manh-cua-che-do-an-rose.md",
+    "title": "Giảm cân – Chương 6: Hướng Dẫn Ăn Uống Khỏe Mạnh của Chế Độ Ăn Rosedale",
+    "chars": 6353
+  },
+  {
+    "file": "21-176-chuong-7-bat-dau-tuan-mot-den-tuan-ba-ke-hoach-21-ngay.md",
+    "title": "Giảm cân – Chương 7: Bắt Đầu: Tuần Một đến Tuần Ba (Kế hoạch 21 Ngày)",
+    "chars": 7604
+  },
+  {
+    "file": "21-177-chuong-8-huong-dan-chuong-trinh-bo-sung-dinh-duong.md",
+    "title": "Giảm cân – Chương 8: Hướng Dẫn Chương Trình Bổ Sung Dinh Dưỡng",
+    "chars": 7520
+  },
+  {
+    "file": "21-178-chuong-9-cac-chien-luoc-tap-luyen-cua-che-do-an-rosedal.md",
+    "title": "Giảm cân – Chương 9: Các Chiến Lược Tập Luyện của Chế Độ Ăn Rosedale",
+    "chars": 6279
+  },
+  {
+    "file": "21-179-chuong-10-xet-nghiem-leptin-va-cac-xet-nghiem-y-te-khac.md",
+    "title": "Giảm cân – Chương 10: Xét Nghiệm Leptin và Các Xét Nghiệm Y Tế Khác Có Thể Cứu S",
+    "chars": 7696
+  },
+  {
+    "file": "21-180-chuong-11-song-khoe-manh-hon-voi-che-do-an-rosedale.md",
+    "title": "Giảm cân – Chương 11: Sống Khỏe Mạnh Hơn Với Chế Độ Ăn Rosedale",
+    "chars": 7409
+  },
+  {
+    "file": "21-181-khai-niem-cot-loi-ve-suc-khoe-chuyen-hoa.md",
+    "title": "Giảm cân – Khái Niệm Cốt Lõi Về Sức Khỏe Chuyển Hóa",
+    "chars": 1366
+  },
+  {
+    "file": "21-182-cac-quy-luat-va-nguyen-ly-chi-dao.md",
+    "title": "Giảm cân – Các Quy Luật và Nguyên Lý Chỉ Đạo",
+    "chars": 1636
+  },
+  {
+    "file": "21-183-phuong-phap-va-cong-thuc-ap-dung.md",
+    "title": "Giảm cân – Phương Pháp và Công Thức Áp Dụng",
+    "chars": 2066
+  },
+  {
+    "file": "21-184-the-body-a-guide-for-occupants-chuong-ve-hormone-va-an.md",
+    "title": "Giảm cân – THE BODY: A GUIDE FOR OCCUPANTS (CHƯƠNG VỀ HORMONE VÀ ĂN UỐNG) - BILL",
+    "chars": 6357
+  },
+  {
+    "file": "21-185-chuong-10-da-day-the-stomach.md",
+    "title": "Giảm cân – Chương 10: Dạ dày (The Stomach)",
+    "chars": 4897
+  },
+  {
+    "file": "21-186-chuong-11-ruot-the-gut.md",
+    "title": "Giảm cân – Chương 11: Ruột (The Gut)",
+    "chars": 5707
+  },
+  {
+    "file": "21-187-chuong-12-thai-tru-va-nguon-goc-chat-thai.md",
+    "title": "Giảm cân – Chương 12: Thải trừ và Nguồn gốc Chất thải",
+    "chars": 6054
+  },
+  {
+    "file": "21-188-chuong-16-mot-chut-hoa-hoc-a-little-chemistry.md",
+    "title": "Giảm cân – Chương 16: Một chút Hóa học (A Little Chemistry)",
+    "chars": 5934
+  },
+  {
+    "file": "21-189-chuong-17-he-noi-tiet-the-endocrine-system.md",
+    "title": "Giảm cân – Chương 17: Hệ Nội tiết (The Endocrine System)",
+    "chars": 7399
+  },
+  {
+    "file": "21-190-chuong-18-su-can-bang-homeostasis.md",
+    "title": "Giảm cân – Chương 18: Sự Cân Bằng (Homeostasis)",
+    "chars": 5839
+  },
+  {
+    "file": "21-191-i-bo-quy-luat-va-chia-khoa-nen-tang.md",
+    "title": "Giảm cân – I. Bộ Quy Luật và Chìa Khóa Nền Tảng",
+    "chars": 1954
+  },
+  {
+    "file": "21-192-ii-bo-nguyen-tac-va-phuong-phap-thuc-hanh.md",
+    "title": "Giảm cân – II. Bộ Nguyên tắc và Phương Pháp Thực Hành",
+    "chars": 1820
+  },
+  {
+    "file": "21-193-iii-bo-khai-niem-nguon-hinh-anh-tac-dong-nhan-thuc.md",
+    "title": "Giảm cân – III. Bộ Khái Niệm Nguồn (Hình ảnh Tác động Nhận thức)",
+    "chars": 1224
+  },
+  {
+    "file": "21-194-chuong-2-cach-thuc-nhin-an.md",
+    "title": "Giảm cân – Chương 2: Cách Thức Nhịn Ăn",
+    "chars": 9991
+  },
+  {
+    "file": "21-195-chuong-3-tai-nguyen-resources.md",
+    "title": "Giảm cân – Chương 3: Tài Nguyên (Resources)",
+    "chars": 6392
+  },
+  {
+    "file": "21-196-tong-hop-bo-khung-nhan-thuc-cot-loi-ve-nhin-an.md",
+    "title": "Giảm cân – Tổng Hợp Bộ Khung Nhận Thức Cốt Lõi Về Nhịn Ăn",
+    "chars": 4739
+  }
+]

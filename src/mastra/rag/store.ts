@@ -52,6 +52,10 @@ function ensureSchema(): Promise<void> {
       );
       // Lưu NGUYÊN VĂN nội dung để admin xem/sửa lại + để reindex lại không cần file gốc.
       await p.query(`ALTER TABLE rag_docs ADD COLUMN IF NOT EXISTS content TEXT`);
+      // Nhãn nguồn: 'fami' = tài liệu vận hành (dịch vụ/giá/giờ/tiện ích) · 'knowledge' = sách kiến thức.
+      // Dùng để truy hồi thêm nhánh CHỈ-Fami, chống sách kiến thức chen mất fact bán hàng. Metadata
+      // của TÀI LIỆU (không phải phân loại ý khách) → không vi phạm luật cấm keyword-đoán-ý.
+      await p.query(`ALTER TABLE rag_docs ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'knowledge'`);
       await p.query(
         `CREATE TABLE IF NOT EXISTS rag_chunks (
            id        BIGSERIAL PRIMARY KEY,
@@ -262,10 +266,11 @@ async function insertChunks(client: any, docId: number, prepared: PreparedChunk[
   }
 }
 
-export async function ingestDoc(input: { title: string; text: string }): Promise<{ id: number; chunks: number }> {
+export async function ingestDoc(input: { title: string; text: string; sourceKind?: string }): Promise<{ id: number; chunks: number }> {
   const title = (input.title ?? "").trim();
   if (!title) throw new Error("Thiếu tên tài liệu");
   const docText = input.text ?? "";
+  const sourceKind = input.sourceKind === "fami" ? "fami" : "knowledge"; // mặc định 'knowledge'
   const chunks = chunkText(docText);
   if (!chunks.length) throw new Error("Tài liệu rỗng hoặc không đọc được nội dung");
 
@@ -275,8 +280,8 @@ export async function ingestDoc(input: { title: string; text: string }): Promise
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO rag_docs (title, chunk_count, content) VALUES ($1,$2,$3) RETURNING id`,
-      [title, chunks.length, docText],
+      `INSERT INTO rag_docs (title, chunk_count, content, source_kind) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [title, chunks.length, docText, sourceKind],
     );
     const docId = Number(rows[0].id);
     await insertChunks(client, docId, prepared);
@@ -320,16 +325,18 @@ export async function hasDocs(): Promise<boolean> {
   }
 }
 
-/** Dense: K đoạn gần nhất theo cosine. vecLiteral = pgvector '[...]'. */
-export async function denseCandidates(vecLiteral: string, limit: number): Promise<Candidate[]> {
+/** Dense: K đoạn gần nhất theo cosine. vecLiteral = pgvector '[...]'. sourceKind lọc theo nhãn nguồn. */
+export async function denseCandidates(vecLiteral: string, limit: number, sourceKind?: string): Promise<Candidate[]> {
   await ensureSchema();
+  const filter = sourceKind ? ` AND d.source_kind = $3` : "";
+  const params: any[] = sourceKind ? [vecLiteral, limit, sourceKind] : [vecLiteral, limit];
   const { rows } = await getPool().query(
     `SELECT c.id, c.doc_id, d.title, c.content, (c.embedding <=> $1) AS dist
        FROM rag_chunks c JOIN rag_docs d ON d.id = c.doc_id
-      WHERE c.embedding IS NOT NULL
+      WHERE c.embedding IS NOT NULL${filter}
       ORDER BY c.embedding <=> $1
       LIMIT $2`,
-    [vecLiteral, limit],
+    params,
   );
   return rows.map((r: any) => ({
     id: Number(r.id),
@@ -345,10 +352,12 @@ export async function denseCandidates(vecLiteral: string, limit: number): Promis
  * ts_rank_cd (mật độ khớp). KHÔNG dùng websearch_to_tsquery vì nó AND mọi từ → câu dài không khớp gì.
  * Lấy lexeme từ chính câu hỏi (an toàn, không lo cú pháp tsquery) rồi nối bằng ' | '.
  */
-export async function sparseCandidates(queryText: string, limit: number): Promise<Candidate[]> {
+export async function sparseCandidates(queryText: string, limit: number, sourceKind?: string): Promise<Candidate[]> {
   const q = (queryText ?? "").trim();
   if (!q) return [];
   await ensureSchema();
+  const filter = sourceKind ? ` AND d.source_kind = $3` : "";
+  const params: any[] = sourceKind ? [q, limit, sourceKind] : [q, limit];
   const { rows } = await getPool().query(
     `WITH qq AS (
        SELECT to_tsquery('simple',
@@ -357,10 +366,10 @@ export async function sparseCandidates(queryText: string, limit: number): Promis
      )
      SELECT c.id, c.doc_id, d.title, c.content, ts_rank_cd(c.tsv, qq.query) AS rank
        FROM rag_chunks c JOIN rag_docs d ON d.id = c.doc_id, qq
-      WHERE qq.query != '' AND c.tsv @@ qq.query
+      WHERE qq.query != '' AND c.tsv @@ qq.query${filter}
       ORDER BY rank DESC
       LIMIT $2`,
-    [q, limit],
+    params,
   );
   return rows.map((r: any) => ({
     id: Number(r.id),

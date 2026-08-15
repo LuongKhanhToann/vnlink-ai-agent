@@ -66,11 +66,12 @@ export async function embedOne(text: string, task: EmbedTask = "RETRIEVAL_QUERY"
     } catch (e) {
       const status = (e as any)?.status;
       lastError = e as Error;
-      if (status === 429 || status === 403) {
-        console.warn(`[embed] key #${((start + i) % keys.length) + 1} cạn quota → xoay key`);
+      // 429/403 = cạn quota; 401 = key chết/bị vô hiệu (token AQ. hết hạn) → xoay sang key khác thay vì kẹt.
+      if (status === 429 || status === 403 || status === 401) {
+        console.warn(`[embed] key #${((start + i) % keys.length) + 1} lỗi ${status} → xoay key`);
         continue;
       }
-      throw e; // lỗi khác (400…) không phải do quota → ném luôn
+      throw e; // lỗi khác (400…) không phải do key → ném luôn
     }
   }
   throw lastError;

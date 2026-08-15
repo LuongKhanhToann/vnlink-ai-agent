@@ -25,7 +25,7 @@ async function main() {
   for (const d of DOCS) {
     const text = readFileSync(resolve(KDIR, d.file), "utf8");
     await deleteDocsByTitle(d.title);
-    const r = await ingestDoc({ title: d.title, text });
+    const r = await ingestDoc({ title: d.title, text, sourceKind: "fami" });
     console.log(`✓ "${d.title}" — ${r.chunks} đoạn (doc #${r.id})`);
   }
   console.log("Xong. 3 tài liệu Fami đã vào kho RAG.");

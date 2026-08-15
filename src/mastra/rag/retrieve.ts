@@ -25,6 +25,8 @@ import { generateReply, fastModels, type ChatMsg } from "../llm/gemini";
 
 const DENSE_N = 20; // ứng viên dense thô
 const SPARSE_N = 20; // ứng viên sparse thô
+const FAMI_N = 8; // ứng viên riêng CHỈ trong doc Fami (chống sách kiến thức chen mất fact bán hàng)
+const RESERVE_FAMI = 2; // giữ chỗ tối đa bấy nhiêu đoạn Fami KHỚP CHỮ (sparse) trong kết quả cuối
 const RRF_K = 60; // hằng số RRF chuẩn
 const FUSE_KEEP = 12; // số ứng viên đưa vào rerank
 const FINAL_KEEP = 5; // số đoạn cuối bơm vào prompt
@@ -63,17 +65,15 @@ async function rewriteQuery(history: Turn[], message: string): Promise<string> {
 }
 
 // ── (3) Hợp nhất RRF ──
-function fuseRRF(dense: Candidate[], sparse: Candidate[]): Candidate[] {
+function fuseRRF(lists: Candidate[][]): Candidate[] {
   const score = new Map<number, number>();
   const byId = new Map<number, Candidate>();
-  const add = (list: Candidate[]) => {
+  for (const list of lists) {
     list.forEach((c, pos) => {
       score.set(c.id, (score.get(c.id) ?? 0) + 1 / (RRF_K + pos));
       if (!byId.has(c.id)) byId.set(c.id, c);
     });
-  };
-  add(dense);
-  add(sparse);
+  }
   return [...byId.values()]
     .sort((a, b) => (score.get(b.id) ?? 0) - (score.get(a.id) ?? 0))
     .slice(0, FUSE_KEEP);
@@ -168,23 +168,33 @@ export async function retrieveForTurn(input: { message: string; history?: Turn[]
     if (dbg) console.log(`[rag/dbg] rewrite: "${message}" → "${query}"`);
     if (!query) return ""; // model bảo không cần tra cứu
 
-    // (2) hybrid: dense ∥ sparse (sparse fail-open [])
+    // (2) hybrid: dense ∥ sparse trên TOÀN kho + thêm nhánh CHỈ-Fami (dense∥sparse) chạy song song.
+    // Nhánh Fami bảo đảm fact vận hành (giá/giờ/tiện ích) luôn có mặt trong ứng viên, không bị 360+
+    // đoạn sách kiến thức chen mất. TẤT CẢ fail-open [] — nhánh phụ hỏng không kéo sập luồng chính.
     const vecLiteral = toVectorLiteral(await embedOne(query, "RETRIEVAL_QUERY"));
-    const [dense, sparse] = await Promise.all([
+    const [dense, sparse, sparseFami] = await Promise.all([
       denseCandidates(vecLiteral, DENSE_N),
       sparseCandidates(query, SPARSE_N).catch((e) => {
         console.warn("[rag] sparse fail-open []:", (e as Error).message);
         return [] as Candidate[];
       }),
+      // Nhánh CHỈ-Fami dùng SPARSE (khớp-chữ) — tín hiệu CHÍNH XÁC là "query chạm nội dung Fami"
+      // (giá/gói/giờ/tiện ích/tên bộ môn). Không dùng dense-Fami vì ngữ nghĩa mờ dễ chen Fami vào
+      // cả câu kiến thức thuần. dense TOÀN kho vẫn phủ hồi-tưởng ngữ nghĩa cho doc Fami như thường.
+      sparseCandidates(query, FAMI_N, "fami").catch((e) => {
+        console.warn("[rag] fami-sparse fail-open []:", (e as Error).message);
+        return [] as Candidate[];
+      }),
     ]);
     if (dbg)
       console.log(
-        `[rag/dbg] dense=${dense.length}(minDist=${dense[0]?.dist?.toFixed(3) ?? "-"}) sparse=${sparse.length}`,
+        `[rag/dbg] dense=${dense.length}(minDist=${dense[0]?.dist?.toFixed(3) ?? "-"}) sparse=${sparse.length}` +
+          ` | famiSparse=${sparseFami.length}`,
       );
-    if (!dense.length && !sparse.length) return "";
+    if (!dense.length && !sparse.length && !sparseFami.length) return "";
 
-    // (3) RRF → (4) rerank (chỉ để SẮP XẾP, không để rơi)
-    const fused = fuseRRF(dense, sparse);
+    // (3) RRF hợp nhất (toàn kho dense∥sparse + nhánh Fami-sparse) → (4) rerank (chỉ để SẮP XẾP)
+    const fused = fuseRRF([dense, sparse, sparseFami]);
     const reranked = await llmRerank(query, fused);
 
     // Hợp nhất: ưu tiên thứ tự reranker, RỒI backfill bằng top RRF cho đủ FINAL_KEEP.
@@ -196,11 +206,28 @@ export async function retrieveForTurn(input: { message: string; history?: Turn[]
       if (hits.length >= FINAL_KEEP) break;
       if (!seen.has(c.id)) (seen.add(c.id), hits.push(c));
     }
-    const final = hits.slice(0, FINAL_KEEP);
+    let final = hits.slice(0, FINAL_KEEP);
+
+    // GIỮ CHỖ Fami: nếu query CHẠM tới nội dung Fami (có đoạn Fami KHỚP CHỮ qua sparse) mà đoạn đó
+    // chưa lọt kết quả → chèn lên đầu (tối đa RESERVE_FAMI), giữ tổng FINAL_KEEP. Câu kiến thức thuần
+    // (không match Fami) → sparseFami rỗng → KHÔNG đụng gì. Không đoán ý khách, chỉ dựa khớp-chữ thật.
+    if (sparseFami.length && final.length) {
+      const inFinal = new Set(final.map((h) => h.id));
+      const reserve = sparseFami.filter((c) => !inFinal.has(c.id)).slice(0, RESERVE_FAMI);
+      if (reserve.length) {
+        const merged: Candidate[] = [];
+        const ids = new Set<number>();
+        for (const c of [...reserve, ...final]) {
+          if (ids.has(c.id)) continue;
+          ids.add(c.id);
+          merged.push(c);
+        }
+        final = merged.slice(0, FINAL_KEEP);
+      }
+    }
     if (dbg)
       console.log(
-        `[rag/dbg] fused=${fused.length} rerank=${reranked.length} → final=${final.length}` +
-          ` (backfill ${final.length - reranked.length})`,
+        `[rag/dbg] fused=${fused.length} rerank=${reranked.length} famiReserved=${sparseFami.length ? "y" : "n"} → final=${final.length}`,
       );
     return formatBlock(final);
   } catch (e) {
