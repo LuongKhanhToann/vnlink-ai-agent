@@ -65,7 +65,7 @@ const THINKING_RESERVE = 1_800;
 /** Round-robin điểm bắt đầu key — rải tải đều 3 key giữa các lượt. */
 let keyCursor = 0;
 
-/** Key cạn rate-limit/quota (429/403) → xoay key kế. */
+/** Key cạn rate-limit/quota (429/403) hoặc key CHẾT (401) → xoay key kế. */
 class KeyExhaustedError extends Error {}
 /** Request sai (400/404 model…) hoặc câu trả rỗng → bỏ model này, sang model kế. */
 class BadModelError extends Error {}
@@ -127,7 +127,10 @@ async function generateOnce(
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 250);
     const msg = `gemini ${model} HTTP ${res.status}: ${detail}`;
-    if (res.status === 429 || res.status === 403) throw new KeyExhaustedError(msg);
+    // 401 = key/service-account CHẾT (token AQ. hết hạn, "bound service account disabled"): đây là
+    // lỗi CỦA KEY, không phải của model → xoay key kế, KHÔNG bỏ model (bỏ model làm key chết giết
+    // sạch cascade → bot im với khách). Giống 429/403 (key cạn quota). Xem embed.ts (đã vá 401 tương tự).
+    if (res.status === 429 || res.status === 403 || res.status === 401) throw new KeyExhaustedError(msg);
     if (TRANSIENT_STATUS.includes(res.status)) throw new Error(msg); // 5xx → thử lại cùng key
     throw new BadModelError(msg); // 400/404… → bỏ model
   }
