@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import "dotenv/config";
 import { recordUserActivity, isBotEnabled } from "../lib/botControl";
 import { runTurn } from "../engine/brain";
+import { loadConfig } from "../lib/settings";
 
 const FB_VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN ?? "";
 const FB_PAGE_ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN ?? "";
@@ -113,14 +114,24 @@ function splitBubbles(reply: string): string[] {
   return parts.slice(0, 3);
 }
 
+/** Nhịp gõ giữa 2 bóng: random trong [min,max] (config admin) để giống người thật đang gõ. */
+function humanTypingDelayMs(minMs: number, maxMs: number): number {
+  const lo = Math.min(minMs, maxMs);
+  const hi = Math.max(minMs, maxMs);
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
 async function sendReply(senderId: string, reply: string): Promise<void> {
   const clean = (reply ?? "").trim();
   if (!clean) return;
   const bubbles = splitBubbles(clean);
+  // Nhịp gõ do admin cấu hình (đọc mỗi lượt, không cache). Lỗi → default trong loadConfig.
+  const { bubbleDelayMinMs, bubbleDelayMaxMs } = await loadConfig();
   for (let i = 0; i < bubbles.length; i++) {
     if (i > 0) {
+      // Bật "đang nhập..." trong lúc chờ để cảm giác như người thật gõ tin kế tiếp.
       await sendTypingOn(senderId);
-      await sleep(Math.min(1800, 400 + bubbles[i].length * 25));
+      await sleep(humanTypingDelayMs(bubbleDelayMinMs, bubbleDelayMaxMs));
     }
     await sendText(senderId, bubbles[i]);
   }

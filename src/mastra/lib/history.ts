@@ -50,21 +50,27 @@ function ensureSchema(): Promise<void> {
   return schemaReady;
 }
 
-export type Turn = { role: "user" | "assistant"; content: string };
+// createdAt (ISO) tuỳ chọn — engine dùng để gắn dấu giờ vào lịch sử cho model hiểu đúng mốc thời
+// gian; các nơi khác (RAG rewrite) chỉ đọc role/content nên bỏ qua field này vô hại.
+export type Turn = { role: "user" | "assistant"; content: string; createdAt?: string };
 
 const MAX_TURNS = 12; // ~6 lượt qua lại — đủ ngữ cảnh, nhẹ token cho model free-tier
 
-/** Nạp N tin gần nhất theo thứ tự thời gian tăng dần. Lỗi → []. */
+/** Nạp N tin gần nhất theo thứ tự thời gian tăng dần (kèm created_at). Lỗi → []. */
 export async function loadRecent(senderId: string, limit = MAX_TURNS): Promise<Turn[]> {
   try {
     await ensureSchema();
     const { rows } = await getPool().query(
-      `SELECT role, content FROM (
-         SELECT role, content, id FROM chat_history WHERE sender_id = $1 ORDER BY id DESC LIMIT $2
+      `SELECT role, content, created_at FROM (
+         SELECT role, content, created_at, id FROM chat_history WHERE sender_id = $1 ORDER BY id DESC LIMIT $2
        ) t ORDER BY id ASC`,
       [senderId, limit],
     );
-    return rows.map((r: any) => ({ role: r.role === "assistant" ? "assistant" : "user", content: String(r.content ?? "") }));
+    return rows.map((r: any) => ({
+      role: r.role === "assistant" ? "assistant" : "user",
+      content: String(r.content ?? ""),
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : undefined,
+    }));
   } catch (e) {
     console.error(`[history] loadRecent failed for ${senderId}:`, (e as Error).message);
     return [];

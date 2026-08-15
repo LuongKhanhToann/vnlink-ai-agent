@@ -13,6 +13,8 @@ import { generateReply, type ChatMsg } from "../llm/gemini";
 import { retrieveForTurn } from "../rag/retrieve";
 import { loadRecent, appendMessage } from "../lib/history";
 import { FAMI_SYSTEM } from "../prompts/fami";
+import { vnParts, buildTimeBlock, stampFor } from "../lib/timeContext";
+import { loadConfig } from "../lib/settings";
 
 export interface TurnInput {
   senderId: string;
@@ -28,11 +30,23 @@ export async function runTurn(input: TurnInput): Promise<{ reply: string }> {
   // (2) RAG theo ngữ cảnh hội thoại (fail-open "" bên trong).
   const docBlock = await retrieveForTurn({ message, history });
 
-  const systemContent = docBlock ? `${FAMI_SYSTEM}\n\n${docBlock}` : FAMI_SYSTEM;
+  // (3) Bối cảnh thời gian thật + kíp trực — chèn vào system để model không "ngáo giờ" (nhầm
+  //     tối nay thành hôm qua) và biết mình đang trực ca nào, tên gì. Gắn dấu (HH:MM) đầu mỗi tin
+  //     lịch sử để model hiểu đúng mốc thời gian của từng lượt.
+  const now = vnParts();
+  const config = await loadConfig(); // giờ nghỉ đêm + kíp trực do admin cấu hình (đọc mỗi lượt)
+  const timeBlock = buildTimeBlock(now, config);
+  const systemContent = [FAMI_SYSTEM, timeBlock, docBlock].filter(Boolean).join("\n\n");
   const messages: ChatMsg[] = [
     { role: "system", content: systemContent },
-    ...history.map((t) => ({ role: t.role, content: t.content }) as ChatMsg),
-    { role: "user", content: message },
+    ...history.map(
+      (t) =>
+        ({
+          role: t.role,
+          content: t.createdAt ? `(${stampFor(new Date(t.createdAt), now)}) ${t.content}` : t.content,
+        }) as ChatMsg,
+    ),
+    { role: "user", content: `(${now.hhmm}) ${message}` },
   ];
 
   const reply = (await generateReply(messages, { temperature: 0.6, maxTokens: 700, abortSignal })).trim();

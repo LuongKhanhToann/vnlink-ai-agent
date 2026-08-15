@@ -20,6 +20,7 @@ import { listUsers, setBotEnabled, setGlobalEnabled, getGlobalEnabled, deleteBot
 import { clearHistory, lastPairsBatch } from "../lib/history";
 import { listDocs, ingestDoc, deleteDoc, getDoc, updateDoc } from "../rag/store";
 import { parseUpload } from "../lib/parseUpload";
+import { loadConfig, saveConfig } from "../lib/settings";
 import {
   MEDIA_CATEGORIES,
   listCategoryMedia,
@@ -211,6 +212,27 @@ adminWebhook.post("/admin/api/media/delete", async (c) => {
   return c.json({ ok });
 });
 
+// ── 4) Cấu hình runtime (giờ nghỉ đêm / kíp trực / nhịp gõ tin) ──
+adminWebhook.get("/admin/api/config", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json({ config: await loadConfig() });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+adminWebhook.post("/admin/api/config/save", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const b = await c.req.json().catch(() => ({}));
+    const config = await saveConfig(b); // sanitize bên trong
+    return c.json({ ok: true, config });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400);
+  }
+});
+
 // ── UI (single page, 3 tab). Không dùng ${...} / backtick trong <script> (đang nằm trong template literal). ──
 const PAGE_HTML = `<!doctype html>
 <html lang="vi">
@@ -328,6 +350,17 @@ input:checked + .slider:before{transform:translateX(20px)}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;max-width:340px;width:100%;box-shadow:var(--shadow)}
 .modal p{margin:0 0 18px;font-size:15px;line-height:1.5}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+.cfg-row{display:flex;gap:12px;flex-wrap:wrap}
+.cfg-row > div{flex:1;min-width:120px}
+.shift-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.shift-row .input{margin-top:0}
+.shift-row .sh-name{max-width:130px}
+.shift-row .sh-label{max-width:160px}
+.shift-row .sh-start,.shift-row .sh-end{max-width:78px}
+.shift-hd{display:flex;gap:8px;margin-bottom:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.shift-hd span:nth-child(1){min-width:130px}
+.shift-hd span:nth-child(2){min-width:160px}
+.shift-hd span:nth-child(3),.shift-hd span:nth-child(4){min-width:78px}
 @media (max-width:640px){
   .wrap{padding:20px 12px}
   .master{flex-wrap:wrap}
@@ -376,6 +409,7 @@ input:checked + .slider:before{transform:translateX(20px)}
     <button id="tab-users" class="tab active" onclick="switchTab('users')">Khách hàng</button>
     <button id="tab-docs" class="tab" onclick="switchTab('docs')">Tài liệu</button>
     <button id="tab-media" class="tab" onclick="switchTab('media')">Ảnh / Video</button>
+    <button id="tab-config" class="tab" onclick="switchTab('config')">Cấu hình</button>
   </div>
 
   <div id="view-users">
@@ -415,6 +449,38 @@ input:checked + .slider:before{transform:translateX(20px)}
     <p class="subtitle" id="mediaSub">Ảnh/video gửi cho khách qua Facebook. Giới hạn: ảnh ≤ 8MB, video ≤ 25MB.</p>
     <div id="mediaList"><p class="muted">Đang tải…</p></div>
   </div>
+
+  <div id="view-config" class="hidden">
+    <p class="subtitle">Cấu hình bối cảnh "người thật" của bot: giờ nghỉ đêm, kíp trực (tên nhân viên theo ca) và nhịp gõ giữa các tin. Lưu xong áp dụng ngay ở tin kế tiếp — không cần cài lại.</p>
+
+    <div class="kcard">
+      <div class="khead"><b>🌙 Giờ nghỉ đêm</b></div>
+      <p class="note" style="margin-top:0">Trong khung giờ này bot sẽ nhẹ nhàng giục khách đi ngủ, hẹn mai, không cố bán thêm. Ca qua đêm thì giờ bắt đầu lớn hơn giờ kết thúc (VD 23 → 5).</p>
+      <div class="cfg-row">
+        <div><label class="plbl">Bắt đầu (giờ, 0–23)</label><input id="cfg-ln-start" type="number" min="0" max="23" class="input"/></div>
+        <div><label class="plbl">Kết thúc (giờ sáng, 0–23)</label><input id="cfg-ln-end" type="number" min="0" max="23" class="input"/></div>
+      </div>
+    </div>
+
+    <div class="kcard">
+      <div class="khead"><b>⌨️ Nhịp gõ giữa các tin nhắn con</b></div>
+      <p class="note" style="margin-top:0">Bot tách câu trả lời dài thành nhiều "bóng" tin; đây là khoảng chờ NGẪU NHIÊN giữa 2 bóng để giống người thật đang gõ. Đặt bằng nhau nếu muốn cố định.</p>
+      <div class="cfg-row">
+        <div><label class="plbl">Tối thiểu (giây)</label><input id="cfg-delay-min" type="number" min="0" max="120" step="0.5" class="input"/></div>
+        <div><label class="plbl">Tối đa (giây)</label><input id="cfg-delay-max" type="number" min="0" max="120" step="0.5" class="input"/></div>
+      </div>
+    </div>
+
+    <div class="kcard">
+      <div class="khead"><b>🧑‍💼 Kíp trực — tên nhân viên theo ca</b></div>
+      <p class="note" style="margin-top:0">Theo giờ Việt Nam, bot xưng tên nhân viên đang trực ca đó (nếu khách hỏi tên). Ca qua đêm để giờ bắt đầu lớn hơn giờ kết thúc (VD 22 → 6). Các ca nên phủ kín 24 giờ và không chồng lấn.</p>
+      <div class="shift-hd"><span>Tên</span><span>Tên ca</span><span>Từ giờ</span><span>Đến giờ</span><span></span></div>
+      <div id="shiftRows"></div>
+      <div class="kacts"><button class="btn btn-sm" onclick="addShift()">+ Thêm ca</button></div>
+    </div>
+
+    <div class="kacts"><button id="cfg-save-btn" class="btn btn-primary kbtn" onclick="saveConfigTab()">Lưu cấu hình</button></div>
+  </div>
 </div>
 
 <input id="fileInput" type="file" class="hidden"/>
@@ -429,9 +495,12 @@ var LAST_Q = null;
 var MEDIA = null;
 var LIMITS = { image: 8388608, video: 26214400 };
 var DELITEMS = [];
+var CONFIG = {};
 
 function show(id){ document.getElementById(id).classList.remove("hidden"); }
 function hide(id){ document.getElementById(id).classList.add("hidden"); }
+function val(id){ var el=document.getElementById(id); return el ? el.value : ""; }
+function setVal(id,v){ var el=document.getElementById(id); if(el) el.value = (v==null?"":v); }
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];}); }
 function cut(s,n){ s=(s==null?"":String(s)); return s.length>n ? s.slice(0,n)+"…" : s; }
 function fmt(iso){ try { return new Date(iso).toLocaleString("vi-VN",{hour:"2-digit",minute:"2-digit",day:"2-digit",month:"2-digit",year:"numeric",hour12:false}); } catch(e){ return iso; } }
@@ -481,13 +550,14 @@ async function boot(){
 }
 
 function switchTab(name){
-  ["users","docs","media"].forEach(function(t){
+  ["users","docs","media","config"].forEach(function(t){
     var tb = document.getElementById("tab-"+t); if(tb) tb.classList.toggle("active", t===name);
     var vw = document.getElementById("view-"+t); if(vw) vw.classList.toggle("hidden", t!==name);
   });
   if(name==="users") loadUsers();
   if(name==="docs") loadDocs();
   if(name==="media") loadMedia();
+  if(name==="config") loadConfigTab();
 }
 
 // ── Khách hàng ──
@@ -793,6 +863,94 @@ async function deleteItem(t, btn){
 }
 
 // ── Toast + hộp xác nhận ──
+// ── Cấu hình (giờ nghỉ đêm / kíp trực / nhịp gõ) ──
+async function loadConfigTab(){
+  document.getElementById("shiftRows").innerHTML = '<p class="muted">Đang tải…</p>';
+  try {
+    var r = await fetch("/admin/api/config",{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ toast("Lỗi tải cấu hình.","err"); return; }
+    var d = await r.json();
+    CONFIG = d.config || {};
+    renderConfig();
+  } catch(e){ toast("Không tải được cấu hình.","err"); }
+}
+
+function renderConfig(){
+  setVal("cfg-ln-start", CONFIG.lateNightStart);
+  setVal("cfg-ln-end", CONFIG.lateNightEnd);
+  setVal("cfg-delay-min", (Number(CONFIG.bubbleDelayMinMs||0)/1000));
+  setVal("cfg-delay-max", (Number(CONFIG.bubbleDelayMaxMs||0)/1000));
+  renderShifts();
+}
+
+function renderShifts(){
+  var list = CONFIG.shifts || [];
+  var html = list.map(function(s,i){
+    return '<div class="shift-row" data-i="'+i+'">'
+      + '<input class="input sh-name" placeholder="Tên" value="'+esc(s.name)+'"/>'
+      + '<input class="input sh-label" placeholder="ca sáng" value="'+esc(s.label)+'"/>'
+      + '<input class="input sh-start" type="number" min="0" max="23" value="'+Number(s.start)+'"/>'
+      + '<input class="input sh-end" type="number" min="0" max="23" value="'+Number(s.end)+'"/>'
+      + '<button class="del" title="Xoá ca" onclick="removeShift('+i+')">✕</button>'
+      + '</div>';
+  }).join("");
+  document.getElementById("shiftRows").innerHTML = html || '<p class="empty">Chưa có ca nào — bấm "Thêm ca".</p>';
+}
+
+// Đọc lại giá trị đang gõ trên DOM vào CONFIG.shifts (giữ chỉnh sửa chưa lưu khi thêm/xoá dòng).
+function readShiftsFromDom(){
+  var out = [];
+  var rows = document.querySelectorAll("#shiftRows .shift-row");
+  for(var k=0;k<rows.length;k++){
+    var row = rows[k];
+    out.push({
+      name: row.querySelector(".sh-name").value.trim(),
+      label: row.querySelector(".sh-label").value.trim(),
+      start: parseInt(row.querySelector(".sh-start").value,10) || 0,
+      end: parseInt(row.querySelector(".sh-end").value,10) || 0
+    });
+  }
+  CONFIG.shifts = out;
+}
+
+function addShift(){
+  readShiftsFromDom();
+  if(!CONFIG.shifts) CONFIG.shifts = [];
+  CONFIG.shifts.push({ name:"", label:"ca trực", start:0, end:0 });
+  renderShifts();
+}
+
+function removeShift(i){
+  readShiftsFromDom();
+  CONFIG.shifts.splice(i,1);
+  renderShifts();
+}
+
+async function saveConfigTab(){
+  readShiftsFromDom();
+  var payload = {
+    lateNightStart: parseInt(val("cfg-ln-start"),10),
+    lateNightEnd: parseInt(val("cfg-ln-end"),10),
+    bubbleDelayMinMs: Math.round(parseFloat(val("cfg-delay-min"))*1000),
+    bubbleDelayMaxMs: Math.round(parseFloat(val("cfg-delay-max"))*1000),
+    shifts: CONFIG.shifts || []
+  };
+  if((payload.shifts||[]).some(function(s){ return !s.name; })){
+    toast("Có ca chưa nhập tên — điền tên hoặc xoá ca đó.","err"); return;
+  }
+  var btn = document.getElementById("cfg-save-btn"); btn.disabled = true;
+  try {
+    var r = await fetch("/admin/api/config/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    if(handle401(r)) return;
+    var d = await r.json().catch(function(){return {};});
+    if(!r.ok || !d.ok){ toast(d.error || "Lưu thất bại.","err"); return; }
+    CONFIG = d.config; renderConfig();
+    toast("Đã lưu cấu hình ✓","ok");
+  } catch(e){ toast("Không lưu được, thử lại.","err"); }
+  finally { btn.disabled = false; }
+}
+
 function toast(msg, kind){
   var wrap = document.getElementById("toasts");
   var el = document.createElement("div");
