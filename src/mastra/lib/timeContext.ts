@@ -121,8 +121,10 @@ export function buildTimeBlock(now: VNParts = vnParts(), config: BotRuntimeConfi
     "- Dấu (HH:MM) chỉ là ghi chú hệ thống — KHÔNG được lặp lại trong câu trả lời của em.",
   ];
   if (isLateNight(now.hour, config.lateNightStart, config.lateNightEnd)) {
+    // Tham chiếu giờ config (KHÔNG hard-code "23h") — admin đổi khung thì câu lệnh vẫn khớp giờ thật,
+    // tránh mâu thuẫn "bây giờ 13:30" mà lại bảo "đã quá 23h" khiến model bỏ qua.
     lines.push(
-      "- ĐÃ QUÁ 23H KHUYA: nhẹ nhàng giục khách đi ngủ sớm, hẹn mai tư vấn tiếp; KHÔNG cố chốt/bán thêm. Khách còn nhắn thì vẫn ưu tiên khuyên nghỉ ngơi, giữ 1-2 câu ấm áp rồi hẹn mai.",
+      `- BÂY GIỜ ĐÃ TRONG KHUNG NGHỈ ĐÊM (từ ${config.lateNightStart}h khuya tới ${config.lateNightEnd}h sáng): muộn rồi, hãy nhẹ nhàng giục khách đi ngủ sớm, hẹn mai tư vấn tiếp; KHÔNG cố chốt/bán thêm. Khách còn nhắn thì vẫn ưu tiên khuyên nghỉ ngơi, giữ 1-2 câu ấm áp rồi hẹn mai.`,
     );
   }
   return lines.join("\n");

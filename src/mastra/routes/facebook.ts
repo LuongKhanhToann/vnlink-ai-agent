@@ -114,14 +114,16 @@ function splitBubbles(reply: string): string[] {
   return parts.slice(0, 3);
 }
 
-/** Nhịp gõ giữa 2 bóng: random trong [min,max] (config admin) để giống người thật đang gõ. */
-function humanTypingDelayMs(minMs: number, maxMs: number): number {
+/** Nhịp gõ giữa 2 bóng: random trong [min,max] (config admin) để giống người thật đang gõ.
+ *  Export để smoke kiểm biên [min,max] — runtime không đổi. */
+export function humanTypingDelayMs(minMs: number, maxMs: number): number {
   const lo = Math.min(minMs, maxMs);
   const hi = Math.max(minMs, maxMs);
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
 
-async function sendReply(senderId: string, reply: string): Promise<void> {
+// Export để smoke đo end-to-end nhịp gõ (đọc config + delay giữa các bóng). Runtime không đổi.
+export async function sendReply(senderId: string, reply: string): Promise<void> {
   const clean = (reply ?? "").trim();
   if (!clean) return;
   const bubbles = splitBubbles(clean);
