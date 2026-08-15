@@ -472,7 +472,7 @@ input:checked + .slider:before{transform:translateX(20px)}
     </div>
 
     <div class="kcard">
-      <div class="khead"><b>🧑‍💼 Kíp trực — tên nhân viên theo ca</b></div>
+      <div class="khead"><b>Kíp trực — tên nhân viên theo ca</b></div>
       <p class="note" style="margin-top:0">Theo giờ Việt Nam, bot xưng tên nhân viên đang trực ca đó (nếu khách hỏi tên). Ca qua đêm để giờ bắt đầu lớn hơn giờ kết thúc (VD 22 → 6). Các ca nên phủ kín 24 giờ và không chồng lấn.</p>
       <div class="shift-hd"><span>Tên</span><span>Tên ca</span><span>Từ giờ</span><span>Đến giờ</span><span></span></div>
       <div id="shiftRows"></div>
