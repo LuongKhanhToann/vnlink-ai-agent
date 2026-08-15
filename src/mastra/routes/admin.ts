@@ -454,8 +454,8 @@ input:checked + .slider:before{transform:translateX(20px)}
     <p class="subtitle">Cấu hình bối cảnh "người thật" của bot: giờ nghỉ đêm, kíp trực (tên nhân viên theo ca) và nhịp gõ giữa các tin. Lưu xong áp dụng ngay ở tin kế tiếp — không cần cài lại.</p>
 
     <div class="kcard">
-      <div class="khead"><b>🌙 Giờ nghỉ đêm</b></div>
-      <p class="note" style="margin-top:0">Trong khung giờ này bot sẽ nhẹ nhàng giục khách đi ngủ, hẹn mai, không cố bán thêm. Ca qua đêm thì giờ bắt đầu lớn hơn giờ kết thúc (VD 23 → 5).</p>
+      <div class="khead"><b>Giờ nghỉ đêm</b></div>
+      <p class="note" style="margin-top:0">Trong khung giờ này bot sẽ nhẹ nhàng giục khách đi ngủ, hẹn mai, không cố bán thêm. </p>
       <div class="cfg-row">
         <div><label class="plbl">Bắt đầu (giờ, 0–23)</label><input id="cfg-ln-start" type="number" min="0" max="23" class="input"/></div>
         <div><label class="plbl">Kết thúc (giờ sáng, 0–23)</label><input id="cfg-ln-end" type="number" min="0" max="23" class="input"/></div>
@@ -464,7 +464,7 @@ input:checked + .slider:before{transform:translateX(20px)}
 
     <div class="kcard">
       <div class="khead"><b>⌨️ Nhịp gõ giữa các tin nhắn con</b></div>
-      <p class="note" style="margin-top:0">Bot tách câu trả lời dài thành nhiều "bóng" tin; đây là khoảng chờ NGẪU NHIÊN giữa 2 bóng để giống người thật đang gõ. Đặt bằng nhau nếu muốn cố định.</p>
+      <p class="note" style="margin-top:0">Bot tách câu trả lời dài thành nhiều tin; đây là khoảng chờ NGẪU NHIÊN giữa 2 tin để giống người thật đang gõ. Đặt bằng nhau nếu muốn cố định.</p>
       <div class="cfg-row">
         <div><label class="plbl">Tối thiểu (giây)</label><input id="cfg-delay-min" type="number" min="0" max="120" step="0.5" class="input"/></div>
         <div><label class="plbl">Tối đa (giây)</label><input id="cfg-delay-max" type="number" min="0" max="120" step="0.5" class="input"/></div>
