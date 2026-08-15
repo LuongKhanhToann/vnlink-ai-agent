@@ -463,7 +463,7 @@ input:checked + .slider:before{transform:translateX(20px)}
     </div>
 
     <div class="kcard">
-      <div class="khead"><b>⌨️ Nhịp gõ giữa các tin nhắn con</b></div>
+      <div class="khead"><b>Nhịp gõ giữa các tin nhắn con</b></div>
       <p class="note" style="margin-top:0">Bot tách câu trả lời dài thành nhiều tin; đây là khoảng chờ NGẪU NHIÊN giữa 2 tin để giống người thật đang gõ. Đặt bằng nhau nếu muốn cố định.</p>
       <div class="cfg-row">
         <div><label class="plbl">Tối thiểu (giây)</label><input id="cfg-delay-min" type="number" min="0" max="120" step="0.5" class="input"/></div>
