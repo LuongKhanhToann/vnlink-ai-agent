@@ -21,22 +21,33 @@ export function geminiKeys(): string[] {
     .filter(Boolean);
 }
 
-/** Cascade mặc định: 3.6-flash (mạnh) → 3.1-flash-lite → flash-lite-latest → gemma-4-31b-it (sàn).
- *  (Đã bỏ gemini-2.5-flash-lite: API trả 404 "no longer available to new users".) */
+/** Cascade mặc định (model NGOÀI, key TRONG): mạnh trước → nhẹ RPD-cao → gemma sàn RPD 14.4K.
+ *  3.6-flash → 3.5-flash → 3.1-flash-lite → 3.5-flash-lite → flash-lite-latest → gemma-4-26b-a4b-it.
+ *  Bỏ gemma-4-31b-it (thinking bắt buộc, chậm) — thay bằng 26b-a4b. Các ID đã probe 200 (15/08).
+ *  (2.5-flash-lite / 3-flash / 2.5-flash: API trả 404 → không dùng.) */
 export function chatModels(): string[] {
   const raw = process.env.GEMINI_CHAT_MODELS || process.env.GEMINI_CHAT_MODEL || "";
   const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
   return models.length
     ? models
-    : ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemma-4-31b-it"];
+    : [
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemma-4-26b-a4b-it",
+      ];
 }
 
-/** Cascade NHẸ cho call phụ (rewrite/rerank/contextualize): flash-lite trước cho nhanh, gemma sàn đỡ lưng.
- *  Trả lời khách vẫn dùng chatModels() mạnh hơn. Override bằng GEMINI_FAST_MODELS. */
+/** Cascade NHẸ cho call phụ (rewrite/rerank/contextualize): các flash-lite RPD-cao trước cho nhanh,
+ *  gemma-4-26b-a4b-it sàn (RPD 14.4K) nuốt overflow lúc ingest hàng loạt. Override bằng GEMINI_FAST_MODELS. */
 export function fastModels(): string[] {
   const raw = process.env.GEMINI_FAST_MODELS || "";
   const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
-  return models.length ? models : ["gemini-3.1-flash-lite", "gemini-flash-lite-latest", "gemma-4-31b-it"];
+  return models.length
+    ? models
+    : ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemma-4-26b-a4b-it"];
 }
 
 const TIMEOUT_MS = 60_000;

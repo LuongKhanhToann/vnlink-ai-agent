@@ -682,19 +682,56 @@ async function loadDocs(){
   } catch(e){ box.innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; }
 }
 
+function docCardHtml(d, childName){
+  var when = (d.created_at||"").slice(0,10);
+  var label = (childName != null && childName !== "") ? childName : d.title;
+  return '<div class="kcard"><div class="khead"><b>'+esc(label)+'</b>'
+    + '<span class="muted" style="margin-left:auto">'+d.chunk_count+' đoạn · '+esc(when)+'</span></div>'
+    + '<div class="kacts"><button class="btn kbtn" onclick="editDoc('+d.id+')">Xem / Sửa</button>'
+    + '<button class="btn btn-danger kbtn" onclick="delDoc('+d.id+')">Xoá</button></div>'
+    + '<div id="docedit-'+d.id+'" class="hidden" style="margin-top:12px"></div></div>';
+}
+
+// Gộp tài liệu con vào FOLDER cha. Tiêu đề dạng "<Folder> – <mục con>" → gộp theo tiền tố trước
+// dấu " – "; tiêu đề KHÔNG có " – " (3 doc Fami) đứng lẻ trên đầu. Folder mặc định thu gọn.
 function renderDocs(docs){
   var box = document.getElementById("docList");
   if(!docs.length){ box.innerHTML = '<p class="muted">Chưa có tài liệu nào.</p>'; return; }
-  var html = "";
+  var SEP = " – ";
+  var standalone = [], folders = {}, order = [];
   docs.forEach(function(d){
-    var when = (d.created_at||"").slice(0,10);
-    html += '<div class="kcard"><div class="khead"><b>'+esc(d.title)+'</b>'
-      + '<span class="muted" style="margin-left:auto">'+d.chunk_count+' đoạn · '+esc(when)+'</span></div>'
-      + '<div class="kacts"><button class="btn kbtn" onclick="editDoc('+d.id+')">Xem / Sửa</button>'
-      + '<button class="btn btn-danger kbtn" onclick="delDoc('+d.id+')">Xoá</button></div>'
-      + '<div id="docedit-'+d.id+'" class="hidden" style="margin-top:12px"></div></div>';
+    var i = (d.title||"").indexOf(SEP);
+    if(i < 0){ standalone.push(d); return; }
+    var name = d.title.slice(0, i);
+    if(!folders[name]){ folders[name] = []; order.push(name); }
+    folders[name].push(d);
+  });
+  var html = "";
+  standalone.forEach(function(d){ html += docCardHtml(d, null); });
+  order.forEach(function(name, fi){
+    var items = folders[name], chunks = 0, inner = "";
+    items.forEach(function(d){
+      chunks += (d.chunk_count||0);
+      var i = d.title.indexOf(SEP);
+      inner += docCardHtml(d, d.title.slice(i + SEP.length));
+    });
+    html += '<div class="kcard">'
+      + '<div class="khead" onclick="toggleFolder('+fi+')" style="cursor:pointer;user-select:none">'
+      + '<span id="folder-arrow-'+fi+'" style="margin-right:8px">▶</span>'
+      + '<b>📁 '+esc(name)+'</b>'
+      + '<span class="muted" style="margin-left:auto">'+items.length+' tài liệu · '+chunks+' đoạn</span></div>'
+      + '<div id="folder-body-'+fi+'" class="hidden" style="margin-top:10px;padding-left:12px;border-left:2px solid #e5e7eb">'+inner+'</div>'
+      + '</div>';
   });
   box.innerHTML = html;
+}
+
+function toggleFolder(fi){
+  var body = document.getElementById("folder-body-"+fi);
+  var arrow = document.getElementById("folder-arrow-"+fi);
+  if(!body) return;
+  var hidden = body.classList.toggle("hidden");
+  if(arrow) arrow.textContent = hidden ? "▶" : "▼";
 }
 
 async function editDoc(id){
