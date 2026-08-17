@@ -92,3 +92,15 @@ YOGA BƠI 1T, YOGA BƠI 3T, YOGA BƠI 6T, YOGA BƠI 12T
 | Giảm cân 2 | 5400 | - Tặng Dạy bơi 1 kiểu - Tặng 1 sản phẩm VHealth - Tư vấn dinh dưỡng 3 buổi - Có Tư vấn kèm cặp dinh dưỡng hàng ngày | Thực hành bơi giảm cân trong 6 tháng. Cam kết giảm 6kg -10kg khi làm đúng hướng dẫn |
 | Giảm cân 3 | 6300 | - Tặng 2 tháng tập luyện cùng Huấn luyện viên Gym theo lớp nhóm - Tư vấn dinh dưỡng 3 buổi - Có Tư vấn kèm cặp dinh dưỡng hàng ngày | Thực hành tập Gym và bơi giảm cân trong 12 tháng. Cam kết giảm 6kg -10kg khi làm đúng hướng dẫn |
 | Giảm cân 4 | Giá theo nhu cầu giảm cân của khách hàng |  | Khách hàng có nhu cầu giảm từ 20kg trở lên sẽ có hỗ trợ từ trung tâm Fami Fitness. |
+
+**9. GÓI GIẢI PHÁP GIẢI CƠ SÂU :**
+
+  - Gói "Giải cơ cơ bản" 6 phút : Giá 200.000 vnđ
+
+Mua 5 buổi giá 990.000 vnđ, tặng thêm 1 buổi.
+
+Mua 10 buổi giá 1.990.000 vnđ, tặng 1 tháng tập Gym miễn phí hoặc 1 tháng bơi miễn phí
+
+  - Gói "Giải cơ sâu tái tạo" : Giá 250.000 vnđ
+
+Mua 10 buổi giá 2.500.000 vnđ, tặng 1 buổi Giải cơ cơ bản, tặng 1 tháng tập Gym miễn phí hoặc 1 tháng bơi miễn phí.

@@ -172,24 +172,32 @@ export async function retrieveForTurn(input: { message: string; history?: Turn[]
     // Nhánh Fami bảo đảm fact vận hành (giá/giờ/tiện ích) luôn có mặt trong ứng viên, không bị 360+
     // đoạn sách kiến thức chen mất. TẤT CẢ fail-open [] — nhánh phụ hỏng không kéo sập luồng chính.
     const vecLiteral = toVectorLiteral(await embedOne(query, "RETRIEVAL_QUERY"));
-    const [dense, sparse, sparseFami] = await Promise.all([
+    const [dense, sparse, sparseFami, denseFami] = await Promise.all([
       denseCandidates(vecLiteral, DENSE_N),
       sparseCandidates(query, SPARSE_N).catch((e) => {
         console.warn("[rag] sparse fail-open []:", (e as Error).message);
         return [] as Candidate[];
       }),
       // Nhánh CHỈ-Fami dùng SPARSE (khớp-chữ) — tín hiệu CHÍNH XÁC là "query chạm nội dung Fami"
-      // (giá/gói/giờ/tiện ích/tên bộ môn). Không dùng dense-Fami vì ngữ nghĩa mờ dễ chen Fami vào
-      // cả câu kiến thức thuần. dense TOÀN kho vẫn phủ hồi-tưởng ngữ nghĩa cho doc Fami như thường.
+      // (giá/gói/giờ/tiện ích/tên bộ môn). Dùng làm CỔNG: chỉ khi nhánh này KHỚP (query thật sự chạm
+      // Fami) mới kích hoạt phần giữ chỗ Fami bên dưới — câu kiến thức thuần KHÔNG bị đụng.
       sparseCandidates(query, FAMI_N, "fami").catch((e) => {
         console.warn("[rag] fami-sparse fail-open []:", (e as Error).message);
+        return [] as Candidate[];
+      }),
+      // Nhánh CHỈ-Fami dùng DENSE (ngữ nghĩa) — bù cho điểm yếu của sparse: sparse thưởng TẦN SUẤT chữ
+      // nên đoạn liệt kê tên gói combo (lặp "YOGA"/"GYM" nhiều lần) lấn bảng giá ĐƠN-bộ-môn. Dense bắt
+      // đúng ngữ nghĩa "giá yoga 1 năm" → bảng Yoga đơn. CHỈ dùng trong phần giữ chỗ Fami (đã có cổng
+      // sparseFami) nên KHÔNG chen Fami vào câu kiến thức thuần như dense-toàn-kho từng lo.
+      denseCandidates(vecLiteral, FAMI_N, "fami").catch((e) => {
+        console.warn("[rag] fami-dense fail-open []:", (e as Error).message);
         return [] as Candidate[];
       }),
     ]);
     if (dbg)
       console.log(
         `[rag/dbg] dense=${dense.length}(minDist=${dense[0]?.dist?.toFixed(3) ?? "-"}) sparse=${sparse.length}` +
-          ` | famiSparse=${sparseFami.length}`,
+          ` | famiSparse=${sparseFami.length} famiDense=${denseFami.length}`,
       );
     if (!dense.length && !sparse.length && !sparseFami.length) return "";
 
@@ -208,12 +216,18 @@ export async function retrieveForTurn(input: { message: string; history?: Turn[]
     }
     let final = hits.slice(0, FINAL_KEEP);
 
-    // GIỮ CHỖ Fami: nếu query CHẠM tới nội dung Fami (có đoạn Fami KHỚP CHỮ qua sparse) mà đoạn đó
-    // chưa lọt kết quả → chèn lên đầu (tối đa RESERVE_FAMI), giữ tổng FINAL_KEEP. Câu kiến thức thuần
-    // (không match Fami) → sparseFami rỗng → KHÔNG đụng gì. Không đoán ý khách, chỉ dựa khớp-chữ thật.
+    // GIỮ CHỖ Fami: nếu query CHẠM tới nội dung Fami (có đoạn Fami KHỚP CHỮ qua sparse — CỔNG) mà đoạn
+    // fact đó chưa lọt kết quả → chèn lên đầu (tối đa RESERVE_FAMI), giữ tổng FINAL_KEEP. Câu kiến thức
+    // thuần (không match Fami) → sparseFami rỗng → KHÔNG đụng gì.
+    // Ứng viên giữ chỗ = RRF(denseFami, sparseFami): dense (ngữ nghĩa) + sparse (khớp chữ) bù nhau nên
+    // bảng giá ĐƠN-bộ-môn không bị đoạn combo (lặp tên gói) lấn — dựa tín hiệu thật, không đoán ý khách.
     if (sparseFami.length && final.length) {
+      const famiPool = fuseRRF([denseFami, sparseFami]);
       const inFinal = new Set(final.map((h) => h.id));
-      const reserve = sparseFami.filter((c) => !inFinal.has(c.id)).slice(0, RESERVE_FAMI);
+      // Chỉ giữ chỗ đoạn Fami vừa XẾP TOP pool vừa CÒN THIẾU. Slice TRƯỚC rồi filter — KHÔNG filter
+      // trước (sẽ vớt phải ĐUÔI pool khi top đã có trong final, rồi prepend đẩy chính đoạn giá tốt ra
+      // khỏi FINAL_KEEP). Top pool đã nằm trong final → reserve rỗng → giữ nguyên, không phá.
+      const reserve = famiPool.slice(0, RESERVE_FAMI).filter((c) => !inFinal.has(c.id));
       if (reserve.length) {
         const merged: Candidate[] = [];
         const ids = new Set<number>();
