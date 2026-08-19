@@ -37,7 +37,14 @@ export async function contextualizeChunk(docText: string, chunk: string): Promis
   ];
 
   try {
-    const out = (await generateReply(messages, { temperature: 0, maxTokens: 160, models: fastModels() })).trim();
+    const out = (
+      await generateReply(messages, {
+        temperature: 0,
+        maxTokens: 160,
+        models: fastModels(),
+        purpose: "Ghi chú tài liệu (nạp)",
+      })
+    ).trim();
     // Gọn lại phòng model lỡ trả dài; 1-2 câu là đủ.
     return out.length > 400 ? out.slice(0, 400).trim() : out;
   } catch (e) {

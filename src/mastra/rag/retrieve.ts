@@ -54,7 +54,14 @@ async function rewriteQuery(history: Turn[], message: string): Promise<string> {
     },
   ];
   try {
-    const out = (await generateReply(messages, { temperature: 0, maxTokens: 120, models: fastModels() })).trim();
+    const out = (
+      await generateReply(messages, {
+        temperature: 0,
+        maxTokens: 120,
+        models: fastModels(),
+        purpose: "Viết lại câu hỏi",
+      })
+    ).trim();
     // Nhận diện sentinel "NONE" khoan dung: bỏ dấu ngoặc/chấm câu quanh nó (model hay trả `NONE.` / `"NONE"`).
     if (!out || out.replace(/[^A-Za-zÀ-ỹ]/g, "").toUpperCase() === "NONE") return ""; // "" = bỏ tra cứu lượt này
     return out.length > 300 ? out.slice(0, 300).trim() : out;
@@ -119,7 +126,12 @@ async function llmRerank(query: string, cands: Candidate[]): Promise<Candidate[]
   try {
     // Model nhẹ (nhanh): reranker chỉ cần SẮP XẾP — worst-case "[]" oan đã được BACKFILL top RRF
     // ở retrieveForTurn bù lại, nên không cần model mạnh chậm ở đây.
-    const out = await generateReply(messages, { temperature: 0, maxTokens: 80, models: fastModels() });
+    const out = await generateReply(messages, {
+      temperature: 0,
+      maxTokens: 80,
+      models: fastModels(),
+      purpose: "Xếp hạng tài liệu",
+    });
     if (process.env.RAG_DEBUG) console.log(`[rag/dbg] rerank raw: ${JSON.stringify(out).slice(0, 200)}`);
     const picks = parseIdxArray(out, cands.length);
     if (!picks.length) return []; // model nói không có đoạn nào liên quan → tôn trọng

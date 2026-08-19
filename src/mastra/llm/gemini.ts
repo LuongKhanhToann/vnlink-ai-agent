@@ -10,6 +10,7 @@
  */
 
 import "dotenv/config";
+import { logAiCall } from "../lib/costLog";
 
 export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
@@ -92,6 +93,16 @@ function extractText(payload: any): string {
     .trim();
 }
 
+/** Số token đã dùng (để ghi nhật ký chi phí). output = tất cả token sinh ra kể cả "thinking" (đều tính phí output). */
+function extractUsage(payload: any): { promptTokens: number; outputTokens: number } {
+  const u = payload?.usageMetadata ?? {};
+  const prompt = Number(u.promptTokenCount) || 0;
+  const total = Number(u.totalTokenCount) || 0;
+  // output = tổng - prompt (gồm cả thoughtsTokenCount); fallback candidatesTokenCount nếu thiếu total.
+  const output = total > prompt ? total - prompt : Number(u.candidatesTokenCount) || 0;
+  return { promptTokens: prompt, outputTokens: output };
+}
+
 function toRequestBody(messages: ChatMsg[], model: string, temperature: number, maxTokens: number) {
   const systemText = messages
     .filter((m) => m.role === "system")
@@ -116,7 +127,7 @@ async function generateOnce(
   key: string,
   body: Record<string, unknown>,
   abortSignal: AbortSignal | undefined,
-): Promise<string> {
+): Promise<{ text: string; promptTokens: number; outputTokens: number }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const res = await fetch(url, {
     method: "POST",
@@ -134,9 +145,10 @@ async function generateOnce(
     if (TRANSIENT_STATUS.includes(res.status)) throw new Error(msg); // 5xx → thử lại cùng key
     throw new BadModelError(msg); // 400/404… → bỏ model
   }
-  const text = extractText(await res.json());
+  const payload = await res.json();
+  const text = extractText(payload);
   if (!text) throw new BadModelError(`gemini ${model} trả rỗng`);
-  return text;
+  return { text, ...extractUsage(payload) };
 }
 
 /**
@@ -145,7 +157,14 @@ async function generateOnce(
  */
 export async function generateReply(
   messages: ChatMsg[],
-  opts: { temperature?: number; maxTokens?: number; abortSignal?: AbortSignal; models?: string[] } = {},
+  opts: {
+    temperature?: number;
+    maxTokens?: number;
+    abortSignal?: AbortSignal;
+    models?: string[];
+    /** Nhãn mục đích để ghi nhật ký chi phí (VD "Trả lời khách"). Bỏ trống = không ghi log. */
+    purpose?: string;
+  } = {},
 ): Promise<string> {
   const keys = geminiKeys();
   if (!keys.length) throw new Error("Chưa cấu hình GEMINI_API_KEYS");
@@ -164,7 +183,10 @@ export async function generateReply(
       const key = keys[(start + i) % keys.length];
       for (let attempt = 0; attempt < MAX_TRANSIENT_ATTEMPTS; attempt++) {
         try {
-          return await generateOnce(model, key, body, opts.abortSignal);
+          const { text, promptTokens, outputTokens } = await generateOnce(model, key, body, opts.abortSignal);
+          // Ghi nhật ký chi phí — fire-and-forget, tự nuốt lỗi, KHÔNG làm chậm câu trả lời.
+          if (opts.purpose) void logAiCall({ purpose: opts.purpose, model, promptTokens, outputTokens });
+          return text;
         } catch (e) {
           const err = e as Error;
           if (err?.name === "AbortError" || opts.abortSignal?.aborted) throw e;

@@ -21,6 +21,7 @@ import { clearHistory, lastPairsBatch } from "../lib/history";
 import { listDocs, ingestDoc, deleteDoc, getDoc, updateDoc } from "../rag/store";
 import { parseUpload } from "../lib/parseUpload";
 import { loadConfig, saveConfig } from "../lib/settings";
+import { monthlyCost, costByPurpose, loadPricing, savePricing } from "../lib/costLog";
 import {
   MEDIA_CATEGORIES,
   listCategoryMedia,
@@ -233,6 +234,47 @@ adminWebhook.post("/admin/api/config/save", async (c) => {
   }
 });
 
+// ── 5) Chi phí AI (nhật ký gọi model phát sinh phí) ──
+adminWebhook.get("/admin/api/cost", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json(await monthlyCost());
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+adminWebhook.get("/admin/api/cost/detail", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const month = String(c.req.query("month") ?? "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return c.json({ error: "tháng không hợp lệ" }, 400);
+    return c.json({ rows: await costByPurpose(month) });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+adminWebhook.get("/admin/api/pricing", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    return c.json({ pricing: await loadPricing() });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 500);
+  }
+});
+
+adminWebhook.post("/admin/api/pricing/save", async (c) => {
+  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
+  try {
+    const b = await c.req.json().catch(() => ({}));
+    const pricing = await savePricing(b);
+    return c.json({ ok: true, pricing });
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400);
+  }
+});
+
 // ── UI (single page, 3 tab). Không dùng ${...} / backtick trong <script> (đang nằm trong template literal). ──
 const PAGE_HTML = `<!doctype html>
 <html lang="vi">
@@ -410,6 +452,7 @@ input:checked + .slider:before{transform:translateX(20px)}
     <button id="tab-docs" class="tab" onclick="switchTab('docs')">Tài liệu</button>
     <button id="tab-media" class="tab" onclick="switchTab('media')">Ảnh / Video</button>
     <button id="tab-config" class="tab" onclick="switchTab('config')">Cấu hình</button>
+    <button id="tab-cost" class="tab" onclick="switchTab('cost')">Chi phí AI</button>
   </div>
 
   <div id="view-users">
@@ -481,6 +524,29 @@ input:checked + .slider:before{transform:translateX(20px)}
 
     <div class="kacts"><button id="cfg-save-btn" class="btn btn-primary kbtn" onclick="saveConfigTab()">Lưu cấu hình</button></div>
   </div>
+
+  <div id="view-cost" class="hidden">
+    <p class="subtitle">Nhật ký các lần bot gọi AI có phát sinh phí, gom theo tháng. Mỗi lượt khách chat, bot gọi model vài lần (trả lời khách + viết lại câu hỏi + xếp hạng tài liệu). Tiền được tính theo bảng giá bên dưới (mặc định model <b>gemini-3.6-flash</b>).</p>
+
+    <div id="costMonths"><p class="muted">Đang tải…</p></div>
+
+    <div id="costDetail" class="hidden">
+      <h3 class="kgroup">Chi tiết tháng <span id="costDetailMonth"></span></h3>
+      <div id="costDetailBody"><p class="muted">Đang tải…</p></div>
+    </div>
+
+    <h3 class="kgroup">Bảng giá model (USD cho mỗi 1 triệu token)</h3>
+    <div class="kcard">
+      <p class="note" style="margin-top:0">Giá lấy từ Google. Mặc định gemini-3.6-flash: <b>0.75</b> vào / <b>3.75</b> ra (giá giới thiệu tới 31/12/2026; từ 01/01/2027 Google dự kiến tăng — vào đây sửa lại). "Giá mặc định" áp cho model chưa khai riêng.</p>
+      <div class="cfg-row" style="margin-bottom:12px">
+        <div><label class="plbl">Tỉ giá USD → VNĐ</label><input id="pr-vnd" type="number" min="1" step="100" class="input"/></div>
+        <div></div>
+      </div>
+      <div class="shift-hd" style="grid-template-columns:1fr 110px 110px"><span>Model</span><span>Giá vào</span><span>Giá ra</span></div>
+      <div id="priceRows"></div>
+      <div class="kacts"><button id="pr-save-btn" class="btn btn-primary kbtn" onclick="savePricingTab()">Lưu bảng giá</button></div>
+    </div>
+  </div>
 </div>
 
 <input id="fileInput" type="file" class="hidden"/>
@@ -496,6 +562,7 @@ var MEDIA = null;
 var LIMITS = { image: 8388608, video: 26214400 };
 var DELITEMS = [];
 var CONFIG = {};
+var PRICING = null;
 
 function show(id){ document.getElementById(id).classList.remove("hidden"); }
 function hide(id){ document.getElementById(id).classList.add("hidden"); }
@@ -550,7 +617,7 @@ async function boot(){
 }
 
 function switchTab(name){
-  ["users","docs","media","config"].forEach(function(t){
+  ["users","docs","media","config","cost"].forEach(function(t){
     var tb = document.getElementById("tab-"+t); if(tb) tb.classList.toggle("active", t===name);
     var vw = document.getElementById("view-"+t); if(vw) vw.classList.toggle("hidden", t!==name);
   });
@@ -558,6 +625,7 @@ function switchTab(name){
   if(name==="docs") loadDocs();
   if(name==="media") loadMedia();
   if(name==="config") loadConfigTab();
+  if(name==="cost") loadCostTab();
 }
 
 // ── Khách hàng ──
@@ -984,6 +1052,123 @@ async function saveConfigTab(){
     if(!r.ok || !d.ok){ toast(d.error || "Lưu thất bại.","err"); return; }
     CONFIG = d.config; renderConfig();
     toast("Đã lưu cấu hình ✓","ok");
+  } catch(e){ toast("Không lưu được, thử lại.","err"); }
+  finally { btn.disabled = false; }
+}
+
+// ── Chi phí AI ──
+function fmtVnd(n){ try { return Math.round(Number(n||0)).toLocaleString("vi-VN") + " ₫"; } catch(e){ return "0 ₫"; } }
+function fmtUsd(n){ var v = Number(n||0); return "$" + (v < 1 ? v.toFixed(4) : v.toFixed(2)); }
+function fmtNum(n){ try { return Math.round(Number(n||0)).toLocaleString("vi-VN"); } catch(e){ return "0"; } }
+function fmtMonth(m){ var p=(m||"").split("-"); return p.length===2 ? ("Tháng "+p[1]+"/"+p[0]) : m; }
+
+async function loadCostTab(){
+  document.getElementById("costMonths").innerHTML = '<p class="muted">Đang tải…</p>';
+  document.getElementById("costDetail").classList.add("hidden");
+  try {
+    var r = await fetch("/admin/api/cost",{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ document.getElementById("costMonths").innerHTML = '<p class="muted">Lỗi tải dữ liệu.</p>'; return; }
+    var d = await r.json();
+    PRICING = d.pricing || null;
+    renderCostMonths(d.months || []);
+    renderPricing();
+  } catch(e){ document.getElementById("costMonths").innerHTML = '<p class="muted">Không tải được. Thử lại sau.</p>'; }
+}
+
+function renderCostMonths(months){
+  if(!months.length){
+    document.getElementById("costMonths").innerHTML = '<p class="empty">Chưa có lần gọi AI nào được ghi nhận. Sau khi có khách chat, chi phí sẽ hiện ở đây.</p>';
+    return;
+  }
+  var totUsd = 0, totVnd = 0;
+  months.forEach(function(m){ totUsd += Number(m.costUsd||0); totVnd += Number(m.costVnd||0); });
+  var html = '<div class="panel"><table><thead><tr>'
+    + '<th>Tháng</th><th class="right">Số lần gọi</th><th class="right">Token vào</th><th class="right">Token ra</th>'
+    + '<th class="right">Tạm tính (USD)</th><th class="right">Tạm tính (VNĐ)</th></tr></thead><tbody>';
+  html += months.map(function(m){
+    return '<tr class="crow" style="cursor:pointer" onclick="showCostDetail(\\''+esc(m.month)+'\\')">'
+      + '<td><b>'+fmtMonth(m.month)+'</b></td>'
+      + '<td class="right">'+fmtNum(m.calls)+'</td>'
+      + '<td class="right">'+fmtNum(m.promptTokens)+'</td>'
+      + '<td class="right">'+fmtNum(m.outputTokens)+'</td>'
+      + '<td class="right">'+fmtUsd(m.costUsd)+'</td>'
+      + '<td class="right"><b>'+fmtVnd(m.costVnd)+'</b></td></tr>';
+  }).join("");
+  html += '<tr><td><b>Tổng cộng</b></td><td class="right"></td><td class="right"></td><td class="right"></td>'
+    + '<td class="right"><b>'+fmtUsd(totUsd)+'</b></td><td class="right"><b>'+fmtVnd(totVnd)+'</b></td></tr>';
+  html += '</tbody></table></div>';
+  html += '<p class="note">Bấm vào một tháng để xem chi tiết theo mục đích. "Tạm tính" = số token đã dùng × bảng giá hiện tại, chỉ mang tính ước lượng (hoá đơn thật xem trên Google AI Studio).</p>';
+  document.getElementById("costMonths").innerHTML = html;
+}
+
+async function showCostDetail(month){
+  document.getElementById("costDetail").classList.remove("hidden");
+  document.getElementById("costDetailMonth").textContent = fmtMonth(month);
+  document.getElementById("costDetailBody").innerHTML = '<p class="muted">Đang tải…</p>';
+  try {
+    var r = await fetch("/admin/api/cost/detail?month="+encodeURIComponent(month),{cache:"no-store"});
+    if(handle401(r)) return;
+    if(!r.ok){ document.getElementById("costDetailBody").innerHTML = '<p class="muted">Lỗi tải chi tiết.</p>'; return; }
+    var d = await r.json();
+    var rows = d.rows || [];
+    if(!rows.length){ document.getElementById("costDetailBody").innerHTML = '<p class="empty">Không có dữ liệu.</p>'; return; }
+    var html = '<div class="panel"><table><thead><tr>'
+      + '<th>Mục đích</th><th>Model</th><th class="right">Số lần</th><th class="right">Token vào</th>'
+      + '<th class="right">Token ra</th><th class="right">Tạm tính (VNĐ)</th></tr></thead><tbody>';
+    html += rows.map(function(x){
+      return '<tr><td>'+esc(x.purpose)+'</td><td class="muted">'+esc(x.model)+'</td>'
+        + '<td class="right">'+fmtNum(x.calls)+'</td>'
+        + '<td class="right">'+fmtNum(x.promptTokens)+'</td>'
+        + '<td class="right">'+fmtNum(x.outputTokens)+'</td>'
+        + '<td class="right">'+fmtVnd(x.costVnd)+'</td></tr>';
+    }).join("");
+    html += '</tbody></table></div>';
+    document.getElementById("costDetailBody").innerHTML = html;
+    document.getElementById("costDetail").scrollIntoView({behavior:"smooth",block:"nearest"});
+  } catch(e){ document.getElementById("costDetailBody").innerHTML = '<p class="muted">Không tải được.</p>'; }
+}
+
+function renderPricing(){
+  if(!PRICING) return;
+  setVal("pr-vnd", PRICING.usdToVnd);
+  var models = PRICING.models || {};
+  var names = Object.keys(models);
+  // Dòng "default" (giá mặc định) lên đầu, rồi các model.
+  var html = '<div class="shift-row" data-model="__default__" style="grid-template-columns:1fr 110px 110px">'
+    + '<input class="input pr-name" value="Giá mặc định" disabled/>'
+    + '<input class="input pr-in" type="number" min="0" step="0.01" value="'+Number(PRICING.default.in)+'"/>'
+    + '<input class="input pr-out" type="number" min="0" step="0.01" value="'+Number(PRICING.default.out)+'"/></div>';
+  html += names.map(function(name){
+    var p = models[name];
+    return '<div class="shift-row" data-model="'+esc(name)+'" style="grid-template-columns:1fr 110px 110px">'
+      + '<input class="input pr-name" value="'+esc(name)+'" disabled/>'
+      + '<input class="input pr-in" type="number" min="0" step="0.01" value="'+Number(p.in)+'"/>'
+      + '<input class="input pr-out" type="number" min="0" step="0.01" value="'+Number(p.out)+'"/></div>';
+  }).join("");
+  document.getElementById("priceRows").innerHTML = html;
+}
+
+async function savePricingTab(){
+  var payload = { usdToVnd: parseFloat(val("pr-vnd"))||0, default: {in:0,out:0}, models: {} };
+  var rows = document.querySelectorAll("#priceRows .shift-row");
+  for(var k=0;k<rows.length;k++){
+    var row = rows[k];
+    var name = row.getAttribute("data-model");
+    var pin = parseFloat(row.querySelector(".pr-in").value)||0;
+    var pout = parseFloat(row.querySelector(".pr-out").value)||0;
+    if(name === "__default__") payload.default = {in:pin,out:pout};
+    else payload.models[name] = {in:pin,out:pout};
+  }
+  var btn = document.getElementById("pr-save-btn"); btn.disabled = true;
+  try {
+    var r = await fetch("/admin/api/pricing/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    if(handle401(r)) return;
+    var d = await r.json().catch(function(){return {};});
+    if(!r.ok || !d.ok){ toast(d.error || "Lưu thất bại.","err"); return; }
+    PRICING = d.pricing; renderPricing();
+    loadCostTab();
+    toast("Đã lưu bảng giá ✓","ok");
   } catch(e){ toast("Không lưu được, thử lại.","err"); }
   finally { btn.disabled = false; }
 }

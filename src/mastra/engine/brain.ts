@@ -49,7 +49,9 @@ export async function runTurn(input: TurnInput): Promise<{ reply: string }> {
     { role: "user", content: `(${now.hhmm}) ${message}` },
   ];
 
-  const reply = (await generateReply(messages, { temperature: 0.6, maxTokens: 700, abortSignal })).trim();
+  const reply = (
+    await generateReply(messages, { temperature: 0.6, maxTokens: 700, abortSignal, purpose: "Trả lời khách" })
+  ).trim();
   if (!reply) throw new Error("model trả rỗng");
 
   // Lưu sau khi có reply (best-effort bên trong).
