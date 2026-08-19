@@ -21,7 +21,7 @@ import { clearHistory, lastPairsBatch } from "../lib/history";
 import { listDocs, ingestDoc, deleteDoc, getDoc, updateDoc } from "../rag/store";
 import { parseUpload } from "../lib/parseUpload";
 import { loadConfig, saveConfig } from "../lib/settings";
-import { monthlyCost, costByPurpose, loadPricing, savePricing } from "../lib/costLog";
+import { monthlyCost, costByPurpose, loadPricing } from "../lib/costLog";
 import {
   MEDIA_CATEGORIES,
   listCategoryMedia,
@@ -261,17 +261,6 @@ adminWebhook.get("/admin/api/pricing", async (c) => {
     return c.json({ pricing: await loadPricing() });
   } catch (e) {
     return c.json({ error: (e as Error).message }, 500);
-  }
-});
-
-adminWebhook.post("/admin/api/pricing/save", async (c) => {
-  if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
-  try {
-    const b = await c.req.json().catch(() => ({}));
-    const pricing = await savePricing(b);
-    return c.json({ ok: true, pricing });
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 400);
   }
 });
 
@@ -537,14 +526,8 @@ input:checked + .slider:before{transform:translateX(20px)}
 
     <h3 class="kgroup">Bảng giá (USD cho mỗi 1 triệu token)</h3>
     <div class="kcard">
-      <p class="note" style="margin-top:0">Toàn bộ chi phí tính theo gemini-3.6-flash. Giá giới thiệu tới 31/12/2026: 0.75 vào / 3.75 ra; từ 01/01/2027 Google dự kiến tăng — vào đây sửa lại.</p>
-      <div class="cfg-row" style="margin-bottom:12px">
-        <div><label class="plbl">Tỉ giá USD → VNĐ</label><input id="pr-vnd" type="number" min="1" step="100" class="input"/></div>
-        <div></div>
-      </div>
-      <div class="shift-hd" style="grid-template-columns:1fr 110px 110px"><span>Model</span><span>Giá vào</span><span>Giá ra</span></div>
-      <div id="priceRows"></div>
-      <div class="kacts"><button id="pr-save-btn" class="btn btn-primary kbtn" onclick="savePricingTab()">Lưu bảng giá</button></div>
+      <p class="note" style="margin-top:0">Toàn bộ chi phí tính theo gemini-3.6-flash. Giá giới thiệu tới 31/12/2026: 0,75 vào / 3,75 ra; từ 01/01/2027 Google dự kiến tăng.</p>
+      <div id="priceView"></div>
     </div>
   </div>
 </div>
@@ -1129,43 +1112,16 @@ async function showCostDetail(month){
   } catch(e){ document.getElementById("costDetailBody").innerHTML = '<p class="muted">Không tải được.</p>'; }
 }
 
+function prNum(n){ return String(Number(n)).replace(".", ","); }
 function renderPricing(){
   if(!PRICING) return;
-  setVal("pr-vnd", PRICING.usdToVnd);
-  var models = PRICING.models || {};
-  var names = Object.keys(models);
-  var html = names.map(function(name){
-    var p = models[name];
-    return '<div class="shift-row" data-model="'+esc(name)+'" style="grid-template-columns:1fr 110px 110px">'
-      + '<input class="input pr-name" value="'+esc(name)+'" disabled/>'
-      + '<input class="input pr-in" type="number" min="0" step="0.01" value="'+Number(p.in)+'"/>'
-      + '<input class="input pr-out" type="number" min="0" step="0.01" value="'+Number(p.out)+'"/></div>';
-  }).join("");
-  document.getElementById("priceRows").innerHTML = html;
-}
-
-async function savePricingTab(){
-  var payload = { usdToVnd: parseFloat(val("pr-vnd"))||0, default: {in:0.75,out:3.75}, models: {} };
-  var rows = document.querySelectorAll("#priceRows .shift-row");
-  for(var k=0;k<rows.length;k++){
-    var row = rows[k];
-    var name = row.getAttribute("data-model");
-    var pin = parseFloat(row.querySelector(".pr-in").value)||0;
-    var pout = parseFloat(row.querySelector(".pr-out").value)||0;
-    payload.models[name] = {in:pin,out:pout};
-    payload.default = {in:pin,out:pout}; // 1 model duy nhất → default bám theo giá đó
-  }
-  var btn = document.getElementById("pr-save-btn"); btn.disabled = true;
-  try {
-    var r = await fetch("/admin/api/pricing/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-    if(handle401(r)) return;
-    var d = await r.json().catch(function(){return {};});
-    if(!r.ok || !d.ok){ toast(d.error || "Lưu thất bại.","err"); return; }
-    PRICING = d.pricing; renderPricing();
-    loadCostTab();
-    toast("Đã lưu bảng giá ✓","ok");
-  } catch(e){ toast("Không lưu được, thử lại.","err"); }
-  finally { btn.disabled = false; }
+  var m = (PRICING.models && PRICING.models["gemini-3.6-flash"]) || PRICING.default || {in:0.75,out:3.75};
+  var html = '<div class="panel"><table><thead><tr><th>Khoản mục</th><th class="right">Giá trị</th></tr></thead><tbody>'
+    + '<tr><td>Tỉ giá USD → VNĐ</td><td class="right">'+fmtNum(PRICING.usdToVnd)+' ₫</td></tr>'
+    + '<tr><td>gemini-3.6-flash — giá token vào</td><td class="right">'+prNum(m.in)+' USD / 1 triệu token</td></tr>'
+    + '<tr><td>gemini-3.6-flash — giá token ra</td><td class="right">'+prNum(m.out)+' USD / 1 triệu token</td></tr>'
+    + '</tbody></table></div>';
+  document.getElementById("priceView").innerHTML = html;
 }
 
 function toast(msg, kind){
