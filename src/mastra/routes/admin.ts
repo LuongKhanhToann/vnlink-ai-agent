@@ -515,7 +515,7 @@ input:checked + .slider:before{transform:translateX(20px)}
   </div>
 
   <div id="view-cost" class="hidden">
-    <p class="subtitle">Nhật ký các lần bot gọi AI có phát sinh phí, gom theo tháng. Mỗi lượt khách chat, bot gọi model vài lần (trả lời khách + viết lại câu hỏi + xếp hạng tài liệu). Tiền được tính theo bảng giá bên dưới (mặc định model <b>gemini-3.6-flash</b>).</p>
+    <p class="subtitle">Nhật ký chi phí AI gom theo tháng. "Số lần chat" là số lượt bot trả lời khách; mỗi lượt bot còn gọi thêm vài bước phụ (viết lại câu hỏi, xếp hạng tài liệu) và mọi chi phí đều được tính vào tiền. Tính theo model gemini-3.7-flash.</p>
 
     <div id="costMonths"><p class="muted">Đang tải…</p></div>
 
@@ -526,7 +526,7 @@ input:checked + .slider:before{transform:translateX(20px)}
 
     <h3 class="kgroup">Bảng giá (USD cho mỗi 1 triệu token)</h3>
     <div class="kcard">
-      <p class="note" style="margin-top:0">Toàn bộ chi phí tính theo gemini-3.6-flash. Giá giới thiệu tới 31/12/2026: 0,75 vào / 3,75 ra; từ 01/01/2027 Google dự kiến tăng.</p>
+      <p class="note" style="margin-top:0">Toàn bộ chi phí tính theo gemini-3.7-flash. Giá giới thiệu tới 31/12/2026: 0,75 vào / 3,75 ra; từ 01/01/2027 tăng gấp đôi (1,50 / 7,50).</p>
       <div id="priceView"></div>
     </div>
   </div>
@@ -1067,12 +1067,12 @@ function renderCostMonths(months){
   var totUsd = 0, totVnd = 0;
   months.forEach(function(m){ totUsd += Number(m.costUsd||0); totVnd += Number(m.costVnd||0); });
   var html = '<div class="panel"><table><thead><tr>'
-    + '<th>Tháng</th><th class="right">Số lần gọi</th><th class="right">Token vào</th><th class="right">Token ra</th>'
+    + '<th>Tháng</th><th class="right">Số lần chat</th><th class="right">Token vào</th><th class="right">Token ra</th>'
     + '<th class="right">Tạm tính (USD)</th><th class="right">Tạm tính (VNĐ)</th></tr></thead><tbody>';
   html += months.map(function(m){
     return '<tr class="crow" style="cursor:pointer" onclick="showCostDetail(\\''+esc(m.month)+'\\')">'
       + '<td><b>'+fmtMonth(m.month)+'</b></td>'
-      + '<td class="right">'+fmtNum(m.calls)+'</td>'
+      + '<td class="right">'+fmtNum(m.chats)+'</td>'
       + '<td class="right">'+fmtNum(m.promptTokens)+'</td>'
       + '<td class="right">'+fmtNum(m.outputTokens)+'</td>'
       + '<td class="right">'+fmtUsd(m.costUsd)+'</td>'
@@ -1081,7 +1081,7 @@ function renderCostMonths(months){
   html += '<tr><td><b>Tổng cộng</b></td><td class="right"></td><td class="right"></td><td class="right"></td>'
     + '<td class="right"><b>'+fmtUsd(totUsd)+'</b></td><td class="right"><b>'+fmtVnd(totVnd)+'</b></td></tr>';
   html += '</tbody></table></div>';
-  html += '<p class="note">Bấm vào một tháng để xem chi tiết theo mục đích. "Tạm tính" = số token đã dùng × bảng giá hiện tại, chỉ mang tính ước lượng (hoá đơn thật xem trên Google AI Studio).</p>';
+  html += '<p class="note">Bấm vào một tháng để xem chi tiết theo mục đích. "Tạm tính" = số token đã dùng × bảng giá, chỉ mang tính ước lượng (hoá đơn thật xem trên Google AI Studio).</p>';
   document.getElementById("costMonths").innerHTML = html;
 }
 
@@ -1115,11 +1115,11 @@ async function showCostDetail(month){
 function prNum(n){ return String(Number(n)).replace(".", ","); }
 function renderPricing(){
   if(!PRICING) return;
-  var m = (PRICING.models && PRICING.models["gemini-3.6-flash"]) || PRICING.default || {in:0.75,out:3.75};
+  var m = (PRICING.models && PRICING.models["gemini-3.7-flash"]) || PRICING.default || {in:0.75,out:3.75};
   var html = '<div class="panel"><table><thead><tr><th>Khoản mục</th><th class="right">Giá trị</th></tr></thead><tbody>'
     + '<tr><td>Tỉ giá USD → VNĐ</td><td class="right">'+fmtNum(PRICING.usdToVnd)+' ₫</td></tr>'
-    + '<tr><td>gemini-3.6-flash — giá token vào</td><td class="right">'+prNum(m.in)+' USD / 1 triệu token</td></tr>'
-    + '<tr><td>gemini-3.6-flash — giá token ra</td><td class="right">'+prNum(m.out)+' USD / 1 triệu token</td></tr>'
+    + '<tr><td>gemini-3.7-flash — giá token vào</td><td class="right">'+prNum(m.in)+' USD / 1 triệu token</td></tr>'
+    + '<tr><td>gemini-3.7-flash — giá token ra</td><td class="right">'+prNum(m.out)+' USD / 1 triệu token</td></tr>'
     + '</tbody></table></div>';
   document.getElementById("priceView").innerHTML = html;
 }

@@ -27,15 +27,20 @@ export interface PricingConfig {
   models: Record<string, ModelPrice>; // đơn giá từng model
 }
 
-/** Giá MẶC ĐỊNH — chỉ tính theo gemini-3.6-flash. Lưu lượng thấp + nhiều key nên mọi lượt đều gộp
- *  về 3.6 (xem BILLING_MODEL trong llm/gemini.ts), không cần khai giá các model fallback. */
+/** Giá MẶC ĐỊNH — chỉ tính theo gemini-3.7-flash. Lưu lượng thấp + nhiều key nên mọi lượt đều gộp
+ *  về 3.7 (xem BILLING_MODEL trong llm/gemini.ts), không cần khai giá các model fallback.
+ *  Giá giới thiệu 0,75/3,75 tới 31/12/2026; từ 01/01/2027 tăng gấp đôi 1,50/7,50. */
 export const DEFAULT_PRICING: PricingConfig = {
   usdToVnd: 26_000,
-  default: { in: 0.75, out: 3.75 }, // = gemini-3.6-flash (giá giới thiệu tới 31/12/2026)
+  default: { in: 0.75, out: 3.75 },
   models: {
-    "gemini-3.6-flash": { in: 0.75, out: 3.75 },
+    "gemini-3.7-flash": { in: 0.75, out: 3.75 },
   },
 };
+
+/** Mục đích ứng với MỘT lượt khách chat (bot trả lời khách). Đếm số dòng này = "số lần chat"
+ *  (không tính các call phụ viết-lại-câu-hỏi/xếp-hạng để con số khỏi bị thổi phồng). */
+export const CHAT_PURPOSE = "Trả lời khách";
 
 const PRICING_KEY = "ai_pricing";
 
@@ -185,7 +190,8 @@ function costUsd(pricing: PricingConfig, model: string, promptTokens: number, ou
 
 export interface MonthCost {
   month: string; // "YYYY-MM" theo giờ VN
-  calls: number;
+  chats: number; // số lần khách chat (số lượt bot trả lời khách)
+  calls: number; // tổng số lần gọi model (gồm cả call phụ) — dùng nội bộ
   promptTokens: number;
   outputTokens: number;
   costUsd: number;
@@ -211,11 +217,13 @@ export async function monthlyCost(): Promise<{ months: MonthCost[]; pricing: Pri
   const { rows } = await getPool().query(
     `SELECT to_char(created_at AT TIME ZONE '${TZ}', 'YYYY-MM') AS month,
             model,
-            COUNT(*)::int              AS calls,
-            COALESCE(SUM(prompt_tokens),0)::bigint AS prompt_tokens,
-            COALESCE(SUM(output_tokens),0)::bigint AS output_tokens
+            COUNT(*)::int                                        AS calls,
+            COUNT(*) FILTER (WHERE purpose = $1)::int            AS chats,
+            COALESCE(SUM(prompt_tokens),0)::bigint               AS prompt_tokens,
+            COALESCE(SUM(output_tokens),0)::bigint               AS output_tokens
        FROM ai_cost_log
       GROUP BY 1, 2`,
+    [CHAT_PURPOSE],
   );
   const byMonth = new Map<string, MonthCost>();
   for (const r of rows) {
@@ -224,12 +232,14 @@ export async function monthlyCost(): Promise<{ months: MonthCost[]; pricing: Pri
     const usd = costUsd(pricing, r.model, pt, ot);
     const m = byMonth.get(r.month) ?? {
       month: r.month,
+      chats: 0,
       calls: 0,
       promptTokens: 0,
       outputTokens: 0,
       costUsd: 0,
       costVnd: 0,
     };
+    m.chats += Number(r.chats);
     m.calls += Number(r.calls);
     m.promptTokens += pt;
     m.outputTokens += ot;

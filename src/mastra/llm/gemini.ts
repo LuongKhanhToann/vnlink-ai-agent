@@ -23,15 +23,18 @@ export function geminiKeys(): string[] {
 }
 
 /** Cascade mặc định (model NGOÀI, key TRONG): mạnh trước → nhẹ RPD-cao → gemma sàn RPD 14.4K.
- *  3.6-flash → 3.5-flash → 3.1-flash-lite → 3.5-flash-lite → flash-lite-latest → gemma-4-26b-a4b-it.
- *  Bỏ gemma-4-31b-it (thinking bắt buộc, chậm) — thay bằng 26b-a4b. Các ID đã probe 200 (15/08).
- *  (2.5-flash-lite / 3-flash / 2.5-flash: API trả 404 → không dùng.) */
+ *  3.7-flash → 3.6-flash → 3.5-flash → 3.1-flash-lite → 3.5-flash-lite → flash-lite-latest → gemma-4-26b-a4b-it.
+ *  Bỏ gemma-4-31b-it (thinking bắt buộc, chậm) — thay bằng 26b-a4b.
+ *  gemini-3.7-flash: flash MỚI NHẤT (probe 19/08 trả 200 + text; thỉnh thoảng 503 quá tải → code retry
+ *  rồi cascade xuống 3.6, an toàn). Các ID còn lại đã probe 200 (15/08).
+ *  (3.7-flash-lite / 3.6-flash-lite / 3.1-pro / 3-flash / 2.5-flash-lite / 2.5-flash: API trả 404 → không dùng.) */
 export function chatModels(): string[] {
   const raw = process.env.GEMINI_CHAT_MODELS || process.env.GEMINI_CHAT_MODEL || "";
   const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
   return models.length
     ? models
     : [
+        "gemini-3.7-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
         "gemini-3.1-flash-lite",
@@ -64,8 +67,8 @@ const RETRY_BASE_MS = 1_000;
 const THINKING_RESERVE = 1_800;
 
 /** Model dùng để TÍNH PHÍ trong nhật ký. Lưu lượng thấp + nhiều key nên gần như mọi lượt đều do
- *  gemini-3.6-flash trả; các model fallback hiếm khi chạm tới → gộp hết về 3.6 cho báo cáo gọn. */
-const BILLING_MODEL = "gemini-3.6-flash";
+ *  gemini-3.7-flash (đầu cascade) trả; các model fallback hiếm khi chạm tới → gộp hết về 3.7 cho báo cáo gọn. */
+const BILLING_MODEL = "gemini-3.7-flash";
 
 /** Round-robin điểm bắt đầu key — rải tải đều 3 key giữa các lượt. */
 let keyCursor = 0;
