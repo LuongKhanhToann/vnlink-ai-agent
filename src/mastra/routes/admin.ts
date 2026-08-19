@@ -535,9 +535,9 @@ input:checked + .slider:before{transform:translateX(20px)}
       <div id="costDetailBody"><p class="muted">Đang tải…</p></div>
     </div>
 
-    <h3 class="kgroup">Bảng giá model (USD cho mỗi 1 triệu token)</h3>
+    <h3 class="kgroup">Bảng giá (USD cho mỗi 1 triệu token)</h3>
     <div class="kcard">
-      <p class="note" style="margin-top:0">Giá lấy từ Google. Mặc định gemini-3.6-flash: <b>0.75</b> vào / <b>3.75</b> ra (giá giới thiệu tới 31/12/2026; từ 01/01/2027 Google dự kiến tăng — vào đây sửa lại). "Giá mặc định" áp cho model chưa khai riêng.</p>
+      <p class="note" style="margin-top:0">Toàn bộ chi phí tính theo gemini-3.6-flash. Giá giới thiệu tới 31/12/2026: 0.75 vào / 3.75 ra; từ 01/01/2027 Google dự kiến tăng — vào đây sửa lại.</p>
       <div class="cfg-row" style="margin-bottom:12px">
         <div><label class="plbl">Tỉ giá USD → VNĐ</label><input id="pr-vnd" type="number" min="1" step="100" class="input"/></div>
         <div></div>
@@ -1114,10 +1114,10 @@ async function showCostDetail(month){
     var rows = d.rows || [];
     if(!rows.length){ document.getElementById("costDetailBody").innerHTML = '<p class="empty">Không có dữ liệu.</p>'; return; }
     var html = '<div class="panel"><table><thead><tr>'
-      + '<th>Mục đích</th><th>Model</th><th class="right">Số lần</th><th class="right">Token vào</th>'
+      + '<th>Mục đích</th><th class="right">Số lần</th><th class="right">Token vào</th>'
       + '<th class="right">Token ra</th><th class="right">Tạm tính (VNĐ)</th></tr></thead><tbody>';
     html += rows.map(function(x){
-      return '<tr><td>'+esc(x.purpose)+'</td><td class="muted">'+esc(x.model)+'</td>'
+      return '<tr><td>'+esc(x.purpose)+'</td>'
         + '<td class="right">'+fmtNum(x.calls)+'</td>'
         + '<td class="right">'+fmtNum(x.promptTokens)+'</td>'
         + '<td class="right">'+fmtNum(x.outputTokens)+'</td>'
@@ -1134,12 +1134,7 @@ function renderPricing(){
   setVal("pr-vnd", PRICING.usdToVnd);
   var models = PRICING.models || {};
   var names = Object.keys(models);
-  // Dòng "default" (giá mặc định) lên đầu, rồi các model.
-  var html = '<div class="shift-row" data-model="__default__" style="grid-template-columns:1fr 110px 110px">'
-    + '<input class="input pr-name" value="Giá mặc định" disabled/>'
-    + '<input class="input pr-in" type="number" min="0" step="0.01" value="'+Number(PRICING.default.in)+'"/>'
-    + '<input class="input pr-out" type="number" min="0" step="0.01" value="'+Number(PRICING.default.out)+'"/></div>';
-  html += names.map(function(name){
+  var html = names.map(function(name){
     var p = models[name];
     return '<div class="shift-row" data-model="'+esc(name)+'" style="grid-template-columns:1fr 110px 110px">'
       + '<input class="input pr-name" value="'+esc(name)+'" disabled/>'
@@ -1150,15 +1145,15 @@ function renderPricing(){
 }
 
 async function savePricingTab(){
-  var payload = { usdToVnd: parseFloat(val("pr-vnd"))||0, default: {in:0,out:0}, models: {} };
+  var payload = { usdToVnd: parseFloat(val("pr-vnd"))||0, default: {in:0.75,out:3.75}, models: {} };
   var rows = document.querySelectorAll("#priceRows .shift-row");
   for(var k=0;k<rows.length;k++){
     var row = rows[k];
     var name = row.getAttribute("data-model");
     var pin = parseFloat(row.querySelector(".pr-in").value)||0;
     var pout = parseFloat(row.querySelector(".pr-out").value)||0;
-    if(name === "__default__") payload.default = {in:pin,out:pout};
-    else payload.models[name] = {in:pin,out:pout};
+    payload.models[name] = {in:pin,out:pout};
+    payload.default = {in:pin,out:pout}; // 1 model duy nhất → default bám theo giá đó
   }
   var btn = document.getElementById("pr-save-btn"); btn.disabled = true;
   try {

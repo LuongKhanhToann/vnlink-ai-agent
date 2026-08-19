@@ -27,17 +27,13 @@ export interface PricingConfig {
   models: Record<string, ModelPrice>; // đơn giá từng model
 }
 
-/** Giá MẶC ĐỊNH — lấy thẳng theo gemini-3.6-flash làm chuẩn (default), các model rẻ hơn khai riêng. */
+/** Giá MẶC ĐỊNH — chỉ tính theo gemini-3.6-flash. Lưu lượng thấp + nhiều key nên mọi lượt đều gộp
+ *  về 3.6 (xem BILLING_MODEL trong llm/gemini.ts), không cần khai giá các model fallback. */
 export const DEFAULT_PRICING: PricingConfig = {
   usdToVnd: 26_000,
   default: { in: 0.75, out: 3.75 }, // = gemini-3.6-flash (giá giới thiệu tới 31/12/2026)
   models: {
     "gemini-3.6-flash": { in: 0.75, out: 3.75 },
-    "gemini-3.5-flash": { in: 0.3, out: 2.5 },
-    "gemini-3.1-flash-lite": { in: 0.1, out: 0.4 },
-    "gemini-3.5-flash-lite": { in: 0.1, out: 0.4 },
-    "gemini-flash-lite-latest": { in: 0.1, out: 0.4 },
-    "gemma-4-26b-a4b-it": { in: 0, out: 0 }, // model "sàn" Gemma: miễn phí
   },
 };
 

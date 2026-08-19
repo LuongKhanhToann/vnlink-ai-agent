@@ -63,6 +63,10 @@ const RETRY_BASE_MS = 1_000;
  */
 const THINKING_RESERVE = 1_800;
 
+/** Model dùng để TÍNH PHÍ trong nhật ký. Lưu lượng thấp + nhiều key nên gần như mọi lượt đều do
+ *  gemini-3.6-flash trả; các model fallback hiếm khi chạm tới → gộp hết về 3.6 cho báo cáo gọn. */
+const BILLING_MODEL = "gemini-3.6-flash";
+
 /** Round-robin điểm bắt đầu key — rải tải đều 3 key giữa các lượt. */
 let keyCursor = 0;
 
@@ -185,7 +189,7 @@ export async function generateReply(
         try {
           const { text, promptTokens, outputTokens } = await generateOnce(model, key, body, opts.abortSignal);
           // Ghi nhật ký chi phí — fire-and-forget, tự nuốt lỗi, KHÔNG làm chậm câu trả lời.
-          if (opts.purpose) void logAiCall({ purpose: opts.purpose, model, promptTokens, outputTokens });
+          if (opts.purpose) void logAiCall({ purpose: opts.purpose, model: BILLING_MODEL, promptTokens, outputTokens });
           return text;
         } catch (e) {
           const err = e as Error;
