@@ -164,21 +164,26 @@ async function retrieveBasic(query: string): Promise<Candidate[]> {
  * Truy hồi cho 1 lượt chat. Trả khối [TÀI LIỆU THAM KHẢO] hoặc "" (không có gì hợp lệ).
  * FAIL-OPEN toàn cục: bất kỳ lỗi nào → "".
  */
-export async function retrieveForTurn(input: { message: string; history?: Turn[] }): Promise<string> {
+export async function retrieveForTurn(input: {
+  message: string;
+  history?: Turn[];
+  /** Query dựng sẵn từ L5 (fact_query). Có → BỎ bước rewriteQuery nội bộ (tránh 2 call). */
+  query?: string;
+}): Promise<string> {
   const message = (input.message ?? "").trim();
   if (message.length < 2) return "";
   try {
     if (!(await hasDocs())) return "";
 
     const basic = (process.env.RAG_MODE || "").toLowerCase() === "basic";
-    if (basic) return formatBlock(await retrieveBasic(message));
+    if (basic) return formatBlock(await retrieveBasic(input.query?.trim() || message));
 
     const dbg = !!process.env.RAG_DEBUG;
 
-    // (1) viết lại theo ngữ cảnh
-    const query = await rewriteQuery(input.history ?? [], message);
-    if (dbg) console.log(`[rag/dbg] rewrite: "${message}" → "${query}"`);
-    if (!query) return ""; // model bảo không cần tra cứu
+    // (1) query: ưu tiên fact_query do L5 cấp; không có thì tự viết lại theo ngữ cảnh (tương thích cũ).
+    const query = input.query !== undefined ? input.query.trim() : await rewriteQuery(input.history ?? [], message);
+    if (dbg) console.log(`[rag/dbg] query: "${message}" → "${query}"`);
+    if (!query) return ""; // không có gì cần tra cứu
 
     // (2) hybrid: dense ∥ sparse trên TOÀN kho + thêm nhánh CHỈ-Fami (dense∥sparse) chạy song song.
     // Nhánh Fami bảo đảm fact vận hành (giá/giờ/tiện ích) luôn có mặt trong ứng viên, không bị 360+

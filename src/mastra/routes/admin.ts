@@ -1081,7 +1081,6 @@ function renderCostMonths(months){
   html += '<tr><td><b>Tổng cộng</b></td><td class="right"></td><td class="right"></td><td class="right"></td>'
     + '<td class="right"><b>'+fmtUsd(totUsd)+'</b></td><td class="right"><b>'+fmtVnd(totVnd)+'</b></td></tr>';
   html += '</tbody></table></div>';
-  html += '<p class="note">Bấm vào một tháng để xem chi tiết theo mục đích. "Tạm tính" = số token đã dùng × bảng giá, chỉ mang tính ước lượng (hoá đơn thật xem trên Google AI Studio).</p>';
   document.getElementById("costMonths").innerHTML = html;
 }
 

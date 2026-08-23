@@ -220,3 +220,33 @@ export async function generateReply(
   }
   throw lastError;
 }
+
+/**
+ * Gọi model và PARSE JSON (cho L5 classifier / các call cần dữ liệu có cấu trúc).
+ * Bóc rào ```json ... ``` nếu có, cắt từ dấu { đầu đến } cuối, JSON.parse. Lỗi bất kỳ (call lỗi,
+ * parse lỗi) → trả null để nơi gọi tự FAIL-OPEN. Mặc định dùng fastModels() + temperature 0.
+ */
+export async function generateJson<T = unknown>(
+  messages: ChatMsg[],
+  opts: { temperature?: number; maxTokens?: number; abortSignal?: AbortSignal; models?: string[]; purpose?: string } = {},
+): Promise<T | null> {
+  try {
+    const raw = await generateReply(messages, {
+      temperature: opts.temperature ?? 0,
+      maxTokens: opts.maxTokens ?? 400,
+      models: opts.models ?? fastModels(),
+      abortSignal: opts.abortSignal,
+      purpose: opts.purpose,
+    });
+    let s = raw.trim();
+    const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) s = fence[1].trim();
+    const a = s.indexOf("{");
+    const b = s.lastIndexOf("}");
+    if (a < 0 || b <= a) return null;
+    return JSON.parse(s.slice(a, b + 1)) as T;
+  } catch (e) {
+    console.warn("[gemini] generateJson fail → null:", (e as Error).message);
+    return null;
+  }
+}
