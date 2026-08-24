@@ -92,6 +92,7 @@ async function flush(senderId: string): Promise<void> {
     await sendTypingOn(senderId);
     const { reply } = await runTurn({ senderId, message, abortSignal: ctrl.signal });
     if (ctrl.signal.aborted) return; // tin mới hơn đã tới → bỏ reply cũ
+    console.log(`[fb] reply to=${senderId}: ${JSON.stringify(reply)}`); // soi bot live (1 dòng, greppable)
     await sendReply(senderId, reply);
   } catch (e) {
     if ((e as Error)?.name === "AbortError" || ctrl.signal.aborted) return;

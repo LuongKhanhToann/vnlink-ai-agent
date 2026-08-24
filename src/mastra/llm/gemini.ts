@@ -1,11 +1,12 @@
 /**
  * llm/gemini.ts — NƠI DUY NHẤT gọi model sinh chữ trong luồng mới (Google AI Studio / Gemini).
  *
- * Cơ chế theo yêu cầu:
- *   - CASCADE model mạnh→yếu: thử model[0] trước; cạn quota (mọi key 429/403) mới rớt model kế.
- *   - XOAY 3 KEY: mỗi model thử lần lượt các key; điểm bắt đầu round-robin lệch mỗi lượt để
- *     tải rải đều 3 key, không dồn hết vào key #1.
- *   - Model "sàn" gemma-4-31b-it có quota ngày rất lớn → gần như không bao giờ cạn hẳn.
+ * Cơ chế:
+ *   - CASCADE model xếp theo QUOTA×TỐC-ĐỘ (KHÔNG theo số phiên bản): flash-lite RPD-cao/ổn định
+ *     dẫn đầu → flash cao-cấp RPD-20 làm tầng tràn → gemma-26b sàn RPD 14.4K. Xem chatModels().
+ *   - XOAY N KEY (đọc từ GEMINI_API_KEYS): mỗi model thử lần lượt các key; điểm bắt đầu round-robin
+ *     lệch mỗi lượt để rải tải đều, không dồn hết vào key #1. Mỗi model có quota RIÊNG per key.
+ *   - Fail-nhanh khi 5xx quá tải (retry 1 lần backoff ngắn rồi cascade) để bot chat trả nhanh.
  * Hết sạch lưới (mọi model × mọi key) → ném lỗi để webhook nuốt (bot im lượt đó). KHÔNG cache.
  */
 
@@ -22,25 +23,30 @@ export function geminiKeys(): string[] {
     .filter(Boolean);
 }
 
-/** Cascade mặc định (model NGOÀI, key TRONG): mạnh trước → nhẹ RPD-cao → gemma sàn RPD 14.4K.
- *  3.7-flash → 3.6-flash → 3.5-flash → 3.1-flash-lite → 3.5-flash-lite → flash-lite-latest → gemma-4-26b-a4b-it.
- *  Bỏ gemma-4-31b-it (thinking bắt buộc, chậm) — thay bằng 26b-a4b.
- *  gemini-3.7-flash: flash MỚI NHẤT (probe 19/08 trả 200 + text; thỉnh thoảng 503 quá tải → code retry
- *  rồi cascade xuống 3.6, an toàn). Các ID còn lại đã probe 200 (15/08).
- *  (3.7-flash-lite / 3.6-flash-lite / 3.1-pro / 3-flash / 2.5-flash-lite / 2.5-flash: API trả 404 → không dùng.) */
+/** Cascade mặc định (model NGOÀI, key TRONG). XẾP THEO QUOTA×TỐC-ĐỘ, KHÔNG theo số phiên bản.
+ *  Bài học 23/08: free-tier mỗi model có quota RIÊNG per key. Mấy flash "cao cấp" (3.7/3.6/3.5) chỉ
+ *  RPM 5 + RPD **20/ngày/key** và 3.7 hay 503 quá tải → nếu để ĐẦU cascade thì vừa quá 20 lượt là
+ *  mọi câu sau phải "đi bộ" xuống ladder (429/503 × nhiều key) ⇒ chậm 13-86s. Ngược lại flash-lite
+ *  RPM 15 + **RPD 500** (gấp 25×) và ổn định. Nên DẪN ĐẦU bằng flash-lite, xếp flash cao-cấp làm
+ *  tầng "chất lượng tràn" phía sau (hiếm chạm vì lite đã 500×số-key/ngày), gemma-26b làm sàn RPD 14.4K.
+ *  Mỗi model có quota tách biệt nên xếp nhiều tầng = CỘNG DỒN capacity. ID nào key chưa mở sẽ trả 404
+ *  → code bỏ qua TỨC THÌ (BadModelError, không retry), nên thêm 2.5-flash/2.5-flash-lite vô hại.
+ *  Muốn ưu tiên CHẤT LƯỢNG hơn tốc độ: đặt GEMINI_CHAT_MODELS="gemini-3.7-flash,gemini-3.6-flash,..." */
 export function chatModels(): string[] {
   const raw = process.env.GEMINI_CHAT_MODELS || process.env.GEMINI_CHAT_MODEL || "";
   const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
   return models.length
     ? models
     : [
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite",
-        "gemini-flash-lite-latest",
-        "gemma-4-26b-a4b-it",
+        "gemini-3.1-flash-lite", // RPM15 RPD500 — workhorse chính (nhanh, ít 503)
+        "gemini-3.5-flash-lite", // RPM15 RPD500 — workhorse #2
+        "gemini-flash-lite-latest", // alias lite mới nhất
+        "gemini-3.7-flash", // RPD20 — tầng chất-lượng tràn (chỉ chạm khi lite cạn/hỏng)
+        "gemini-3.6-flash", // RPD20
+        "gemini-3.5-flash", // RPD20
+        "gemini-2.5-flash", // RPD20 — thêm nếu key đã mở (404 thì bỏ qua tức thì)
+        "gemini-2.5-flash-lite", // RPD20
+        "gemma-4-26b-a4b-it", // RPD14.4K sàn (TPM16K → ~2 câu lớn/phút/key)
       ];
 }
 
@@ -51,12 +57,21 @@ export function fastModels(): string[] {
   const models = raw.split(",").map((m) => m.trim()).filter(Boolean);
   return models.length
     ? models
-    : ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemma-4-26b-a4b-it"];
+    : [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash-lite", // +RPM10 RPD20 nếu key mở (404 → bỏ qua)
+        "gemma-4-26b-a4b-it",
+      ];
 }
 
-const TIMEOUT_MS = 60_000;
-const MAX_TRANSIENT_ATTEMPTS = 3;
-const RETRY_BASE_MS = 1_000;
+// Bot chat FB THẬT phải trả nhanh: chờ 60s là khách bỏ đi. Hạ trần chờ + fail-nhanh khi 5xx quá tải:
+// thay vì retry 3 lần có backoff 1s→2s (tới ~15s/model rồi mới rớt — chính là nguồn 13-86s), chỉ thử
+// lại 1 lần với backoff ngắn 400ms rồi CASCADE sang key/model kế (key/project khác có thể không quá tải).
+const TIMEOUT_MS = 30_000;
+const MAX_TRANSIENT_ATTEMPTS = 2;
+const RETRY_BASE_MS = 400;
 /**
  * Reserve token cho "thinking". ĐO THẬT: gemini-3.6-flash & gemma-4-31b là thinking-model BẮT BUỘC
  * (không tắt được — gửi thinkingConfig.thinkingBudget:0 bị 400), reasoning ăn CHUNG maxOutputTokens
