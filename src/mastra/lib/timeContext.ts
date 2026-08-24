@@ -110,6 +110,31 @@ export function stampFor(created: Date, now: VNParts): string {
   return p.dayKey === now.dayKey ? p.hhmm : `${p.hhmm} ${p.ddmm}`;
 }
 
+/** true nếu nội dung trong ngoặc đúng dạng dấu giờ: chỉ số/':'/'/'/khoảng trắng và có ít nhất 1 ':'. */
+function looksLikeStamp(inner: string): boolean {
+  if (!inner.includes(":")) return false;
+  for (const ch of inner) {
+    if (!(ch >= "0" && ch <= "9") && ch !== ":" && ch !== "/" && ch !== " ") return false;
+  }
+  return true;
+}
+
+/**
+ * Cắt dấu giờ "(HH:MM)" / "(HH:MM DD/MM)" mà model lỡ chép sang ĐẦU câu trả lời
+ * (do lịch sử có tiền tố giờ nên model bắt chước). Parse kỹ thuật thuần, không đụng nghiệp vụ:
+ * chỉ bỏ khi ngoặc mở đầu đúng dạng giờ. Lặp phòng khi model chép nhiều dấu liền nhau.
+ */
+export function stripLeadingStamp(reply: string): string {
+  let s = reply.trimStart();
+  while (s.startsWith("(")) {
+    const close = s.indexOf(")");
+    if (close < 0) break;
+    if (!looksLikeStamp(s.slice(1, close))) break;
+    s = s.slice(close + 1).trimStart();
+  }
+  return s;
+}
+
 /** Khối bối cảnh thời gian + kíp trực để chèn vào system prompt (giờ/ca/nghỉ đêm theo config admin). */
 export function buildTimeBlock(now: VNParts = vnParts(), config: BotRuntimeConfig = DEFAULT_CONFIG): string {
   const shift = shiftFor(now.hour, config.shifts);

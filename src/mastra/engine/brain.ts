@@ -13,7 +13,7 @@ import { retrieveForTurn } from "../rag/retrieve";
 import { loadRecent, appendMessage } from "../lib/history";
 import { loadState, saveState } from "../lib/convState";
 import { FAMI_SYSTEM } from "../prompts/fami";
-import { vnParts, buildTimeBlock, stampFor } from "../lib/timeContext";
+import { vnParts, buildTimeBlock, stampFor, stripLeadingStamp } from "../lib/timeContext";
 import { loadConfig } from "../lib/settings";
 import { classify } from "./classifier";
 import { advanceStage, stageDirective } from "./stages";
@@ -97,11 +97,13 @@ async function runTurnScenario(input: TurnInput): Promise<TurnResult> {
     .filter(Boolean)
     .join("\n\n");
 
+  // Chỉ stamp giờ lên tin của KHÁCH (để model hiểu mốc thời gian). Tin của bot để nguyên —
+  // nếu stamp cả tin bot thì model bắt chước và tự chèn "(HH:MM)" vào đầu câu trả lời (giả).
   const stamped: ChatMsg[] = history.map(
     (t) =>
       ({
         role: t.role,
-        content: t.createdAt ? `(${stampFor(new Date(t.createdAt), now)}) ${t.content}` : t.content,
+        content: t.role === "user" && t.createdAt ? `(${stampFor(new Date(t.createdAt), now)}) ${t.content}` : t.content,
       }) as ChatMsg,
   );
   const userMsg: ChatMsg = { role: "user", content: `(${now.hhmm}) ${message}` };
@@ -124,7 +126,7 @@ async function runTurnScenario(input: TurnInput): Promise<TurnResult> {
     { facts, stage, cls },
     (corrective) => gen(`${systemContent}\n\n⚠ SỬA LẠI CÂU TRẢ LỜI: ${corrective}`),
   );
-  reply = reply.trim();
+  reply = stripLeadingStamp(reply).trim();
   if (!reply) throw new Error("reply rỗng sau compliance");
 
   await appendMessage(senderId, "user", message);
@@ -169,13 +171,13 @@ async function runTurnLegacy(input: TurnInput): Promise<{ reply: string }> {
       (t) =>
         ({
           role: t.role,
-          content: t.createdAt ? `(${stampFor(new Date(t.createdAt), now)}) ${t.content}` : t.content,
+          content: t.role === "user" && t.createdAt ? `(${stampFor(new Date(t.createdAt), now)}) ${t.content}` : t.content,
         }) as ChatMsg,
     ),
     { role: "user", content: `(${now.hhmm}) ${message}` },
   ];
-  const reply = (
-    await generateReply(messages, { temperature: 0.6, maxTokens: 700, abortSignal, purpose: "Trả lời khách" })
+  const reply = stripLeadingStamp(
+    (await generateReply(messages, { temperature: 0.6, maxTokens: 700, abortSignal, purpose: "Trả lời khách" })).trim(),
   ).trim();
   if (!reply) throw new Error("model trả rỗng");
   await appendMessage(senderId, "user", message);
