@@ -44,7 +44,7 @@ export const STAGES: Record<StageCode, StageDef> = {
   S5: {
     code: "S5",
     name: "Chăm sóc & nhắc lịch",
-    goal: "Xác nhận lịch hẹn; hẹn sẽ nhắc trước giờ 2-4 tiếng; hướng dẫn chỗ gửi xe, trang phục cần mang, tên nhân viên đón ở lễ tân.",
+    goal: "Xác nhận lịch hẹn; hẹn sẽ nhắc trước giờ 2-4 tiếng; hướng dẫn chỗ gửi xe, trang phục cần mang.",
     advanceWhen: "—",
   },
 };

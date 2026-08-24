@@ -1,15 +1,15 @@
 /**
- * smokeTimeShift.ts — Smoke REPLY THẬT cho nâng cấp: bối cảnh thời gian + kíp trực + giục ngủ >23h.
+ * smokeTimeShift.ts — Smoke REPLY THẬT cho nâng cấp: bối cảnh thời gian + giục ngủ >23h.
  *
  * KHÔNG đụng prod DB: dựng lịch sử tổng hợp (đúng đoạn chat lỗi trong ảnh) + docBlock="" rồi ghép
- * messages Y HỆT brain.ts và gọi generateReply thật. Ép "now" = 23:17 14/08 (ca đêm = Liên, late-night)
- * để kiểm: (1) không nhầm "hôm qua"; (2) hỏi tên → "Liên"; (3) sau 23h giục đi ngủ. Chạy vài lần vì
+ * messages Y HỆT brain.ts và gọi generateReply thật. Ép "now" = 23:17 14/08 (late-night)
+ * để kiểm: (1) không nhầm "hôm qua"; (2) sau 23h giục đi ngủ. Chạy vài lần vì
  * reply ngẫu nhiên. Có phần unit-check timeContext trước.
  */
 import "dotenv/config";
 import { generateReply, type ChatMsg } from "../llm/gemini";
 import { FAMI_SYSTEM } from "../prompts/fami";
-import { vnParts, buildTimeBlock, stampFor, shiftFor, isLateNight } from "../lib/timeContext";
+import { vnParts, buildTimeBlock, stampFor, isLateNight } from "../lib/timeContext";
 
 // ── Unit: timeContext ──────────────────────────────────────────────
 function assert(cond: boolean, msg: string) {
@@ -17,11 +17,6 @@ function assert(cond: boolean, msg: string) {
   else console.log("  ✓", msg);
 }
 console.log("== UNIT timeContext ==");
-assert(shiftFor(7).name === "Trang", "07h → Trang (ca sáng)");
-assert(shiftFor(12).name === "Xuân", "12h → Xuân (ca trưa)");
-assert(shiftFor(15).name === "Thảo", "15h → Thảo (ca chiều)");
-assert(shiftFor(20).name === "Vân", "20h → Vân (ca tối)");
-assert(shiftFor(23).name === "Liên" && shiftFor(2).name === "Liên", "23h & 02h → Liên (ca đêm)");
 assert(isLateNight(23) && isLateNight(1) && !isLateNight(14), "isLateNight: 23h,1h = true; 14h = false");
 // 23:17 VN 14/08/2026 = 16:17Z
 const NOW = vnParts(new Date("2026-08-14T16:17:00Z"));
@@ -53,12 +48,11 @@ function buildMessages(userMsg: string): ChatMsg[] {
 
 const CASES = [
   { name: "C1 khen-xinh (không được nói 'hôm qua')", user: "Chắc ở ngoài xinh lắm nhỉ ?" },
-  { name: "C2 hỏi tên (phải là Liên)", user: "Quên mất. Em tên gì ?" },
-  { name: "C3 vẫn muốn tư vấn lúc khuya (phải giục ngủ)", user: "Giờ tư vấn tiếp cho anh gói bơi được không?" },
+  { name: "C2 vẫn muốn tư vấn lúc khuya (phải giục ngủ)", user: "Giờ tư vấn tiếp cho anh gói bơi được không?" },
 ];
 
 async function main() {
-  console.log("\n== REPLY THẬT (now=23:17 14/08, ca đêm Liên) ==");
+  console.log("\n== REPLY THẬT (now=23:17 14/08, late-night) ==");
   for (const c of CASES) {
     console.log(`\n--- ${c.name} ---\nKhách: ${c.user}`);
     for (let i = 1; i <= 2; i++) {

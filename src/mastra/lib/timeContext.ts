@@ -1,15 +1,15 @@
 /**
- * lib/timeContext.ts — Bối cảnh THỜI GIAN THẬT + KÍP TRỰC cho tư vấn viên.
+ * lib/timeContext.ts — Bối cảnh THỜI GIAN THẬT cho tư vấn viên.
  *
  * Vì sao cần: model không tự biết "bây giờ là mấy giờ". Trước đây lịch sử đưa vào không có mốc
  * thời gian → bot nhầm "tối nay" thành "hôm qua" (case 23:08 ngày 14/08 bot lại nói "như hôm qua").
- * File này tính giờ Việt Nam thật, chọn tên nhân viên đang trực theo ca, và dựng khối bối cảnh để
- * chèn vào system prompt mỗi lượt. KHÔNG cache — tính lại mỗi request (giờ luôn tươi).
+ * File này tính giờ Việt Nam thật và dựng khối bối cảnh để chèn vào system prompt mỗi lượt.
+ * KHÔNG cache — tính lại mỗi request (giờ luôn tươi).
  *
  * Toàn bộ mốc giờ quy về Asia/Ho_Chi_Minh (server có thể ở TZ bất kỳ).
  */
 
-import { DEFAULT_CONFIG, type BotRuntimeConfig, type ShiftCfg } from "./settings";
+import { DEFAULT_CONFIG, type BotRuntimeConfig } from "./settings";
 
 const VN_TZ = "Asia/Ho_Chi_Minh";
 
@@ -72,27 +72,10 @@ export function vnParts(d: Date = new Date()): VNParts {
   };
 }
 
-export interface Shift {
-  name: string; // tên nhân viên đang trực
-  label: string; // "ca đêm" — mô tả ca
-}
-
 /** Giờ thuộc khung [start,end)? Hỗ trợ khung QUA ĐÊM (start > end, VD 22 → 6). start==end → rỗng. */
 export function inHourRange(hour: number, start: number, end: number): boolean {
   if (start === end) return false;
   return start < end ? hour >= start && hour < end : hour >= start || hour < end;
-}
-
-/**
- * Kíp trực theo giờ VN — chọn ca đầu tiên khớp giờ hiện tại. Tên/giờ từng ca do admin cấu hình
- * (mặc định: Trang/Xuân/Thảo/Vân/Liên). Cùng khung giờ luôn ra cùng người → nhất quán trong 1 buổi
- * chat. Không ca nào khớp (admin cấu hình lệch/lỗ hổng) → lấy ca đầu danh sách làm lưới an toàn.
- */
-export function shiftFor(hour: number, shifts: ShiftCfg[] = DEFAULT_CONFIG.shifts): Shift {
-  const list = shifts.length ? shifts : DEFAULT_CONFIG.shifts;
-  const hit = list.find((s) => inHourRange(hour, s.start, s.end));
-  const s = hit ?? list[0];
-  return { name: s.name, label: s.label };
 }
 
 /** Trong khung "nghỉ đêm" → giục khách đi ngủ, không cố bán thêm. Hỗ trợ khung qua đêm. */
@@ -135,13 +118,11 @@ export function stripLeadingStamp(reply: string): string {
   return s;
 }
 
-/** Khối bối cảnh thời gian + kíp trực để chèn vào system prompt (giờ/ca/nghỉ đêm theo config admin). */
+/** Khối bối cảnh thời gian để chèn vào system prompt (giờ/nghỉ đêm theo config admin). */
 export function buildTimeBlock(now: VNParts = vnParts(), config: BotRuntimeConfig = DEFAULT_CONFIG): string {
-  const shift = shiftFor(now.hour, config.shifts);
   const lines = [
-    "[BỐI CẢNH THỜI GIAN & KÍP TRỰC — SỰ THẬT, đọc kỹ trước khi trả lời]",
+    "[BỐI CẢNH THỜI GIAN — SỰ THẬT, đọc kỹ trước khi trả lời]",
     `- Bây giờ là ${now.weekdayVi}, ${now.hhmm} ngày ${now.ddmmyyyy} (giờ Việt Nam).`,
-    `- Em đang trực ${shift.label}, tên em là ${shift.name}. Nếu khách hỏi tên thì xưng đúng tên "${shift.name}" một cách tự nhiên, không né tránh.`,
     "- Mỗi tin trong lịch sử bên dưới có dấu (HH:MM) ở đầu là GIỜ GỬI THẬT. Dựa vào đó để hiểu đúng mốc thời gian: những gì vừa trao đổi trong buổi chat này là của HÔM NAY — TUYỆT ĐỐI đừng gọi nhầm thành \"hôm qua\"/\"mấy hôm trước\". Chỉ nói \"hôm qua\" khi dấu thời gian thật sự ở ngày trước đó.",
     "- Dấu (HH:MM) chỉ là ghi chú hệ thống — KHÔNG được lặp lại trong câu trả lời của em.",
   ];

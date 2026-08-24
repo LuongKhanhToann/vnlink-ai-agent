@@ -213,7 +213,7 @@ adminWebhook.post("/admin/api/media/delete", async (c) => {
   return c.json({ ok });
 });
 
-// ── 4) Cấu hình runtime (giờ nghỉ đêm / kíp trực / nhịp gõ tin) ──
+// ── 4) Cấu hình runtime (giờ nghỉ đêm / nhịp gõ tin) ──
 adminWebhook.get("/admin/api/config", async (c) => {
   if (!isAuthed(c)) return c.json({ error: "unauthorized" }, 401);
   try {
@@ -383,15 +383,6 @@ input:checked + .slider:before{transform:translateX(20px)}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 .cfg-row{display:flex;gap:12px;flex-wrap:wrap}
 .cfg-row > div{flex:1;min-width:120px}
-.shift-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.shift-row .input{margin-top:0}
-.shift-row .sh-name{max-width:130px}
-.shift-row .sh-label{max-width:160px}
-.shift-row .sh-start,.shift-row .sh-end{max-width:78px}
-.shift-hd{display:flex;gap:8px;margin-bottom:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
-.shift-hd span:nth-child(1){min-width:130px}
-.shift-hd span:nth-child(2){min-width:160px}
-.shift-hd span:nth-child(3),.shift-hd span:nth-child(4){min-width:78px}
 @media (max-width:640px){
   .wrap{padding:20px 12px}
   .master{flex-wrap:wrap}
@@ -483,7 +474,7 @@ input:checked + .slider:before{transform:translateX(20px)}
   </div>
 
   <div id="view-config" class="hidden">
-    <p class="subtitle">Cấu hình bối cảnh "người thật" của bot: giờ nghỉ đêm, kíp trực (tên nhân viên theo ca) và nhịp gõ giữa các tin. Lưu xong áp dụng ngay ở tin kế tiếp — không cần cài lại.</p>
+    <p class="subtitle">Cấu hình bối cảnh "người thật" của bot: giờ nghỉ đêm và nhịp gõ giữa các tin. Lưu xong áp dụng ngay ở tin kế tiếp — không cần cài lại.</p>
 
     <div class="kcard">
       <div class="khead"><b>Giờ nghỉ đêm</b></div>
@@ -501,14 +492,6 @@ input:checked + .slider:before{transform:translateX(20px)}
         <div><label class="plbl">Tối thiểu (giây)</label><input id="cfg-delay-min" type="number" min="0" max="120" step="0.5" class="input"/></div>
         <div><label class="plbl">Tối đa (giây)</label><input id="cfg-delay-max" type="number" min="0" max="120" step="0.5" class="input"/></div>
       </div>
-    </div>
-
-    <div class="kcard">
-      <div class="khead"><b>Kíp trực — tên nhân viên theo ca</b></div>
-      <p class="note" style="margin-top:0">Theo giờ Việt Nam, bot xưng tên nhân viên đang trực ca đó (nếu khách hỏi tên). Ca qua đêm để giờ bắt đầu lớn hơn giờ kết thúc (VD 22 → 6). Các ca nên phủ kín 24 giờ và không chồng lấn.</p>
-      <div class="shift-hd"><span>Tên</span><span>Tên ca</span><span>Từ giờ</span><span>Đến giờ</span><span></span></div>
-      <div id="shiftRows"></div>
-      <div class="kacts"><button class="btn btn-sm" onclick="addShift()">+ Thêm ca</button></div>
     </div>
 
     <div class="kacts"><button id="cfg-save-btn" class="btn btn-primary kbtn" onclick="saveConfigTab()">Lưu cấu hình</button></div>
@@ -951,9 +934,8 @@ async function deleteItem(t, btn){
 }
 
 // ── Toast + hộp xác nhận ──
-// ── Cấu hình (giờ nghỉ đêm / kíp trực / nhịp gõ) ──
+// ── Cấu hình (giờ nghỉ đêm / nhịp gõ) ──
 async function loadConfigTab(){
-  document.getElementById("shiftRows").innerHTML = '<p class="muted">Đang tải…</p>';
   try {
     var r = await fetch("/admin/api/config",{cache:"no-store"});
     if(handle401(r)) return;
@@ -969,64 +951,15 @@ function renderConfig(){
   setVal("cfg-ln-end", CONFIG.lateNightEnd);
   setVal("cfg-delay-min", (Number(CONFIG.bubbleDelayMinMs||0)/1000));
   setVal("cfg-delay-max", (Number(CONFIG.bubbleDelayMaxMs||0)/1000));
-  renderShifts();
-}
-
-function renderShifts(){
-  var list = CONFIG.shifts || [];
-  var html = list.map(function(s,i){
-    return '<div class="shift-row" data-i="'+i+'">'
-      + '<input class="input sh-name" placeholder="Tên" value="'+esc(s.name)+'"/>'
-      + '<input class="input sh-label" placeholder="ca sáng" value="'+esc(s.label)+'"/>'
-      + '<input class="input sh-start" type="number" min="0" max="23" value="'+Number(s.start)+'"/>'
-      + '<input class="input sh-end" type="number" min="0" max="23" value="'+Number(s.end)+'"/>'
-      + '<button class="del" title="Xoá ca" onclick="removeShift('+i+')">✕</button>'
-      + '</div>';
-  }).join("");
-  document.getElementById("shiftRows").innerHTML = html || '<p class="empty">Chưa có ca nào — bấm "Thêm ca".</p>';
-}
-
-// Đọc lại giá trị đang gõ trên DOM vào CONFIG.shifts (giữ chỉnh sửa chưa lưu khi thêm/xoá dòng).
-function readShiftsFromDom(){
-  var out = [];
-  var rows = document.querySelectorAll("#shiftRows .shift-row");
-  for(var k=0;k<rows.length;k++){
-    var row = rows[k];
-    out.push({
-      name: row.querySelector(".sh-name").value.trim(),
-      label: row.querySelector(".sh-label").value.trim(),
-      start: parseInt(row.querySelector(".sh-start").value,10) || 0,
-      end: parseInt(row.querySelector(".sh-end").value,10) || 0
-    });
-  }
-  CONFIG.shifts = out;
-}
-
-function addShift(){
-  readShiftsFromDom();
-  if(!CONFIG.shifts) CONFIG.shifts = [];
-  CONFIG.shifts.push({ name:"", label:"ca trực", start:0, end:0 });
-  renderShifts();
-}
-
-function removeShift(i){
-  readShiftsFromDom();
-  CONFIG.shifts.splice(i,1);
-  renderShifts();
 }
 
 async function saveConfigTab(){
-  readShiftsFromDom();
   var payload = {
     lateNightStart: parseInt(val("cfg-ln-start"),10),
     lateNightEnd: parseInt(val("cfg-ln-end"),10),
     bubbleDelayMinMs: Math.round(parseFloat(val("cfg-delay-min"))*1000),
-    bubbleDelayMaxMs: Math.round(parseFloat(val("cfg-delay-max"))*1000),
-    shifts: CONFIG.shifts || []
+    bubbleDelayMaxMs: Math.round(parseFloat(val("cfg-delay-max"))*1000)
   };
-  if((payload.shifts||[]).some(function(s){ return !s.name; })){
-    toast("Có ca chưa nhập tên — điền tên hoặc xoá ca đó.","err"); return;
-  }
   var btn = document.getElementById("cfg-save-btn"); btn.disabled = true;
   try {
     var r = await fetch("/admin/api/config/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
